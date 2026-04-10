@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>D7FR Crew Scheduler Trial</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">District 7 Fire Rescue</p>
+          <h1>D7FR Crew Scheduler</h1>
+          <p class="lede">
+            Lightweight trial build for shift planning, trade approvals, and overtime coverage.
+          </p>
+        </div>
+
+        <section class="panel auth-panel">
+          <div class="panel-heading">
+            <h2>Sign In</h2>
+            <span id="auth-role-badge" class="badge badge-soft">Department access</span>
+          </div>
+          <div class="auth-grid">
+            <label>
+              Role
+              <select id="role-select">
+                <option value="employee">Employee</option>
+                <option value="supervisor">Supervisor</option>
+              </select>
+            </label>
+            <label>
+              User
+              <select id="user-select"></select>
+            </label>
+            <label>
+              PIN
+              <input id="pin-input" type="password" maxlength="4" inputmode="numeric" placeholder="4 digits" />
+            </label>
+          </div>
+          <button id="sign-in-btn" class="button button-primary">Sign In</button>
+          <p id="auth-message" class="helper-text">
+            Trial access uses simple PIN verification. Supervisor login unlocks schedule editing and approvals.
+          </p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>What’s Included</h2>
+          </div>
+          <ul class="feature-list">
+            <li>Daily, weekly, and monthly views</li>
+            <li>48/96 AA/BB/CC rotation engine</li>
+            <li>Configurable staffing and medic rules</li>
+            <li>Unit visibility controls for reserve apparatus</li>
+            <li>Shift trade and overtime approval workflows</li>
+            <li>Publish vs draft schedule modes</li>
+            <li>Audit log, printable roster, and PDF-friendly layout</li>
+            <li>Email notices now with SMS-ready placeholders later</li>
+          </ul>
+        </section>
+      </aside>
+
+      <main id="main-content" class="main-content">
+        <section id="access-gate" class="panel access-gate">
+          <div>
+            <p class="eyebrow">Department-only access</p>
+            <h2>Sign in to view and manage the live schedule</h2>
+            <p class="helper-text">
+              The trial is configured for logged-in department members now, with a future option to open the schedule publicly later.
+            </p>
+          </div>
+        </section>
+
+        <section class="hero-card">
+          <div>
+            <p class="eyebrow">Internet-ready trial</p>
+            <h2>Responsive scheduling for phones, tablets, and desktops</h2>
+            <p>
+              Built for logged-in department members now, with an upgrade path to public schedule publishing later.
+            </p>
+          </div>
+          <div class="hero-actions">
+            <button id="print-btn" class="button button-secondary">Print / Save PDF</button>
+            <button id="notify-btn" class="button button-secondary">Send Daily Email Digest</button>
+          </div>
+        </section>
+
+        <section class="toolbar panel">
+          <div class="toolbar-row">
+            <div class="date-controls">
+              <button id="prev-btn" class="icon-button" aria-label="Previous range">‹</button>
+              <label>
+                Anchor Date
+                <input id="date-input" type="date" />
+              </label>
+              <button id="today-btn" class="button button-secondary">Today</button>
+              <button id="next-btn" class="icon-button" aria-label="Next range">›</button>
+            </div>
+
+            <div class="view-switch">
+              <button data-view="day" class="view-button is-active">Day</button>
+              <button data-view="week" class="view-button">Week</button>
+              <button data-view="month" class="view-button">Month</button>
+            </div>
+
+            <div class="status-group">
+              <label>
+                Schedule Status
+                <select id="schedule-status">
+                  <option value="draft">Draft</option>
+                  <option value="published">Published</option>
+                </select>
+              </label>
+              <button id="publish-btn" class="button button-primary">Publish Changes</button>
+            </div>
+          </div>
+
+          <div class="toolbar-row toolbar-row-secondary">
+            <div class="summary-grid" id="summary-grid"></div>
+            <div class="alert-strip" id="alert-strip"></div>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <div class="primary-column">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2 id="schedule-title">Schedule View</h2>
+                  <p id="schedule-subtitle" class="helper-text">Crew assignments by unit and day</p>
+                </div>
+                <button id="supervisor-save-btn" class="button button-secondary">Save Supervisor Edits</button>
+              </div>
+              <div class="schedule-container" id="schedule-container"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Trades And Overtime</h2>
+                  <p class="helper-text">
+                    Employees can request trades and volunteer for open shifts. Supervisors control final approval.
+                  </p>
+                </div>
+              </div>
+
+              <div class="workflow-grid">
+                <article class="workflow-card">
+                  <h3>Submit Trade</h3>
+                  <div class="workflow-form">
+                    <label>
+                      Your Shift
+                      <select id="trade-owner"></select>
+                    </label>
+                    <label>
+                      Swap With
+                      <select id="trade-partner"></select>
+                    </label>
+                    <label>
+                      Trade Date
+                      <input id="trade-date" type="date" />
+                    </label>
+                    <label>
+                      Notes
+                      <textarea id="trade-notes" rows="3" placeholder="Reason, truck preference, extra context"></textarea>
+                    </label>
+                  </div>
+                  <button id="submit-trade-btn" class="button button-primary">Create Trade Request</button>
+                </article>
+
+                <article class="workflow-card">
+                  <h3>Post Open Shift</h3>
+                  <div class="workflow-form">
+                    <label>
+                      Unit
+                      <select id="open-unit"></select>
+                    </label>
+                    <label>
+                      Open Shift Date
+                      <input id="open-date" type="date" />
+                    </label>
+                    <label>
+                      Qualification Needed
+                      <select id="open-qualification">
+                        <option value="paramedic">Paramedic</option>
+                        <option value="emt">EMT</option>
+                        <option value="engineer">Engineer</option>
+                        <option value="officer">Officer</option>
+                      </select>
+                    </label>
+                    <label>
+                      Report Time
+                      <input id="open-report-time" type="time" value="06:30" />
+                    </label>
+                  </div>
+                  <button id="post-open-btn" class="button button-primary">Post Overtime Opportunity</button>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <div class="secondary-column">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>CSV Import</h2>
+                  <p class="helper-text">Supervisor-only import for employees, units, and credential mappings.</p>
+                </div>
+              </div>
+              <div class="workflow-form">
+                <label>
+                  Import Type
+                  <select id="import-type">
+                    <option value="employees">Employees</option>
+                    <option value="units">Units</option>
+                  </select>
+                </label>
+                <label>
+                  CSV File
+                  <input id="import-file" type="file" accept=".csv,text/csv" />
+                </label>
+                <div class="button-row">
+                  <button id="preview-import-btn" class="button button-primary">Preview Import</button>
+                  <button id="apply-import-btn" class="button button-secondary">Apply Import</button>
+                </div>
+                <div class="button-row">
+                  <button id="download-employee-template-btn" class="button button-secondary">Employee Template</button>
+                  <button id="download-unit-template-btn" class="button button-secondary">Unit Template</button>
+                </div>
+                <p id="import-message" class="helper-text">
+                  CSV is supported first because it is faster, lighter, and easier to validate than XLSX.
+                </p>
+              </div>
+              <div id="import-preview" class="stack-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Unit Controls</h2>
+                  <p class="helper-text">Hide reserve or out-of-service units to reduce clutter.</p>
+                </div>
+              </div>
+              <div id="unit-toggle-list" class="toggle-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Notifications</h2>
+                  <p class="helper-text">Email enabled in trial. SMS hooks are prepared for later.</p>
+                </div>
+              </div>
+              <div id="notification-center" class="stack-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Approval Queue</h2>
+                  <p class="helper-text">Supervisor actions and employee status tracking.</p>
+                </div>
+              </div>
+              <div id="approval-queue" class="stack-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Audit Log</h2>
+                  <p class="helper-text">Every publish, trade, and staffing change is recorded.</p>
+                </div>
+              </div>
+              <div id="audit-log" class="stack-list"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
