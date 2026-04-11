@@ -389,9 +389,9 @@ function populateOpenShiftSelects() {
 
 function renderSummary() {
   const range = getDateRange();
-  const visibleUnits = visibleUnits();
+  const visibleUnitList = visibleUnits();
   const activeShift = getShiftForDate(state.currentDate);
-  const offUnits = state.units.length - visibleUnits.length;
+  const offUnits = state.units.length - visibleUnitList.length;
   const uncovered = range.flatMap((date) => getStaffingAlerts(date)).filter((alert) => alert.level === "danger").length;
 
   dom["summary-grid"].innerHTML = `
@@ -402,7 +402,7 @@ function renderSummary() {
     </div>
     <div class="summary-card">
       <span>Visible Units</span>
-      <strong>${visibleUnits.length}</strong>
+      <strong>${visibleUnitList.length}</strong>
       <small>${offUnits} hidden / reserve</small>
     </div>
     <div class="summary-card">
