@@ -11,10 +11,6 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
-    <script>
-      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-    </script>
-    <script defer src="/_vercel/insights/script.js"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -92,6 +88,7 @@
             </p>
           </div>
           <div class="hero-actions">
+            <div id="storage-status" class="status-pill">Loading data source…</div>
             <button id="print-btn" class="button button-secondary">Print / Save PDF</button>
             <button id="notify-btn" class="button button-secondary">Send Daily Email Digest</button>
           </div>
@@ -290,6 +287,7 @@
       </main>
     </div>
 
+    <script src="./config.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

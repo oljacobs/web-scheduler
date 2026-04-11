@@ -2,6 +2,11 @@
 
 This is a lightweight static prototype for a fire department scheduling app. It is designed to run free during trial testing and can be deployed to a subdomain such as `schedule.d7fr.org`.
 
+It now supports two persistence modes:
+
+- Browser fallback with `localStorage`
+- Shared remote persistence through Supabase using a single JSON state record
+
 ## Included In This Trial
 
 - Daily, weekly, and monthly schedule views
@@ -17,12 +22,15 @@ This is a lightweight static prototype for a fire department scheduling app. It 
 - Notification center with email-first workflow and SMS-ready placeholder
 - Audit log
 - Print and PDF-friendly output
+- Shared persistence through Supabase when configured
 
 ## Files
 
 - `index.html`: app structure
 - `styles.css`: responsive navy-themed design
 - `app.js`: sample data and scheduling logic
+- `config.js`: place your Supabase URL and anon key here for deployment
+- `supabase-schema.sql`: SQL to create the persistence table and policies
 
 ## Trial Login Notes
 
@@ -37,6 +45,35 @@ Because this is a static site, you can test it by opening `index.html` directly 
 1. Open Terminal in this folder.
 2. Run `python3 -m http.server 8080`
 3. Visit `http://localhost:8080`
+
+## Supabase Setup
+
+This version can persist data across refreshes and devices when connected to Supabase.
+
+### 1. Create the table
+
+In the Supabase SQL editor, run the contents of [supabase-schema.sql](/Users/orenj/Documents/New%20project/supabase-schema.sql).
+
+### 2. Add your project values
+
+Open [config.js](/Users/orenj/Documents/New%20project/config.js) and replace:
+
+- `supabaseUrl`
+- `supabaseAnonKey`
+
+with your real project values.
+
+### 3. Deploy to Vercel
+
+Re-deploy the updated files to Vercel after saving `config.js`.
+
+### 4. Verify the status pill
+
+At the top of the app you should see:
+
+- `Connected to Supabase`
+
+If Supabase is not reachable, the app will fall back to browser-only storage.
 
 ## CSV Import
 
@@ -80,7 +117,7 @@ Example required cert format:
 - Warnings allow import but should be reviewed
 - Matching `id` values update existing records
 - New `id` values create new records
-- Schedule assignments are regenerated after import
+- Schedule assignments are preserved where possible and missing dates or units are filled in
 
 ## Easiest Free Deployment Path
 
@@ -115,11 +152,11 @@ This is also free for a simple trial and easy to connect to GitHub.
 
 When the trial proves useful, the next upgrade should be:
 
-1. Move sample data into a real database
+1. Replace shared JSON persistence with normalized database tables
 2. Replace PIN login with real department accounts
 3. Add actual email sending
 4. Add optional SMS notifications
-5. Add persistent schedule editing and approvals
+5. Add richer schedule editing and approvals
 6. Add a proper employee directory and credentials admin screen
 
 ## Production Reality Check

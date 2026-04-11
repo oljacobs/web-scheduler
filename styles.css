@@ -157,6 +157,7 @@ p {
   gap: 12px;
   flex-wrap: wrap;
   justify-content: end;
+  align-items: center;
 }
 
 .panel-heading {
@@ -208,6 +209,58 @@ p {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(87, 214, 149, 0.12);
+  color: #c9f6dc;
+  border: 1px solid rgba(87, 214, 149, 0.22);
+  font-weight: 700;
+}
+
+.status-pill.is-warning {
+  background: rgba(255, 209, 102, 0.14);
+  color: #ffe7ae;
+  border-color: rgba(255, 209, 102, 0.28);
+}
+
+.status-pill.is-danger {
+  background: rgba(255, 111, 125, 0.14);
+  color: #ffd4d8;
+  border-color: rgba(255, 111, 125, 0.28);
+}
+
+.status-box {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(141, 175, 214, 0.12);
+  line-height: 1.45;
+}
+
+.status-box-error {
+  background: rgba(255, 111, 125, 0.12);
+  border-color: rgba(255, 111, 125, 0.28);
+  color: #ffd4d8;
+}
+
+.status-box-warning {
+  background: rgba(255, 209, 102, 0.12);
+  border-color: rgba(255, 209, 102, 0.28);
+  color: #ffe7ae;
+}
+
+.status-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.status-list li + li {
+  margin-top: 6px;
 }
 
 .feature-list {
@@ -548,6 +601,12 @@ textarea:disabled {
 
 .queue-item-actions .button {
   padding: 10px 12px;
+}
+
+.button-small {
+  padding: 8px 10px;
+  min-height: auto;
+  font-size: 0.85rem;
 }
 
 .queue-item time {

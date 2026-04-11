@@ -7,40 +7,27 @@ const state = {
   currentDate: "2026-04-10",
   scheduleStatus: "draft",
   smsReady: true,
-  units: [
-    { id: "E1", name: "Engine 1", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "E2", name: "Engine 2", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "BB", visible: true },
-    { id: "E3", name: "Engine 3", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "CC", visible: true },
-    { id: "L1", name: "Ladder 1", type: "ladder", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "L2", name: "Ladder 2", type: "ladder", minStaff: 4, requiredCerts: ["paramedic"], shift: "BB", visible: true },
-    { id: "M1", name: "Medic 1", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "M2", name: "Medic 2", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "BB", visible: true },
-    { id: "M3", name: "Medic 3", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "CC", visible: true },
-    { id: "BC1", name: "Battalion 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "AA", visible: true },
-    { id: "BC2", name: "Battalion 2", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "BB", visible: true },
-    { id: "T1", name: "Tender 1", type: "specialty", minStaff: 2, requiredCerts: ["emt"], shift: "CC", visible: true },
-    { id: "R1", name: "Rescue 1", type: "specialty", minStaff: 3, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "HM1", name: "Hazmat 1", type: "specialty", minStaff: 3, requiredCerts: ["engineer"], shift: "BB", visible: true },
-    { id: "U14", name: "Utility 14", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "CC", visible: false },
-    { id: "U15", name: "Utility 15", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "AA", visible: false },
-    { id: "R2", name: "Rescue 2", type: "reserve", minStaff: 3, requiredCerts: ["paramedic"], shift: "BB", visible: false },
-    { id: "M4", name: "Medic 4", type: "reserve", minStaff: 2, requiredCerts: ["paramedic"], shift: "CC", visible: false },
-    { id: "B1", name: "Brush 1", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "AA", visible: false },
-    { id: "B2", name: "Brush 2", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "BB", visible: false },
-    { id: "L3", name: "Ladder 3", type: "reserve", minStaff: 4, requiredCerts: ["paramedic"], shift: "CC", visible: false },
-    { id: "E4", name: "Engine 4", type: "reserve", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: false },
-    { id: "SV1", name: "Safety 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "CC", visible: true },
-  ],
+  units: [],
   employees: [],
   trades: [],
   overtimePosts: [],
   notifications: [],
   auditLog: [],
   importPreview: null,
+  assignments: {},
+  persistence: {
+    backend: "browser-memory",
+    status: "Loading data source…",
+    hasRemote: false,
+    isSaving: false,
+    lastSavedAt: null,
+  },
 };
 
 const baseDate = "2026-04-10";
 const rotationPattern = ["AA", "AA", "off", "off", "off", "off", "BB", "BB", "off", "off", "off", "off", "CC", "CC", "off", "off", "off", "off"];
+const LOCAL_STORAGE_KEY = "d7fr-scheduler-state-v2";
+const REMOTE_STATE_ID = "primary";
 
 const firstNames = [
   "Alex", "Jordan", "Taylor", "Morgan", "Casey", "Dakota", "Avery", "Parker", "Riley", "Cameron",
@@ -55,12 +42,10 @@ const employeeRoles = ["paramedic", "emt", "engineer", "officer"];
 
 const dom = {};
 
-document.addEventListener("DOMContentLoaded", () => {
-  seedEmployees();
-  seedAssignments();
-  seedWorkflowData();
+document.addEventListener("DOMContentLoaded", async () => {
   cacheDom();
   wireEvents();
+  await hydrateAppState();
   initializeControls();
   render();
 });
@@ -73,7 +58,7 @@ function cacheDom() {
     "trade-partner", "trade-date", "trade-notes", "submit-trade-btn", "open-unit", "open-date",
     "open-qualification", "open-report-time", "post-open-btn", "unit-toggle-list", "notification-center",
     "approval-queue", "audit-log", "print-btn", "notify-btn", "import-type", "import-file", "preview-import-btn",
-    "apply-import-btn", "download-employee-template-btn", "download-unit-template-btn", "import-message", "import-preview",
+    "apply-import-btn", "download-employee-template-btn", "download-unit-template-btn", "import-message", "import-preview", "storage-status",
   ];
   ids.forEach((id) => {
     dom[id] = document.getElementById(id);
@@ -99,6 +84,7 @@ function wireEvents() {
     state.scheduleStatus = dom["schedule-status"].value;
     addAudit(`Schedule marked as ${state.scheduleStatus}.`, "System");
     render();
+    persistAppState("Schedule status updated");
   });
   dom["publish-btn"].addEventListener("click", handlePublish);
   dom["prev-btn"].addEventListener("click", () => shiftDate(-1));
@@ -160,14 +146,18 @@ function seedEmployees() {
   }
 }
 
-function seedAssignments() {
-  state.assignments = {};
+function seedAssignments(preserveExisting = false) {
+  const existingAssignments = preserveExisting ? state.assignments || {} : {};
+  state.assignments = existingAssignments;
   for (let offset = 0; offset < 90; offset += 1) {
     const date = addDays(baseDate, offset);
     const shift = getShiftForDate(date);
-    const dayUnits = {};
+    const dayUnits = state.assignments[date] || {};
 
     visibleUnitsAll().forEach((unit, index) => {
+      if (preserveExisting && Array.isArray(dayUnits[unit.id])) {
+        return;
+      }
       const eligible = state.employees.filter((employee) => employee.shift === unit.shift);
       const assigned = [];
       const targetCount = unit.minStaff + ((index + offset) % 4 === 0 ? -1 : 0);
@@ -250,6 +240,89 @@ function seedWorkflowData() {
   ];
 }
 
+async function hydrateAppState() {
+  const remoteConfigured = hasRemotePersistence();
+  let loaded = false;
+
+  if (remoteConfigured) {
+    state.persistence.backend = "supabase";
+    state.persistence.hasRemote = true;
+    try {
+      const remoteState = await loadRemoteState();
+      if (remoteState) {
+        applyPersistedState(remoteState);
+        loaded = true;
+        setPersistenceStatus("Connected to Supabase", "ok");
+      } else {
+        seedDefaultState();
+        await persistAppState("Initial remote seed");
+        loaded = true;
+        setPersistenceStatus("Supabase seeded with starter data", "ok");
+      }
+    } catch (error) {
+      console.error("Remote load failed", error);
+      setPersistenceStatus("Supabase unavailable, using browser fallback", "warning");
+    }
+  }
+
+  if (!loaded) {
+    const local = loadLocalState();
+    if (local) {
+      applyPersistedState(local);
+      loaded = true;
+      state.persistence.backend = "local-storage";
+      setPersistenceStatus("Using saved browser data", "warning");
+    }
+  }
+
+  if (!loaded) {
+    seedDefaultState();
+    saveLocalState();
+    state.persistence.backend = remoteConfigured ? "supabase-fallback" : "local-storage";
+    setPersistenceStatus(remoteConfigured ? "Using browser fallback data" : "Using browser-only data", remoteConfigured ? "warning" : "warning");
+  }
+}
+
+function seedDefaultState() {
+  state.employees = [];
+  state.units = defaultUnits();
+  state.trades = [];
+  state.overtimePosts = [];
+  state.notifications = [];
+  state.auditLog = [];
+  state.importPreview = null;
+  seedEmployees();
+  seedAssignments(false);
+  seedWorkflowData();
+}
+
+function defaultUnits() {
+  return [
+    { id: "E1", name: "Engine 1", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: true },
+    { id: "E2", name: "Engine 2", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "BB", visible: true },
+    { id: "E3", name: "Engine 3", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "CC", visible: true },
+    { id: "L1", name: "Ladder 1", type: "ladder", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: true },
+    { id: "L2", name: "Ladder 2", type: "ladder", minStaff: 4, requiredCerts: ["paramedic"], shift: "BB", visible: true },
+    { id: "M1", name: "Medic 1", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "AA", visible: true },
+    { id: "M2", name: "Medic 2", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "BB", visible: true },
+    { id: "M3", name: "Medic 3", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "CC", visible: true },
+    { id: "BC1", name: "Battalion 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "AA", visible: true },
+    { id: "BC2", name: "Battalion 2", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "BB", visible: true },
+    { id: "T1", name: "Tender 1", type: "specialty", minStaff: 2, requiredCerts: ["emt"], shift: "CC", visible: true },
+    { id: "R1", name: "Rescue 1", type: "specialty", minStaff: 3, requiredCerts: ["paramedic"], shift: "AA", visible: true },
+    { id: "HM1", name: "Hazmat 1", type: "specialty", minStaff: 3, requiredCerts: ["engineer"], shift: "BB", visible: true },
+    { id: "U14", name: "Utility 14", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "CC", visible: false },
+    { id: "U15", name: "Utility 15", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "AA", visible: false },
+    { id: "R2", name: "Rescue 2", type: "reserve", minStaff: 3, requiredCerts: ["paramedic"], shift: "BB", visible: false },
+    { id: "M4", name: "Medic 4", type: "reserve", minStaff: 2, requiredCerts: ["paramedic"], shift: "CC", visible: false },
+    { id: "B1", name: "Brush 1", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "AA", visible: false },
+    { id: "B2", name: "Brush 2", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "BB", visible: false },
+    { id: "L3", name: "Ladder 3", type: "reserve", minStaff: 4, requiredCerts: ["paramedic"], shift: "CC", visible: false },
+    { id: "E4", name: "Engine 4", type: "reserve", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: false },
+    { id: "SV1", name: "Safety 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "CC", visible: true },
+  ];
+}
+
 function render() {
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
@@ -265,6 +338,19 @@ function render() {
   populateTradeSelects();
   populateOpenShiftSelects();
   renderPermissionStates();
+  renderPersistenceStatus();
+}
+
+function renderPersistenceStatus() {
+  const el = dom["storage-status"];
+  el.textContent = state.persistence.status;
+  el.className = "status-pill";
+  if (state.persistence.level === "warning" || state.persistence.backend === "local-storage" || state.persistence.backend === "supabase-fallback") {
+    el.classList.add("is-warning");
+  }
+  if (state.persistence.level === "danger" || state.persistence.backend === "browser-memory") {
+    el.classList.add("is-danger");
+  }
 }
 
 function renderAuthBadge() {
@@ -424,6 +510,11 @@ function renderUnitCard(unit, date, activeShift) {
                 </div>
                 <div class="pill-group">
                   ${person.certs.map((cert) => `<span class="pill">${cert}</span>`).join("")}
+                  ${
+                    state.currentRole === "supervisor"
+                      ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}">Remove</button>`
+                      : ""
+                  }
                 </div>
               </div>
             `,
@@ -446,6 +537,7 @@ function renderUnitCard(unit, date, activeShift) {
 }
 
 function renderUnitControls() {
+  const supervisorLocked = !state.isAuthenticated || state.currentRole !== "supervisor";
   dom["unit-toggle-list"].innerHTML = state.units
     .map(
       (unit) => `
@@ -454,7 +546,7 @@ function renderUnitControls() {
           <strong>${unit.name}</strong>
           <p class="helper-text">${unit.type} • ${unit.shift} shift</p>
         </div>
-        <input type="checkbox" data-unit-toggle="${unit.id}" ${unit.visible ? "checked" : ""} ${state.currentRole !== "supervisor" ? "disabled" : ""} />
+        <input type="checkbox" data-unit-toggle="${unit.id}" ${unit.visible ? "checked" : ""} ${supervisorLocked ? "disabled" : ""} />
       </label>
     `,
     )
@@ -466,6 +558,7 @@ function renderUnitControls() {
       unit.visible = checkbox.checked;
       addAudit(`${unit.name} ${unit.visible ? "shown" : "hidden"} on schedule view.`, currentUserName());
       render();
+      persistAppState("Unit visibility updated");
     });
   });
 }
@@ -566,12 +659,32 @@ function renderImportPreview() {
     </article>
     ${
       errors.length
-        ? `<article class="queue-item"><strong>Errors</strong><p>${errors.map((error) => error.message).join("<br />")}</p></article>`
+        ? `
+      <article class="queue-item">
+        <strong>Errors</strong>
+        <div class="status-box status-box-error">
+          <p>The import is blocked until these are fixed:</p>
+          <ul class="status-list">
+            ${errors.map((error) => `<li>${error.message || "Unknown import error."}</li>`).join("")}
+          </ul>
+        </div>
+      </article>
+    `
         : ""
     }
     ${
       warnings.length
-        ? `<article class="queue-item"><strong>Warnings</strong><p>${warnings.map((warning) => warning.message).join("<br />")}</p></article>`
+        ? `
+      <article class="queue-item">
+        <strong>Warnings</strong>
+        <div class="status-box status-box-warning">
+          <p>Warnings will not block import, but they should be reviewed:</p>
+          <ul class="status-list">
+            ${warnings.map((warning) => `<li>${warning.message || "Unknown import warning."}</li>`).join("")}
+          </ul>
+        </div>
+      </article>
+    `
         : ""
     }
     ${
@@ -647,6 +760,20 @@ function attachUnitMoveEvents() {
       addAudit(`${employee.name} added to ${unitById(unitId).name} on ${formatDate(date)}.`, currentUserName());
       createNotification(`${employee.name} reassigned to ${unitById(unitId).name} for ${formatDate(date)}.`, "email", currentUserName());
       render();
+      persistAppState("Assignment updated");
+    });
+  });
+
+  [...document.querySelectorAll("[data-remove-assignment]")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const date = button.dataset.removeDate;
+      const unitId = button.dataset.removeUnit;
+      const employeeId = button.dataset.removeAssignment;
+      state.assignments[date][unitId] = getAssignments(date, unitId).filter((person) => person.id !== employeeId);
+      addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId).name} on ${formatDate(date)}.`, currentUserName());
+      createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId).name} for ${formatDate(date)}.`, "email", currentUserName());
+      render();
+      persistAppState("Assignment removed");
     });
   });
 }
@@ -679,6 +806,7 @@ function handlePublish() {
   addAudit(`Published ${state.currentView} schedule anchored on ${formatDate(state.currentDate)}.`, currentUserName());
   createNotification(`Schedule published for ${formatDate(state.currentDate)} and forward planning window.`, "email", currentUserName());
   render();
+  persistAppState("Schedule published");
 }
 
 function saveSupervisorEdits() {
@@ -689,6 +817,7 @@ function saveSupervisorEdits() {
   addAudit(`Supervisor staffing edits saved for ${formatDate(state.currentDate)}.`, currentUserName());
   createNotification(`Staffing updates saved for ${formatDate(state.currentDate)}.`, "email", currentUserName());
   render();
+  persistAppState("Supervisor edits saved");
 }
 
 function createTradeRequest() {
@@ -717,6 +846,7 @@ function createTradeRequest() {
   createNotification(`Trade request submitted for ${formatDate(date)} and routed for supervisor approval.`, "email", currentUserName());
   dom["trade-notes"].value = "";
   render();
+  persistAppState("Trade request created");
 }
 
 function createOpenShift() {
@@ -741,6 +871,7 @@ function createOpenShift() {
     currentUserName(),
   );
   render();
+  persistAppState("Open shift posted");
 }
 
 function createDailyDigest() {
@@ -751,6 +882,7 @@ function createDailyDigest() {
   createNotification(`Daily digest sent for ${formatDate(state.currentDate)} to logged-in department members.`, "email", "System");
   addAudit(`Daily digest generated for ${formatDate(state.currentDate)}.`, "System");
   render();
+  persistAppState("Daily digest created");
 }
 
 async function previewImport() {
@@ -782,8 +914,23 @@ async function previewImport() {
   const type = dom["import-type"].value;
   const preview = type === "employees" ? validateEmployeeImport(rows) : validateUnitImport(rows);
   state.importPreview = { ...preview, type };
-  dom["import-message"].textContent = `Preview ready for ${rows.length} row(s). Review errors and warnings before applying.`;
+  if (preview.errors.length) {
+    const topErrors = preview.errors
+      .slice(0, 3)
+      .map((error) => error.message || "Unknown import error.")
+      .join(" ");
+    dom["import-message"].textContent = `Preview found ${preview.errors.length} error(s). ${topErrors}`;
+  } else if (preview.warnings.length) {
+    const topWarnings = preview.warnings
+      .slice(0, 2)
+      .map((warning) => warning.message || "Unknown import warning.")
+      .join(" ");
+    dom["import-message"].textContent = `Preview found ${preview.warnings.length} warning(s). ${topWarnings}`;
+  } else {
+    dom["import-message"].textContent = `Preview ready for ${rows.length} row(s). No blocking errors were found.`;
+  }
   render();
+  dom["import-preview"].scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function applyImport() {
@@ -807,7 +954,7 @@ function applyImport() {
   }
 
   state.importPreview = null;
-  seedAssignments();
+  seedAssignments(true);
   populateUserSelect();
   populateTradeSelects();
   populateOpenShiftSelects();
@@ -816,6 +963,7 @@ function applyImport() {
   dom["import-message"].textContent = "Import applied successfully and the schedule was regenerated.";
   dom["import-file"].value = "";
   render();
+  persistAppState("CSV import applied");
 }
 
 function downloadEmployeeTemplate() {
@@ -847,6 +995,7 @@ function approveQueueItem(id) {
     createNotification(`Trade for ${formatDate(trade.date)} approved for ${employeeById(trade.employeeId).name} and ${employeeById(trade.partnerId).name}.`, "email", currentUserName());
     addAudit(`Trade ${trade.id} approved.`, currentUserName());
     render();
+    persistAppState("Trade approved");
     return;
   }
 
@@ -862,6 +1011,7 @@ function approveQueueItem(id) {
     );
     addAudit(`Overtime ${overtime.id} awarded to ${employee.name}.`, currentUserName());
     render();
+    persistAppState("Overtime approved");
   }
 }
 
@@ -872,6 +1022,7 @@ function denyQueueItem(id) {
     createNotification(`Trade request for ${formatDate(trade.date)} denied. Both employees were notified.`, "email", currentUserName());
     addAudit(`Trade ${trade.id} denied.`, currentUserName());
     render();
+    persistAppState("Trade denied");
     return;
   }
   const overtime = state.overtimePosts.find((item) => item.id === id);
@@ -880,6 +1031,7 @@ function denyQueueItem(id) {
     createNotification(`Open shift for ${unitById(overtime.unitId).name} on ${formatDate(overtime.date)} was closed without assignment.`, "email", currentUserName());
     addAudit(`Overtime ${overtime.id} denied or closed.`, currentUserName());
     render();
+    persistAppState("Overtime denied");
   }
 }
 
@@ -1256,4 +1408,120 @@ function downloadCsv(filename, content) {
 
 function capitalize(value) {
   return String(value).charAt(0).toUpperCase() + String(value).slice(1);
+}
+
+function hasRemotePersistence() {
+  const config = window.APP_CONFIG || {};
+  return Boolean(config.supabaseUrl && config.supabaseAnonKey);
+}
+
+function remoteBaseUrl() {
+  return `${window.APP_CONFIG.supabaseUrl.replace(/\/$/, "")}/rest/v1/scheduler_state`;
+}
+
+async function loadRemoteState() {
+  const response = await fetch(`${remoteBaseUrl()}?id=eq.${encodeURIComponent(REMOTE_STATE_ID)}&select=state`, {
+    headers: remoteHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Remote load failed with status ${response.status}`);
+  }
+  const rows = await response.json();
+  return rows[0]?.state || null;
+}
+
+async function persistAppState(reason) {
+  state.persistence.isSaving = true;
+  try {
+    saveLocalState();
+    if (hasRemotePersistence()) {
+      await saveRemoteState();
+      state.persistence.backend = "supabase";
+      setPersistenceStatus(`Saved to Supabase${reason ? ` • ${reason}` : ""}`, "ok");
+    } else {
+      state.persistence.backend = "local-storage";
+      setPersistenceStatus(`Saved in browser${reason ? ` • ${reason}` : ""}`, "warning");
+    }
+  } catch (error) {
+    console.error("Persist failed", error);
+    saveLocalState();
+    state.persistence.backend = hasRemotePersistence() ? "supabase-fallback" : "local-storage";
+    setPersistenceStatus("Saved in browser fallback only", "warning");
+  } finally {
+    state.persistence.isSaving = false;
+    state.persistence.lastSavedAt = new Date().toISOString();
+    renderPersistenceStatus();
+  }
+}
+
+async function saveRemoteState() {
+  const response = await fetch(remoteBaseUrl(), {
+    method: "POST",
+    headers: {
+      ...remoteHeaders(),
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify({
+      id: REMOTE_STATE_ID,
+      state: serializableState(),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Remote save failed with status ${response.status}`);
+  }
+}
+
+function remoteHeaders() {
+  return {
+    apikey: window.APP_CONFIG.supabaseAnonKey,
+    Authorization: `Bearer ${window.APP_CONFIG.supabaseAnonKey}`,
+  };
+}
+
+function saveLocalState() {
+  window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serializableState()));
+}
+
+function loadLocalState() {
+  const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error("Local state parse failed", error);
+    return null;
+  }
+}
+
+function serializableState() {
+  return {
+    units: state.units,
+    employees: state.employees,
+    trades: state.trades,
+    overtimePosts: state.overtimePosts,
+    notifications: state.notifications,
+    auditLog: state.auditLog,
+    assignments: state.assignments,
+    scheduleStatus: state.scheduleStatus,
+  };
+}
+
+function applyPersistedState(data) {
+  state.units = Array.isArray(data.units) ? data.units : defaultUnits();
+  state.employees = Array.isArray(data.employees) ? data.employees : [];
+  state.trades = Array.isArray(data.trades) ? data.trades : [];
+  state.overtimePosts = Array.isArray(data.overtimePosts) ? data.overtimePosts : [];
+  state.notifications = Array.isArray(data.notifications) ? data.notifications : [];
+  state.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
+  state.assignments = data.assignments && typeof data.assignments === "object" ? data.assignments : {};
+  state.scheduleStatus = data.scheduleStatus || "draft";
+  seedAssignments(true);
+}
+
+function setPersistenceStatus(message, level) {
+  state.persistence.status = message;
+  state.persistence.level = level;
 }
