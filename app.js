@@ -27,11 +27,11 @@ const state = {
 };
 
 // Anchor date for seeding assignment data
-const baseDate = "2026-04-09";
-// A/B/C 48/96 rotation: 2 days on, 4 days off per shift
-// Anchored so that A Shift first day = 2026-04-09, B Shift first day = 2026-04-15, C Shift first day = 2026-04-21
-const ROTATION_BASE_DATE = "2026-04-09";
-const rotationPattern = ["A", "A", "off", "off", "off", "off", "B", "B", "off", "off", "off", "off", "C", "C", "off", "off", "off", "off"];
+const baseDate = "2026-04-13";
+// Continuous 48-hour rotation: A → B → C → A → B → C …  (no off days between shifts)
+// A: 4/13–4/14, B: 4/15–4/16, C: 4/17–4/18, then repeats
+const ROTATION_BASE_DATE = "2026-04-13";
+const rotationPattern = ["A", "A", "B", "B", "C", "C"];
 // Bump key so old AA/BB/CC data doesn't load and break the renamed shifts
 const LOCAL_STORAGE_KEY = "d7fr-scheduler-state-v3";
 const REMOTE_STATE_ID = "primary";
@@ -524,7 +524,7 @@ function renderTimelineCard(date) {
       <div class="timeline-head">
         <div>
           <h3>${formatDate(date)}</h3>
-          <p class="helper-text">${shift === "off" ? "No shift on duty" : `${shift} Shift on duty • 48/96 rotation`}</p>
+          <p class="helper-text">${shift} Shift on duty • continuous 48-hour rotation</p>
         </div>
         <div class="pill-group">
           <span class="pill">${alerts.filter((item) => item.level === "danger").length} staffing risks</span>
