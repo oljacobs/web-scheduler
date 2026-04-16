@@ -15,7 +15,6 @@ const state = {
   importPreview: null,
   unitImportPreview: null,
   assignments: {},
-  rotationBaseDate: "2026-04-10",
   activeAdminTab: "emp-import",
   employeeFilter: { shift: "all", sort: "name", showOffShift: false },
   persistence: {
@@ -27,9 +26,11 @@ const state = {
   },
 };
 
-// Anchor date for seeding assignment data (kept as constant; rotation anchor is state.rotationBaseDate)
-const baseDate = "2026-04-10";
+// Anchor date for seeding assignment data
+const baseDate = "2026-04-09";
 // A/B/C 48/96 rotation: 2 days on, 4 days off per shift
+// Anchored so that A Shift first day = 2026-04-09, B Shift first day = 2026-04-15, C Shift first day = 2026-04-21
+const ROTATION_BASE_DATE = "2026-04-09";
 const rotationPattern = ["A", "A", "off", "off", "off", "off", "B", "B", "off", "off", "off", "off", "C", "C", "off", "off", "off", "off"];
 // Bump key so old AA/BB/CC data doesn't load and break the renamed shifts
 const LOCAL_STORAGE_KEY = "d7fr-scheduler-state-v3";
@@ -73,8 +74,6 @@ function cacheDom() {
     "unit-import-preview", "download-unit-template-btn",
     // Roster filters
     "roster-shift-filter", "roster-sort", "roster-off-shift", "employee-roster",
-    // Settings
-    "rotation-base-date",
     "storage-status",
   ];
   ids.forEach((id) => {
@@ -83,6 +82,7 @@ function cacheDom() {
   dom.viewButtons = [...document.querySelectorAll(".view-button")];
   dom.mainContent = document.getElementById("main-content");
   dom.accessGate = document.getElementById("access-gate");
+  dom.appShell = document.querySelector(".app-shell");
   dom.tabButtons = [...document.querySelectorAll(".tab-button[data-tab]")];
   dom.tabPanes = [...document.querySelectorAll(".tab-pane[data-tab-id]")];
 }
@@ -142,15 +142,6 @@ function wireEvents() {
     renderEmployeeRoster();
   });
 
-  // Rotation base date
-  dom["rotation-base-date"].addEventListener("change", () => {
-    if (state.currentRole !== "supervisor") return;
-    state.rotationBaseDate = dom["rotation-base-date"].value;
-    addAudit(`Rotation base date updated to ${state.rotationBaseDate}.`, currentUserName());
-    render();
-    persistAppState("Rotation base date updated");
-  });
-
   // View switcher
   dom.viewButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -173,7 +164,6 @@ function initializeControls() {
   dom["role-select"].value = state.loginRole;
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
-  dom["rotation-base-date"].value = state.rotationBaseDate;
   dom["roster-shift-filter"].value = state.employeeFilter.shift;
   dom["roster-sort"].value = state.employeeFilter.sort;
   dom["roster-off-shift"].checked = state.employeeFilter.showOffShift;
@@ -396,7 +386,6 @@ function defaultUnits() {
 function render() {
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
-  dom["rotation-base-date"].value = state.rotationBaseDate;
   dom.viewButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.view === state.currentView));
   renderSummary();
   renderAlerts();
@@ -996,11 +985,11 @@ function renderPermissionStates() {
   dom["unit-preview-import-btn"].disabled = supervisorLocked;
   dom["unit-apply-import-btn"].disabled = supervisorLocked || !state.unitImportPreview || state.unitImportPreview.errors.length > 0;
   dom["download-unit-template-btn"].disabled = supervisorLocked;
-  // Settings
-  dom["rotation-base-date"].disabled = supervisorLocked;
 
   dom.mainContent.classList.toggle("is-locked", !state.isAuthenticated);
   dom.accessGate.classList.toggle("hidden", state.isAuthenticated);
+  // On mobile: show sidebar (login) above main content when signed out, below when signed in
+  dom.appShell.classList.toggle("is-authenticated", state.isAuthenticated);
 
   if (supervisorLocked) {
     dom["post-open-btn"].title = "Supervisor sign-in required";
@@ -1416,9 +1405,8 @@ function getStaffingAlerts(date) {
     });
 }
 
-// Use state.rotationBaseDate as the anchor so admins can configure it
 function getShiftForDate(date) {
-  const diff = diffDays(state.rotationBaseDate, date);
+  const diff = diffDays(ROTATION_BASE_DATE, date);
   const index = ((diff % rotationPattern.length) + rotationPattern.length) % rotationPattern.length;
   return rotationPattern[index];
 }
@@ -1517,11 +1505,13 @@ function formatDate(dateString) {
 }
 
 function formatDateTime(date) {
+  // Military (24-hour) time format
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(date);
 }
 
@@ -1759,7 +1749,6 @@ function serializableState() {
     auditLog: state.auditLog,
     assignments: state.assignments,
     scheduleStatus: state.scheduleStatus,
-    rotationBaseDate: state.rotationBaseDate,
     employeeFilter: state.employeeFilter,
     activeAdminTab: state.activeAdminTab,
   };
@@ -1777,7 +1766,6 @@ function applyPersistedState(data) {
   state.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
   state.assignments = data.assignments && typeof data.assignments === "object" ? data.assignments : {};
   state.scheduleStatus = data.scheduleStatus || "draft";
-  state.rotationBaseDate = data.rotationBaseDate || "2026-04-10";
   state.employeeFilter = data.employeeFilter || { shift: "all", sort: "name", showOffShift: false };
   state.activeAdminTab = data.activeAdminTab || "emp-import";
   seedAssignments(true);

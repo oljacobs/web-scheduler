@@ -631,7 +631,16 @@ textarea:disabled {
     grid-template-columns: 1fr;
   }
 
-  .sidebar {
+  /*
+   * Mobile sidebar ordering:
+   * - Not signed in  → sidebar (login form) appears FIRST so it's immediately reachable
+   * - Signed in      → sidebar moves below main content so the schedule is front-and-center
+   */
+  .app-shell:not(.is-authenticated) .sidebar {
+    order: -1;
+  }
+
+  .app-shell.is-authenticated .sidebar {
     order: 2;
   }
 }
@@ -651,6 +660,24 @@ textarea:disabled {
   .hero-card {
     padding: 16px;
     border-radius: 18px;
+  }
+
+  /* Sidebar login takes full, readable width on small screens */
+  .sidebar {
+    width: 100%;
+  }
+
+  /* Ensure auth inputs and buttons meet 44 px touch-target minimum */
+  .auth-grid input,
+  .auth-grid select {
+    min-height: 48px;
+    font-size: 1rem;
+  }
+
+  #sign-in-btn {
+    min-height: 52px;
+    font-size: 1rem;
+    width: 100%;
   }
 
   .hero-card {
@@ -686,6 +713,31 @@ textarea:disabled {
   .timeline-grid,
   .person-list {
     gap: 10px;
+  }
+
+  /* Week calendar scrolls horizontally on small screens */
+  .week-calendar {
+    grid-template-columns: repeat(7, minmax(88px, 1fr));
+  }
+
+  /* Month calendar: slightly smaller text on very small screens */
+  .cal-month-cell .cal-date-num {
+    font-size: 0.82rem;
+  }
+
+  .shift-chip {
+    font-size: 0.64rem;
+    padding: 1px 5px;
+  }
+
+  /* Tab buttons wrap and stay tappable */
+  .tab-button {
+    min-height: 44px;
+  }
+
+  /* Roster filter labels stack cleanly */
+  .roster-filters {
+    grid-template-columns: 1fr;
   }
 }
 

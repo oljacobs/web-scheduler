@@ -191,10 +191,9 @@
             <!-- Admin Tab Panel: Employee Import | Unit Import | Units | Settings -->
             <section class="panel tab-panel">
               <div class="tab-bar">
-                <button class="tab-button is-active" data-tab="emp-import">Employees</button>
-                <button class="tab-button" data-tab="unit-import">Units Import</button>
+                <button class="tab-button is-active" data-tab="emp-import">Employee Import</button>
+                <button class="tab-button" data-tab="unit-import">Unit Import</button>
                 <button class="tab-button" data-tab="units-mgmt">Units</button>
-                <button class="tab-button" data-tab="settings">Settings</button>
               </div>
 
               <!-- Employee Import -->
@@ -239,17 +238,6 @@
                 <div id="unit-toggle-list" class="toggle-list"></div>
               </div>
 
-              <!-- Settings -->
-              <div class="tab-pane hidden" data-tab-id="settings">
-                <p class="helper-text tab-desc">Schedule configuration and rotation settings. Supervisor sign-in required.</p>
-                <div class="workflow-form">
-                  <label>
-                    Rotation Start Date (A Shift anchor)
-                    <input id="rotation-base-date" type="date" />
-                    <span class="helper-text" style="font-size:0.82rem">Changing this regenerates all shift rotation labels. Manual assignment data is preserved.</span>
-                  </label>
-                </div>
-              </div>
             </section>
 
             <!-- Employee Roster -->
