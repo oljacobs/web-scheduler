@@ -49,7 +49,8 @@ const lastNames = [
 ];
 
 const employeeRoles = ["paramedic", "emt", "engineer", "officer"];
-const unitTypes = ["engine", "ladder", "ambulance", "supervisor", "specialty", "reserve"];
+const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue"];
+const employeeTitleOptions = ["Firefighter", "FAO", "Lieutenant", "Captain", "Paramedic", "Batt Chief"];
 
 const dom = {};
 
@@ -209,7 +210,7 @@ function initializeControls() {
 function seedEmployees() {
   const shiftAssignments = ["A", "B", "C"];
   const pins = ["1111", "2222", "3333", "4444", "5555", "6666"];
-  const titles = ["Firefighter", "Driver", "Lieutenant", "Captain", "Medic"];
+  const titles = employeeTitleOptions;
 
   for (let i = 0; i < 60; i += 1) {
     const first = firstNames[i % firstNames.length];
@@ -911,7 +912,10 @@ function renderEmployeeEditor() {
         </label>
         <label>
           Title
-          <input id="employee-edit-title" type="text" value="${escapeHtml(draft.title || "")}" />
+          <input id="employee-edit-title" type="text" list="employee-title-options" value="${escapeHtml(draft.title || "")}" />
+          <datalist id="employee-title-options">
+            ${employeeTitleOptions.map((titleOption) => `<option value="${escapeHtml(titleOption)}"></option>`).join("")}
+          </datalist>
         </label>
         <label>
           Email
