@@ -393,29 +393,67 @@ function seedDefaultState() {
 
 function defaultUnits() {
   return [
-    { id: "E1",  name: "Engine 1",    type: "engine",     minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: true  },
-    { id: "E2",  name: "Engine 2",    type: "engine",     minStaff: 4, requiredCerts: ["paramedic"], shift: "B", visible: true  },
-    { id: "E3",  name: "Engine 3",    type: "engine",     minStaff: 4, requiredCerts: ["paramedic"], shift: "C", visible: true  },
-    { id: "L1",  name: "Ladder 1",    type: "ladder",     minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: true  },
-    { id: "L2",  name: "Ladder 2",    type: "ladder",     minStaff: 4, requiredCerts: ["paramedic"], shift: "B", visible: true  },
-    { id: "M1",  name: "Medic 1",     type: "ambulance",  minStaff: 2, requiredCerts: ["paramedic"], shift: "A", visible: true  },
-    { id: "M2",  name: "Medic 2",     type: "ambulance",  minStaff: 2, requiredCerts: ["paramedic"], shift: "B", visible: true  },
-    { id: "M3",  name: "Medic 3",     type: "ambulance",  minStaff: 2, requiredCerts: ["paramedic"], shift: "C", visible: true  },
-    { id: "BC1", name: "Battalion 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"],   shift: "A", visible: true  },
-    { id: "BC2", name: "Battalion 2", type: "supervisor", minStaff: 2, requiredCerts: ["officer"],   shift: "B", visible: true  },
-    { id: "T1",  name: "Tender 1",    type: "specialty",  minStaff: 2, requiredCerts: ["emt"],       shift: "C", visible: true  },
-    { id: "R1",  name: "Rescue 1",    type: "specialty",  minStaff: 3, requiredCerts: ["paramedic"], shift: "A", visible: true  },
-    { id: "HM1", name: "Hazmat 1",    type: "specialty",  minStaff: 3, requiredCerts: ["engineer"],  shift: "B", visible: true  },
-    { id: "SV1", name: "Safety 1",    type: "supervisor", minStaff: 2, requiredCerts: ["officer"],   shift: "C", visible: true  },
-    { id: "U14", name: "Utility 14",  type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "C", visible: false },
-    { id: "U15", name: "Utility 15",  type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "A", visible: false },
-    { id: "R2",  name: "Rescue 2",    type: "reserve",    minStaff: 3, requiredCerts: ["paramedic"], shift: "B", visible: false },
-    { id: "M4",  name: "Medic 4",     type: "reserve",    minStaff: 2, requiredCerts: ["paramedic"], shift: "C", visible: false },
-    { id: "B1",  name: "Brush 1",     type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "A", visible: false },
-    { id: "B2",  name: "Brush 2",     type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "B", visible: false },
-    { id: "L3",  name: "Ladder 3",    type: "reserve",    minStaff: 4, requiredCerts: ["paramedic"], shift: "C", visible: false },
-    { id: "E4",  name: "Engine 4",    type: "reserve",    minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: false },
+    { id: "E1",  name: "Engine 1",    type: "Engine",  minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "E2",  name: "Engine 2",    type: "Engine",  minStaff: 4, requiredCerts: ["paramedic"], shift: "B", visible: true  },
+    { id: "E3",  name: "Engine 3",    type: "Engine",  minStaff: 4, requiredCerts: ["paramedic"], shift: "C", visible: true  },
+    { id: "L1",  name: "Ladder 1",    type: "Ladder",  minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "L2",  name: "Ladder 2",    type: "Ladder",  minStaff: 4, requiredCerts: ["paramedic"], shift: "B", visible: true  },
+    { id: "M1",  name: "Medic 1",     type: "Medic",   minStaff: 2, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "M2",  name: "Medic 2",     type: "Medic",   minStaff: 2, requiredCerts: ["paramedic"], shift: "B", visible: true  },
+    { id: "M3",  name: "Medic 3",     type: "Medic",   minStaff: 2, requiredCerts: ["paramedic"], shift: "C", visible: true  },
+    { id: "BC1", name: "Battalion 1", type: "Batt",    minStaff: 2, requiredCerts: ["officer"],   shift: "A", visible: true  },
+    { id: "BC2", name: "Battalion 2", type: "Batt",    minStaff: 2, requiredCerts: ["officer"],   shift: "B", visible: true  },
+    { id: "T1",  name: "Tender 1",    type: "Tender",  minStaff: 2, requiredCerts: ["emt"],       shift: "C", visible: true  },
+    { id: "R1",  name: "Rescue 1",    type: "Rescue",  minStaff: 3, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "HM1", name: "Hazmat 1",    type: "Rescue",  minStaff: 3, requiredCerts: ["engineer"],  shift: "B", visible: true  },
+    { id: "SV1", name: "Safety 1",    type: "MOF",     minStaff: 2, requiredCerts: ["officer"],   shift: "C", visible: true  },
+    { id: "U14", name: "Utility 14",  type: "MOF",     minStaff: 2, requiredCerts: ["emt"],       shift: "C", visible: false },
+    { id: "U15", name: "Utility 15",  type: "MOF",     minStaff: 2, requiredCerts: ["emt"],       shift: "A", visible: false },
+    { id: "R2",  name: "Rescue 2",    type: "Rescue",  minStaff: 3, requiredCerts: ["paramedic"], shift: "B", visible: false },
+    { id: "M4",  name: "Medic 4",     type: "Medic",   minStaff: 2, requiredCerts: ["paramedic"], shift: "C", visible: false },
+    { id: "B1",  name: "Brush 1",     type: "Brush",   minStaff: 2, requiredCerts: ["emt"],       shift: "A", visible: false },
+    { id: "B2",  name: "Brush 2",     type: "Brush",   minStaff: 2, requiredCerts: ["emt"],       shift: "B", visible: false },
+    { id: "L3",  name: "Ladder 3",    type: "Ladder",  minStaff: 4, requiredCerts: ["paramedic"], shift: "C", visible: false },
+    { id: "E4",  name: "Engine 4",    type: "Engine",  minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: false },
   ];
+}
+
+/** Maps CSV / legacy lowercase types and persisted data to canonical `unitTypes` values. */
+function normalizeUnitType(rawType, unitId = "") {
+  const raw = String(rawType || "").trim();
+  const id = String(unitId || "");
+  if (!raw) return null;
+  if (unitTypes.includes(raw)) return raw;
+  const caseMatch = unitTypes.find((t) => t.toLowerCase() === raw.toLowerCase());
+  if (caseMatch) return caseMatch;
+  const lower = raw.toLowerCase();
+  if (lower === "engine") return "Engine";
+  if (lower === "ladder") return "Ladder";
+  if (lower === "ambulance") return "Medic";
+  if (lower === "supervisor") return /^SV/i.test(id) ? "MOF" : "Batt";
+  if (lower === "specialty") {
+    if (/^T\d/i.test(id)) return "Tender";
+    return "Rescue";
+  }
+  if (lower === "reserve") {
+    if (/^B\d/i.test(id)) return "Brush";
+    if (/^M\d/i.test(id)) return "Medic";
+    if (/^E\d/i.test(id)) return "Engine";
+    if (/^L\d/i.test(id)) return "Ladder";
+    if (/^R\d/i.test(id)) return "Rescue";
+    if (/^U\d/i.test(id)) return "MOF";
+    return "Engine";
+  }
+  return null;
+}
+
+function migratePersistedUnitTypes(units) {
+  if (!Array.isArray(units)) return;
+  units.forEach((unit) => {
+    if (!unit || typeof unit !== "object") return;
+    const next = normalizeUnitType(unit.type, unit.id);
+    unit.type = next || "Engine";
+  });
 }
 
 // ─── Render ──────────────────────────────────────────────────────────────────
@@ -1578,8 +1616,8 @@ function downloadUnitTemplate() {
     "d7fr-units-template.csv",
     [
       "id,name,type,minStaff,requiredCerts,shift,visible",
-      'E5,"Engine 5",engine,4,"paramedic",A,true',
-      'M5,"Medic 5",ambulance,2,"paramedic",B,false',
+      'E5,"Engine 5",Engine,4,"paramedic",A,true',
+      'M5,"Medic 5",Medic,2,"paramedic",B,false',
     ].join("\n"),
   );
 }
@@ -1903,22 +1941,27 @@ function validateUnitImport(rows) {
   rows.forEach((row, index) => {
     const line = index + 2;
     const requiredCerts = splitList(row.requiredcerts);
+    const normalizedType = normalizeUnitType(row.type, row.id || "");
     const normalized = {
       id: row.id || "",
       name: row.name || "",
-      type: (row.type || "").toLowerCase(),
+      type: normalizedType,
       minStaff: Number(row.minstaff),
       requiredCerts,
       shift: (row.shift || "").toUpperCase(),
       visible: parseBoolean(row.visible),
     };
     if (!normalized.id || !normalized.name) { errors.push({ message: `Row ${line}: missing id or name.` }); return; }
-    if (!unitTypes.includes(normalized.type)) { errors.push({ message: `Row ${line}: invalid type "${normalized.type}". Must be one of: ${unitTypes.join(", ")}.` }); return; }
+    if (!normalizedType || !unitTypes.includes(normalizedType)) {
+      errors.push({
+        message: `Row ${line}: invalid type "${row.type || ""}". Must be one of: ${unitTypes.join(", ")} (legacy names like engine, ambulance, supervisor are accepted).`,
+      });
+      return;
+    }
     if (!Number.isFinite(normalized.minStaff) || normalized.minStaff < 1) { errors.push({ message: `Row ${line}: minStaff must be a positive number.` }); return; }
     if (!["A", "B", "C"].includes(normalized.shift)) { errors.push({ message: `Row ${line}: shift must be A, B, or C.` }); return; }
     const invalidCerts = requiredCerts.filter((cert) => !employeeRoles.includes(cert));
     if (invalidCerts.length) { errors.push({ message: `Row ${line}: invalid required certs: ${invalidCerts.join(", ")}.` }); return; }
-    if (normalized.type === "reserve" && normalized.visible) warnings.push({ message: `Row ${line}: reserve unit marked visible.` });
     validRows.push(normalized);
   });
 
@@ -2087,7 +2130,12 @@ function applyPersistedState(data) {
   // Migrate old AA/BB/CC shift names to A/B/C
   migrateShiftNames(data);
 
-  state.units = Array.isArray(data.units) ? data.units : defaultUnits();
+  if (Array.isArray(data.units)) {
+    migratePersistedUnitTypes(data.units);
+    state.units = data.units;
+  } else {
+    state.units = defaultUnits();
+  }
   state.employees = Array.isArray(data.employees) ? data.employees : [];
   state.trades = Array.isArray(data.trades) ? data.trades : [];
   state.overtimePosts = Array.isArray(data.overtimePosts) ? data.overtimePosts : [];
