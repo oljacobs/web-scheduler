@@ -72,237 +72,283 @@
           </div>
         </section>
 
-        <section class="toolbar panel">
-          <div class="toolbar-row">
-            <div class="date-controls">
-              <button id="prev-btn" class="icon-button" aria-label="Previous range">‹</button>
-              <label>
-                Anchor Date
-                <input id="date-input" type="date" />
-              </label>
-              <button id="today-btn" class="button button-secondary">Today</button>
-              <button id="next-btn" class="icon-button" aria-label="Next range">›</button>
+        <section class="surface-switch panel">
+          <div class="surface-switch-row">
+            <div>
+              <h2>Workspace</h2>
+              <p class="helper-text">Keep scheduling focused on operations and use the admin area for roster and unit management.</p>
             </div>
-
-            <div class="view-switch">
-              <button data-view="day" class="view-button is-active">Day</button>
-              <button data-view="week" class="view-button">Week</button>
-              <button data-view="month" class="view-button">Month</button>
+            <div class="surface-switch-buttons">
+              <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
+              <button id="surface-admin-btn" class="view-button">Admin</button>
             </div>
-
-            <div class="status-group">
-              <label>
-                Schedule Status
-                <select id="schedule-status">
-                  <option value="draft">Draft</option>
-                  <option value="published">Published</option>
-                </select>
-              </label>
-              <button id="publish-btn" class="button button-primary">Publish Changes</button>
-            </div>
-          </div>
-
-          <div class="toolbar-row toolbar-row-secondary">
-            <div class="summary-grid" id="summary-grid"></div>
-            <div class="alert-strip" id="alert-strip"></div>
           </div>
         </section>
 
-        <section class="content-grid">
-          <div class="primary-column">
-            <section class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2 id="schedule-title">Schedule View</h2>
-                  <p id="schedule-subtitle" class="helper-text">Crew assignments by unit and day</p>
-                </div>
-                <button id="supervisor-save-btn" class="button button-secondary">Save Supervisor Edits</button>
-              </div>
-              <div class="schedule-container" id="schedule-container"></div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Trades And Overtime</h2>
-                  <p class="helper-text">
-                    Employees can request trades and volunteer for open shifts. Supervisors control final approval.
-                  </p>
-                </div>
+        <section id="schedule-surface" class="surface-view">
+          <section class="toolbar panel">
+            <div class="toolbar-row">
+              <div class="date-controls">
+                <button id="prev-btn" class="icon-button" aria-label="Previous range">‹</button>
+                <label>
+                  Anchor Date
+                  <input id="date-input" type="date" />
+                </label>
+                <button id="today-btn" class="button button-secondary">Today</button>
+                <button id="next-btn" class="icon-button" aria-label="Next range">›</button>
               </div>
 
-              <div class="workflow-grid">
-                <article class="workflow-card">
-                  <h3>Submit Trade</h3>
-                  <div class="workflow-form">
-                    <label>
-                      Your Shift
-                      <select id="trade-owner"></select>
-                    </label>
-                    <label>
-                      Swap With
-                      <select id="trade-partner"></select>
-                    </label>
-                    <label>
-                      Trade Date
-                      <input id="trade-date" type="date" />
-                    </label>
-                    <label>
-                      Notes
-                      <textarea id="trade-notes" rows="3" placeholder="Reason, truck preference, extra context"></textarea>
-                    </label>
+              <div class="view-switch">
+                <button data-view="day" class="view-button is-active">Day</button>
+                <button data-view="week" class="view-button">Week</button>
+                <button data-view="month" class="view-button">Month</button>
+              </div>
+
+              <div class="status-group">
+                <label>
+                  Schedule Status
+                  <select id="schedule-status">
+                    <option value="draft">Draft</option>
+                    <option value="published">Published</option>
+                  </select>
+                </label>
+                <button id="publish-btn" class="button button-primary">Publish Changes</button>
+              </div>
+            </div>
+
+            <div class="toolbar-row toolbar-row-secondary">
+              <div class="summary-grid" id="summary-grid"></div>
+              <div class="alert-strip" id="alert-strip"></div>
+            </div>
+          </section>
+
+          <section class="content-grid">
+            <div class="primary-column">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2 id="schedule-title">Schedule View</h2>
+                    <p id="schedule-subtitle" class="helper-text">Crew assignments by unit and day</p>
                   </div>
-                  <button id="submit-trade-btn" class="button button-primary">Create Trade Request</button>
-                </article>
+                  <button id="supervisor-save-btn" class="button button-secondary">Save Supervisor Edits</button>
+                </div>
+                <div class="schedule-container" id="schedule-container"></div>
+              </section>
 
-                <article class="workflow-card">
-                  <h3>Post Open Shift</h3>
-                  <div class="workflow-form">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Trades And Overtime</h2>
+                    <p class="helper-text">
+                      Employees can request trades and volunteer for open shifts. Supervisors control final approval.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="workflow-grid">
+                  <article class="workflow-card">
+                    <h3>Submit Trade</h3>
+                    <div class="workflow-form">
+                      <label>
+                        Your Shift
+                        <select id="trade-owner"></select>
+                      </label>
+                      <label>
+                        Swap With
+                        <select id="trade-partner"></select>
+                      </label>
+                      <label>
+                        Trade Date
+                        <input id="trade-date" type="date" />
+                      </label>
+                      <label>
+                        Notes
+                        <textarea id="trade-notes" rows="3" placeholder="Reason, truck preference, extra context"></textarea>
+                      </label>
+                    </div>
+                    <button id="submit-trade-btn" class="button button-primary">Create Trade Request</button>
+                  </article>
+
+                  <article class="workflow-card">
+                    <h3>Post Open Shift</h3>
+                    <div class="workflow-form">
+                      <label>
+                        Unit
+                        <select id="open-unit"></select>
+                      </label>
+                      <label>
+                        Open Shift Date
+                        <input id="open-date" type="date" />
+                      </label>
+                      <label>
+                        Qualification Needed
+                        <select id="open-qualification">
+                          <option value="paramedic">Paramedic</option>
+                          <option value="emt">EMT</option>
+                          <option value="engineer">Engineer</option>
+                          <option value="officer">Officer</option>
+                        </select>
+                      </label>
+                      <label>
+                        Report Time
+                        <input id="open-report-time" type="time" value="06:30" />
+                      </label>
+                    </div>
+                    <button id="post-open-btn" class="button button-primary">Post Overtime Opportunity</button>
+                  </article>
+                </div>
+              </section>
+            </div>
+
+            <div class="secondary-column">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Notifications</h2>
+                    <p class="helper-text">Email and alert history.</p>
+                  </div>
+                </div>
+                <div id="notification-center" class="stack-list"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Approval Queue</h2>
+                    <p class="helper-text">Supervisor actions and employee status tracking.</p>
+                  </div>
+                </div>
+                <div id="approval-queue" class="stack-list"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Audit Log</h2>
+                    <p class="helper-text">Every publish, trade, and staffing change is recorded.</p>
+                  </div>
+                </div>
+                <div id="audit-log" class="stack-list"></div>
+              </section>
+            </div>
+          </section>
+        </section>
+
+        <section id="admin-surface" class="surface-view hidden">
+          <section class="admin-grid">
+            <div class="primary-column">
+              <section class="panel tab-panel">
+                <div class="tab-bar">
+                  <button class="tab-button is-active" data-tab="employees">Employees</button>
+                  <button class="tab-button" data-tab="imports">Imports</button>
+                  <button class="tab-button" data-tab="units">Units</button>
+                </div>
+
+                <div class="tab-pane" data-tab-id="employees">
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Employee Directory</h2>
+                      <p class="helper-text">Archive employees instead of deleting them so historical schedules remain trustworthy.</p>
+                    </div>
+                  </div>
+                  <div class="roster-filters admin-filters">
                     <label>
-                      Unit
-                      <select id="open-unit"></select>
+                      Search
+                      <input id="employee-search" type="search" placeholder="Search by name, title, email, or ID" />
                     </label>
                     <label>
-                      Open Shift Date
-                      <input id="open-date" type="date" />
-                    </label>
-                    <label>
-                      Qualification Needed
-                      <select id="open-qualification">
-                        <option value="paramedic">Paramedic</option>
-                        <option value="emt">EMT</option>
-                        <option value="engineer">Engineer</option>
-                        <option value="officer">Officer</option>
+                      Shift
+                      <select id="roster-shift-filter">
+                        <option value="all">All Shifts</option>
+                        <option value="A">A Shift</option>
+                        <option value="B">B Shift</option>
+                        <option value="C">C Shift</option>
                       </select>
                     </label>
                     <label>
-                      Report Time
-                      <input id="open-report-time" type="time" value="06:30" />
+                      Status
+                      <select id="employee-status-filter">
+                        <option value="active">Active</option>
+                        <option value="archived">Archived</option>
+                        <option value="all">All Employees</option>
+                      </select>
+                    </label>
+                    <label>
+                      Sort
+                      <select id="roster-sort">
+                        <option value="name">Name (A–Z)</option>
+                        <option value="cert">Credential Level</option>
+                        <option value="shift">Shift</option>
+                      </select>
                     </label>
                   </div>
-                  <button id="post-open-btn" class="button button-primary">Post Overtime Opportunity</button>
-                </article>
-              </div>
-            </section>
-          </div>
+                  <div id="employee-roster" class="stack-list"></div>
+                </div>
 
-          <div class="secondary-column">
+                <div class="tab-pane hidden" data-tab-id="imports">
+                  <div class="admin-two-up">
+                    <section class="workflow-card">
+                      <h3>Employee Import</h3>
+                      <p class="helper-text tab-desc">Create or update employees, credentials, and archive status from CSV.</p>
+                      <div class="workflow-form">
+                        <label>
+                          CSV File
+                          <input id="import-file" type="file" accept=".csv,text/csv" />
+                        </label>
+                        <div class="button-row">
+                          <button id="preview-import-btn" class="button button-primary">Preview</button>
+                          <button id="apply-import-btn" class="button button-secondary">Apply Import</button>
+                        </div>
+                        <button id="download-employee-template-btn" class="button button-secondary">Download Template</button>
+                        <p id="import-message" class="helper-text"></p>
+                      </div>
+                      <div id="import-preview" class="stack-list"></div>
+                    </section>
 
-            <!-- Admin Tab Panel: Employee Import | Unit Import | Units | Settings -->
-            <section class="panel tab-panel">
-              <div class="tab-bar">
-                <button class="tab-button is-active" data-tab="emp-import">Employee Import</button>
-                <button class="tab-button" data-tab="unit-import">Unit Import</button>
-                <button class="tab-button" data-tab="units-mgmt">Units</button>
-              </div>
-
-              <!-- Employee Import -->
-              <div class="tab-pane" data-tab-id="emp-import">
-                <p class="helper-text tab-desc">Import employee records from a CSV file. Requires supervisor sign-in.</p>
-                <div class="workflow-form">
-                  <label>
-                    CSV File
-                    <input id="import-file" type="file" accept=".csv,text/csv" />
-                  </label>
-                  <div class="button-row">
-                    <button id="preview-import-btn" class="button button-primary">Preview</button>
-                    <button id="apply-import-btn" class="button button-secondary">Apply Import</button>
+                    <section class="workflow-card">
+                      <h3>Unit Import</h3>
+                      <p class="helper-text tab-desc">Create or update apparatus and unit definitions from CSV.</p>
+                      <div class="workflow-form">
+                        <label>
+                          CSV File
+                          <input id="unit-import-file" type="file" accept=".csv,text/csv" />
+                        </label>
+                        <div class="button-row">
+                          <button id="unit-preview-import-btn" class="button button-primary">Preview</button>
+                          <button id="unit-apply-import-btn" class="button button-secondary">Apply Import</button>
+                        </div>
+                        <button id="download-unit-template-btn" class="button button-secondary">Download Template</button>
+                        <p id="unit-import-message" class="helper-text"></p>
+                      </div>
+                      <div id="unit-import-preview" class="stack-list"></div>
+                    </section>
                   </div>
-                  <button id="download-employee-template-btn" class="button button-secondary">Download Template</button>
-                  <p id="import-message" class="helper-text"></p>
                 </div>
-                <div id="import-preview" class="stack-list"></div>
-              </div>
 
-              <!-- Unit Import -->
-              <div class="tab-pane hidden" data-tab-id="unit-import">
-                <p class="helper-text tab-desc">Import unit and apparatus records from a CSV file. Requires supervisor sign-in.</p>
-                <div class="workflow-form">
-                  <label>
-                    CSV File
-                    <input id="unit-import-file" type="file" accept=".csv,text/csv" />
-                  </label>
-                  <div class="button-row">
-                    <button id="unit-preview-import-btn" class="button button-primary">Preview</button>
-                    <button id="unit-apply-import-btn" class="button button-secondary">Apply Import</button>
+                <div class="tab-pane hidden" data-tab-id="units">
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Unit Management</h2>
+                      <p class="helper-text">Toggle reserve visibility and tune unit types without cluttering the live scheduler.</p>
+                    </div>
                   </div>
-                  <button id="download-unit-template-btn" class="button button-secondary">Download Template</button>
-                  <p id="unit-import-message" class="helper-text"></p>
+                  <div id="unit-toggle-list" class="toggle-list"></div>
                 </div>
-                <div id="unit-import-preview" class="stack-list"></div>
-              </div>
+              </section>
+            </div>
 
-              <!-- Units Management: visibility + type editing -->
-              <div class="tab-pane hidden" data-tab-id="units-mgmt">
-                <p class="helper-text tab-desc">Toggle unit visibility and edit unit type. Supervisor sign-in required.</p>
-                <div id="unit-toggle-list" class="toggle-list"></div>
-              </div>
-
-            </section>
-
-            <!-- Employee Roster -->
-            <section class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Employee Roster</h2>
-                  <p class="helper-text">Filter and sort the crew list</p>
+            <div class="secondary-column">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Employee Editor</h2>
+                    <p class="helper-text">Supervisor-only editing for credentials, shift details, and archive state.</p>
+                  </div>
                 </div>
-              </div>
-              <div class="roster-filters">
-                <label>
-                  Shift
-                  <select id="roster-shift-filter">
-                    <option value="all">All Shifts</option>
-                    <option value="A">A Shift</option>
-                    <option value="B">B Shift</option>
-                    <option value="C">C Shift</option>
-                  </select>
-                </label>
-                <label>
-                  Sort
-                  <select id="roster-sort">
-                    <option value="name">Name (A–Z)</option>
-                    <option value="cert">Credential Level</option>
-                  </select>
-                </label>
-                <label class="roster-check-label">
-                  <input type="checkbox" id="roster-off-shift" />
-                  Show off-shift availability
-                </label>
-              </div>
-              <div id="employee-roster" class="stack-list"></div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Notifications</h2>
-                  <p class="helper-text">Email and alert history.</p>
-                </div>
-              </div>
-              <div id="notification-center" class="stack-list"></div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Approval Queue</h2>
-                  <p class="helper-text">Supervisor actions and employee status tracking.</p>
-                </div>
-              </div>
-              <div id="approval-queue" class="stack-list"></div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Audit Log</h2>
-                  <p class="helper-text">Every publish, trade, and staffing change is recorded.</p>
-                </div>
-              </div>
-              <div id="audit-log" class="stack-list"></div>
-            </section>
-          </div>
+                <div id="employee-editor"></div>
+              </section>
+            </div>
+          </section>
         </section>
       </main>
     </div>

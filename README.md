@@ -16,6 +16,8 @@ It now supports two persistence modes:
 - Supervisor staffing edits from phone or laptop
 - Employee PIN sign-in flow
 - CSV import for employees and units with preview and validation
+- Separate admin workspace for employees, imports, and units
+- Employee archive / restore workflow with credential editing
 - Shift trade requests with supervisor approval or denial
 - Open overtime shifts with first-come approval flow
 - Draft vs published schedule state
@@ -89,6 +91,7 @@ Supervisor login is required before imports can be previewed or applied.
 - `pin`
 - `email`
 - `isSupervisor`
+- `status`
 
 Example cert format:
 
@@ -118,6 +121,7 @@ Example required cert format:
 - Matching `id` values update existing records
 - New `id` values create new records
 - Schedule assignments are preserved where possible and missing dates or units are filled in
+- Employee `status` supports `active` and `archived`
 
 ## Easiest Free Deployment Path
 

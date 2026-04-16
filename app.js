@@ -15,8 +15,11 @@ const state = {
   importPreview: null,
   unitImportPreview: null,
   assignments: {},
-  activeAdminTab: "emp-import",
-  employeeFilter: { shift: "all", sort: "name", showOffShift: false },
+  activeSurface: "schedule",
+  activeAdminTab: "employees",
+  employeeFilter: { search: "", shift: "all", status: "active", sort: "name" },
+  selectedEmployeeId: null,
+  employeeDraft: null,
   persistence: {
     backend: "browser-memory",
     status: "Loading data source…",
@@ -73,8 +76,9 @@ function cacheDom() {
     "unit-import-file", "unit-preview-import-btn", "unit-apply-import-btn", "unit-import-message",
     "unit-import-preview", "download-unit-template-btn",
     // Roster filters
-    "roster-shift-filter", "roster-sort", "roster-off-shift", "employee-roster",
+    "employee-search", "roster-shift-filter", "employee-status-filter", "roster-sort", "employee-roster", "employee-editor",
     "storage-status",
+    "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
   ids.forEach((id) => {
     dom[id] = document.getElementById(id);
@@ -85,6 +89,10 @@ function cacheDom() {
   dom.appShell = document.querySelector(".app-shell");
   dom.tabButtons = [...document.querySelectorAll(".tab-button[data-tab]")];
   dom.tabPanes = [...document.querySelectorAll(".tab-pane[data-tab-id]")];
+  dom.surfaceButtons = {
+    schedule: document.getElementById("surface-schedule-btn"),
+    admin: document.getElementById("surface-admin-btn"),
+  };
 }
 
 function wireEvents() {
@@ -129,16 +137,20 @@ function wireEvents() {
   dom["download-unit-template-btn"].addEventListener("click", downloadUnitTemplate);
 
   // Roster filters
+  dom["employee-search"].addEventListener("input", () => {
+    state.employeeFilter.search = dom["employee-search"].value;
+    renderEmployeeRoster();
+  });
   dom["roster-shift-filter"].addEventListener("change", () => {
     state.employeeFilter.shift = dom["roster-shift-filter"].value;
     renderEmployeeRoster();
   });
-  dom["roster-sort"].addEventListener("change", () => {
-    state.employeeFilter.sort = dom["roster-sort"].value;
+  dom["employee-status-filter"].addEventListener("change", () => {
+    state.employeeFilter.status = dom["employee-status-filter"].value;
     renderEmployeeRoster();
   });
-  dom["roster-off-shift"].addEventListener("change", () => {
-    state.employeeFilter.showOffShift = dom["roster-off-shift"].checked;
+  dom["roster-sort"].addEventListener("change", () => {
+    state.employeeFilter.sort = dom["roster-sort"].value;
     renderEmployeeRoster();
   });
 
@@ -150,12 +162,28 @@ function wireEvents() {
     });
   });
 
+  dom.surfaceButtons.schedule.addEventListener("click", () => {
+    state.activeSurface = "schedule";
+    renderSurfaceState();
+    persistAppState("Workspace switched");
+  });
+  dom.surfaceButtons.admin.addEventListener("click", () => {
+    if (!canAccessAdmin()) {
+      showToast("Supervisor sign-in is required for admin tools.", "error");
+      return;
+    }
+    state.activeSurface = "admin";
+    renderSurfaceState();
+    persistAppState("Workspace switched");
+  });
+
   // Admin tabs
   dom.tabButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       state.activeAdminTab = btn.dataset.tab;
       dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
       dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
+      persistAppState("Admin tab switched");
     });
   });
 }
@@ -164,9 +192,10 @@ function initializeControls() {
   dom["role-select"].value = state.loginRole;
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
+  dom["employee-search"].value = state.employeeFilter.search;
   dom["roster-shift-filter"].value = state.employeeFilter.shift;
+  dom["employee-status-filter"].value = state.employeeFilter.status;
   dom["roster-sort"].value = state.employeeFilter.sort;
-  dom["roster-off-shift"].checked = state.employeeFilter.showOffShift;
   // Restore active tab
   dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
   dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
@@ -174,6 +203,7 @@ function initializeControls() {
   populateTradeSelects();
   populateOpenShiftSelects();
   renderAuthBadge();
+  renderSurfaceState();
 }
 
 function seedEmployees() {
@@ -198,6 +228,7 @@ function seedEmployees() {
       pin: isSupervisor ? "9000" : pins[i % pins.length],
       email: `${first.toLowerCase()}.${last.toLowerCase()}@d7fr.org`,
       isSupervisor,
+      status: "active",
     });
   }
 }
@@ -349,6 +380,11 @@ function seedDefaultState() {
   state.auditLog = [];
   state.importPreview = null;
   state.unitImportPreview = null;
+  state.activeSurface = "schedule";
+  state.activeAdminTab = "employees";
+  state.employeeFilter = { search: "", shift: "all", status: "active", sort: "name" };
+  state.selectedEmployeeId = null;
+  state.employeeDraft = null;
   seedEmployees();
   seedAssignments(false);
   seedWorkflowData();
@@ -387,6 +423,7 @@ function render() {
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
   dom.viewButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.view === state.currentView));
+  renderSurfaceState();
   renderSummary();
   renderAlerts();
   renderSchedule();
@@ -397,10 +434,24 @@ function render() {
   renderImportPreview();
   renderUnitImportPreview();
   renderEmployeeRoster();
+  renderEmployeeEditor();
   populateTradeSelects();
   populateOpenShiftSelects();
   renderPermissionStates();
   renderPersistenceStatus();
+}
+
+function renderSurfaceState() {
+  const adminAllowed = canAccessAdmin();
+  if (!adminAllowed && state.activeSurface === "admin") {
+    state.activeSurface = "schedule";
+  }
+  dom.surfaceButtons.schedule.classList.toggle("is-active", state.activeSurface === "schedule");
+  dom.surfaceButtons.admin.classList.toggle("is-active", state.activeSurface === "admin");
+  dom.surfaceButtons.admin.disabled = !adminAllowed;
+  dom.surfaceButtons.admin.title = adminAllowed ? "" : "Supervisor sign-in required";
+  dom["schedule-surface"].classList.toggle("hidden", state.activeSurface !== "schedule");
+  dom["admin-surface"].classList.toggle("hidden", state.activeSurface !== "admin");
 }
 
 function renderPersistenceStatus() {
@@ -415,6 +466,10 @@ function renderPersistenceStatus() {
   }
 }
 
+function canAccessAdmin() {
+  return state.isAuthenticated && state.currentRole === "supervisor";
+}
+
 function renderAuthBadge() {
   const badge = dom["auth-role-badge"];
   const role = state.loginRole === "supervisor" ? "Supervisor access" : "Employee access";
@@ -423,7 +478,7 @@ function renderAuthBadge() {
 }
 
 function populateUserSelect() {
-  const eligibleUsers = state.employees.filter((employee) => employee.isSupervisor === (state.loginRole === "supervisor"));
+  const eligibleUsers = activeEmployees().filter((employee) => employee.isSupervisor === (state.loginRole === "supervisor"));
   dom["user-select"].innerHTML = eligibleUsers
     .map((employee) => `<option value="${employee.id}">${employee.name} • ${employee.shift} Shift</option>`)
     .join("");
@@ -434,11 +489,11 @@ function populateUserSelect() {
 }
 
 function populateTradeSelects() {
-  const employees = state.employees.map((employee) => `<option value="${employee.id}">${employee.name} • ${employee.shift}</option>`).join("");
+  const employees = activeEmployees().map((employee) => `<option value="${employee.id}">${employee.name} • ${employee.shift}</option>`).join("");
   dom["trade-owner"].innerHTML = employees;
   dom["trade-partner"].innerHTML = employees;
-  dom["trade-owner"].value = state.currentUserId || state.employees[0]?.id;
-  dom["trade-partner"].value = state.employees.find((employee) => employee.id !== dom["trade-owner"].value)?.id || state.employees[1]?.id;
+  dom["trade-owner"].value = activeEmployeeById(state.currentUserId)?.id || activeEmployees()[0]?.id || "";
+  dom["trade-partner"].value = activeEmployees().find((employee) => employee.id !== dom["trade-owner"].value)?.id || activeEmployees()[1]?.id || "";
   dom["trade-date"].value = addDays(state.currentDate, 3);
 }
 
@@ -469,8 +524,8 @@ function renderSummary() {
     </div>
     <div class="summary-card">
       <span>Employees</span>
-      <strong>${state.employees.length}</strong>
-      <small>PIN sign-in enabled</small>
+      <strong>${activeEmployees().length}</strong>
+      <small>${archivedEmployees().length} archived</small>
     </div>
     <div class="summary-card">
       <span>Coverage Risks</span>
@@ -631,8 +686,8 @@ function renderUnitCard(unit, date, activeShift) {
 
   // Show employees from the same shift as the unit; supervisors can also see off-shift options
   const eligibleEmployees = state.currentRole === "supervisor"
-    ? state.employees  // supervisors can assign anyone (multi-truck same day is intentionally allowed)
-    : state.employees.filter((employee) => employee.shift === unit.shift);
+    ? activeEmployees()
+    : activeEmployees().filter((employee) => employee.shift === unit.shift);
 
   const options = eligibleEmployees
     .map((employee) => `<option value="${employee.id}">${employee.name} (${employee.shift})</option>`)
@@ -743,19 +798,25 @@ function renderUnitControls() {
 // ─── Employee Roster ──────────────────────────────────────────────────────────
 
 function renderEmployeeRoster() {
-  const { shift, sort, showOffShift } = state.employeeFilter;
+  const { search, shift, status, sort } = state.employeeFilter;
   const activeShift = getShiftForDate(state.currentDate);
+  const query = search.trim().toLowerCase();
 
-  let employees = [...state.employees];
+  let employees = [...state.employees].filter(normalizeEmployeeRecord);
 
-  // Filter by shift
-  if (shift !== "all") {
-    employees = employees.filter((e) => e.shift === shift);
+  if (status !== "all") {
+    employees = employees.filter((employee) => employee.status === status);
   }
 
-  // If showOffShift is false and no explicit shift filter, only show employees whose shift matches today
-  // (The checkbox explicitly opts in to seeing off-shift employees for overtime planning)
-  // When "all" is selected, show everyone but mark on/off duty clearly
+  if (shift !== "all") {
+    employees = employees.filter((employee) => employee.shift === shift);
+  }
+
+  if (query) {
+    employees = employees.filter((employee) =>
+      [employee.name, employee.title, employee.email, employee.id].some((field) => String(field || "").toLowerCase().includes(query)),
+    );
+  }
 
   // Sort
   if (sort === "name") {
@@ -767,6 +828,9 @@ function renderEmployeeRoster() {
       const bLevel = Math.min(...b.certs.map((c) => certOrder[c] ?? 99));
       return aLevel - bLevel || a.name.localeCompare(b.name);
     });
+  } else if (sort === "shift") {
+    const shiftOrder = { A: 0, B: 1, C: 2 };
+    employees.sort((a, b) => (shiftOrder[a.shift] ?? 99) - (shiftOrder[b.shift] ?? 99) || a.name.localeCompare(b.name));
   }
 
   if (!employees.length) {
@@ -774,41 +838,253 @@ function renderEmployeeRoster() {
     return;
   }
 
-  // Group by shift when sort is "cert" to make credential levels clear
   const rows = employees
-    .filter((emp) => showOffShift || emp.shift === activeShift || shift !== "all")
     .map((emp) => {
       const onDuty = emp.shift === activeShift;
+      const archived = emp.status === "archived";
 
-      // Find their assignments for the current date
       const dayAssignments = Object.entries(state.assignments[state.currentDate] || {})
         .filter(([, people]) => people.some((p) => p.id === emp.id))
         .map(([unitId]) => unitById(unitId)?.name)
         .filter(Boolean);
 
-      const dutyBadge = onDuty
+      const dutyBadge = archived
+        ? `<span class="badge badge-warning roster-duty-badge">Archived</span>`
+        : onDuty
         ? `<span class="badge badge-success roster-duty-badge">On duty</span>`
         : `<span class="badge badge-soft roster-duty-badge">Off duty</span>`;
 
       return `
-        <div class="roster-row">
+        <div class="roster-row ${archived ? "is-archived" : ""}">
           <div class="roster-row-info">
             <strong>${emp.name}</strong>
-            <small>${emp.title} • ${emp.shift} Shift</small>
+            <small>${emp.title} • ${emp.shift} Shift • ${emp.id}</small>
           </div>
           <div class="roster-row-meta">
-            <div class="pill-group">
-              ${emp.certs.map((c) => `<span class="pill">${c}</span>`).join("")}
+            <div class="roster-status">
+              <div class="pill-group">
+                ${emp.certs.map((c) => `<span class="pill">${c}</span>`).join("")}
+              </div>
+              ${dutyBadge}
             </div>
-            ${dutyBadge}
+            ${
+              canAccessAdmin()
+                ? `<div class="roster-actions">
+                    <button class="button button-secondary button-small" data-edit-employee="${emp.id}">Edit</button>
+                    <button class="button button-secondary button-small" data-toggle-employee-status="${emp.id}">
+                      ${archived ? "Restore" : "Archive"}
+                    </button>
+                  </div>`
+                : ""
+            }
           </div>
-          ${dayAssignments.length ? `<div class="roster-assignments"><small>Assigned: ${dayAssignments.join(", ")}</small></div>` : ""}
+          <div class="roster-assignments">
+            <small>${emp.email || "No email on file"}${dayAssignments.length ? ` • Assigned: ${dayAssignments.join(", ")}` : ""}</small>
+          </div>
         </div>
       `;
     })
     .join("");
 
-  dom["employee-roster"].innerHTML = rows || '<div class="empty-state">No employees on duty for this shift. Enable "Show off-shift availability" to see all personnel.</div>';
+  dom["employee-roster"].innerHTML = rows;
+  attachEmployeeManagementEvents();
+}
+
+function renderEmployeeEditor() {
+  const employee = employeeById(state.selectedEmployeeId);
+  if (!employee || !state.employeeDraft) {
+    dom["employee-editor"].innerHTML = '<div class="editor-empty">Choose an employee from the directory to edit credentials, contact details, shift, or archive status.</div>';
+    return;
+  }
+
+  const draft = state.employeeDraft;
+  dom["employee-editor"].innerHTML = `
+    <div class="editor-card">
+      <div>
+        <strong>${employee.name}</strong>
+        <p class="helper-text">${employee.id} • ${employee.status === "archived" ? "Archived employee" : "Active employee"}</p>
+      </div>
+      <div class="editor-grid">
+        <label>
+          Name
+          <input id="employee-edit-name" type="text" value="${escapeHtml(draft.name || "")}" />
+        </label>
+        <label>
+          Title
+          <input id="employee-edit-title" type="text" value="${escapeHtml(draft.title || "")}" />
+        </label>
+        <label>
+          Email
+          <input id="employee-edit-email" type="email" value="${escapeHtml(draft.email || "")}" />
+        </label>
+        <label>
+          PIN
+          <input id="employee-edit-pin" type="text" maxlength="4" inputmode="numeric" value="${escapeHtml(draft.pin || "")}" />
+        </label>
+        <label>
+          Shift
+          <select id="employee-edit-shift">
+            ${["A", "B", "C"].map((shiftOption) => `<option value="${shiftOption}" ${draft.shift === shiftOption ? "selected" : ""}>${shiftOption} Shift</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          Status
+          <select id="employee-edit-status">
+            <option value="active" ${draft.status === "active" ? "selected" : ""}>Active</option>
+            <option value="archived" ${draft.status === "archived" ? "selected" : ""}>Archived</option>
+          </select>
+        </label>
+      </div>
+      <div class="editor-section">
+        <strong>Credentials</strong>
+        <div class="checkbox-grid">
+          ${employeeRoles.map((role) => `
+            <label class="check-tile">
+              <input type="checkbox" class="employee-cert-toggle" value="${role}" ${draft.certs.includes(role) ? "checked" : ""} />
+              <span>${capitalize(role)}</span>
+            </label>
+          `).join("")}
+        </div>
+      </div>
+      <label class="check-tile">
+        <input id="employee-edit-supervisor" type="checkbox" ${draft.isSupervisor ? "checked" : ""} />
+        <span>Supervisor access</span>
+      </label>
+      <div class="editor-footer">
+        <button id="save-employee-btn" class="button button-primary">Save Employee</button>
+        <button id="cancel-employee-btn" class="button button-secondary">Cancel</button>
+      </div>
+    </div>
+  `;
+  attachEmployeeEditorEvents();
+}
+
+function attachEmployeeManagementEvents() {
+  [...document.querySelectorAll("[data-edit-employee]")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const employee = employeeById(button.dataset.editEmployee);
+      if (!employee) return;
+      state.selectedEmployeeId = employee.id;
+      state.employeeDraft = createEmployeeDraft(employee);
+      renderEmployeeEditor();
+      dom["employee-editor"].scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  [...document.querySelectorAll("[data-toggle-employee-status]")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const employee = employeeById(button.dataset.toggleEmployeeStatus);
+      if (!employee) return;
+      if (employee.id === state.currentUserId && employee.status !== "archived") {
+        showToast("You cannot archive the account currently signed in.", "error");
+        return;
+      }
+      employee.status = employee.status === "archived" ? "active" : "archived";
+      addAudit(`${employee.name} ${employee.status === "archived" ? "archived" : "restored"} in employee directory.`, currentUserName());
+      createNotification(`${employee.name} ${employee.status === "archived" ? "archived" : "restored"} in employee directory.`, "email", currentUserName());
+      if (state.selectedEmployeeId === employee.id) {
+        state.employeeDraft = createEmployeeDraft(employee);
+      }
+      populateUserSelect();
+      populateTradeSelects();
+      populateOpenShiftSelects();
+      render();
+      persistAppState(`Employee ${employee.status === "archived" ? "archived" : "restored"}`);
+    });
+  });
+}
+
+function attachEmployeeEditorEvents() {
+  const certInputs = [...document.querySelectorAll(".employee-cert-toggle")];
+  const syncDraft = () => {
+    if (!state.employeeDraft) return;
+    state.employeeDraft.name = document.getElementById("employee-edit-name").value.trim();
+    state.employeeDraft.title = document.getElementById("employee-edit-title").value.trim();
+    state.employeeDraft.email = document.getElementById("employee-edit-email").value.trim();
+    state.employeeDraft.pin = document.getElementById("employee-edit-pin").value.trim();
+    state.employeeDraft.shift = document.getElementById("employee-edit-shift").value;
+    state.employeeDraft.status = document.getElementById("employee-edit-status").value;
+    state.employeeDraft.isSupervisor = document.getElementById("employee-edit-supervisor").checked;
+    state.employeeDraft.certs = certInputs.filter((input) => input.checked).map((input) => input.value);
+  };
+
+  [
+    "employee-edit-name",
+    "employee-edit-title",
+    "employee-edit-email",
+    "employee-edit-pin",
+    "employee-edit-shift",
+    "employee-edit-status",
+    "employee-edit-supervisor",
+  ].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", syncDraft);
+    document.getElementById(id)?.addEventListener("change", syncDraft);
+  });
+  certInputs.forEach((input) => input.addEventListener("change", syncDraft));
+
+  document.getElementById("save-employee-btn")?.addEventListener("click", saveEmployeeDraft);
+  document.getElementById("cancel-employee-btn")?.addEventListener("click", () => {
+    const employee = employeeById(state.selectedEmployeeId);
+    state.employeeDraft = employee ? createEmployeeDraft(employee) : null;
+    renderEmployeeEditor();
+  });
+}
+
+function createEmployeeDraft(employee) {
+  const normalized = normalizeEmployeeRecord(employee);
+  return {
+    id: normalized.id,
+    name: normalized.name,
+    title: normalized.title,
+    email: normalized.email,
+    pin: normalized.pin,
+    shift: normalized.shift,
+    status: normalized.status,
+    isSupervisor: normalized.isSupervisor,
+    certs: [...normalized.certs],
+  };
+}
+
+function saveEmployeeDraft() {
+  if (!canAccessAdmin() || !state.employeeDraft) {
+    return;
+  }
+  if (!state.employeeDraft.name) {
+    showToast("Employee name is required.", "error");
+    return;
+  }
+  if (!["A", "B", "C"].includes(state.employeeDraft.shift)) {
+    showToast("Employee shift must be A, B, or C.", "error");
+    return;
+  }
+  if (!["active", "archived"].includes(state.employeeDraft.status)) {
+    showToast("Employee status must be active or archived.", "error");
+    return;
+  }
+  if (!state.employeeDraft.certs.length) {
+    showToast("Select at least one credential.", "error");
+    return;
+  }
+  const employee = employeeById(state.selectedEmployeeId);
+  if (!employee) return;
+  Object.assign(employee, {
+    ...state.employeeDraft,
+    certs: Array.from(new Set(state.employeeDraft.certs)),
+    isSupervisor: state.employeeDraft.isSupervisor || state.employeeDraft.certs.includes("officer"),
+  });
+  if (employee.id === state.currentUserId && employee.status === "archived") {
+    employee.status = "active";
+    showToast("The signed-in supervisor cannot archive their own account.", "error");
+  }
+  state.employeeDraft = createEmployeeDraft(employee);
+  addAudit(`${employee.name} updated in employee directory.`, currentUserName());
+  createNotification(`${employee.name} profile updated in employee directory.`, "email", currentUserName());
+  populateUserSelect();
+  populateTradeSelects();
+  populateOpenShiftSelects();
+  render();
+  showToast("Employee changes saved.", "success");
+  persistAppState("Employee updated");
 }
 
 // ─── Notifications, Queues, Audit ─────────────────────────────────────────────
@@ -985,6 +1261,10 @@ function renderPermissionStates() {
   dom["unit-preview-import-btn"].disabled = supervisorLocked;
   dom["unit-apply-import-btn"].disabled = supervisorLocked || !state.unitImportPreview || state.unitImportPreview.errors.length > 0;
   dom["download-unit-template-btn"].disabled = supervisorLocked;
+  dom["employee-search"].disabled = supervisorLocked;
+  dom["roster-shift-filter"].disabled = supervisorLocked;
+  dom["employee-status-filter"].disabled = supervisorLocked;
+  dom["roster-sort"].disabled = supervisorLocked;
 
   dom.mainContent.classList.toggle("is-locked", !state.isAuthenticated);
   dom.accessGate.classList.toggle("hidden", state.isAuthenticated);
@@ -997,6 +1277,10 @@ function renderPermissionStates() {
   } else {
     dom["post-open-btn"].removeAttribute("title");
     dom["publish-btn"].removeAttribute("title");
+  }
+
+  if (!canAccessAdmin()) {
+    state.activeSurface = "schedule";
   }
 }
 
@@ -1278,9 +1562,9 @@ function downloadEmployeeTemplate() {
   downloadCsv(
     "d7fr-employees-template.csv",
     [
-      "id,name,shift,title,certs,pin,email,isSupervisor",
-      'EMP-061,"Jamie Stone",A,Firefighter,"emt|paramedic",1234,jamie.stone@d7fr.org,false',
-      'EMP-062,"Avery Cole",B,Captain,"officer|emt",9000,avery.cole@d7fr.org,true',
+      "id,name,shift,title,certs,pin,email,isSupervisor,status",
+      'EMP-061,"Jamie Stone",A,Firefighter,"emt|paramedic",1234,jamie.stone@d7fr.org,false,active',
+      'EMP-062,"Avery Cole",B,Captain,"officer|emt",9000,avery.cole@d7fr.org,true,archived',
     ].join("\n"),
   );
 }
@@ -1421,7 +1705,7 @@ function visibleUnitsAll() {
 
 function availableEmployeesForOpenShift(date) {
   const activeShift = getShiftForDate(date);
-  return state.employees.filter((employee) => employee.shift !== activeShift);
+  return activeEmployees().filter((employee) => employee.shift !== activeShift);
 }
 
 // ─── Notification / Audit Helpers ─────────────────────────────────────────────
@@ -1458,7 +1742,27 @@ function currentUserName() {
 }
 
 function employeeById(id) {
-  return state.employees.find((employee) => employee.id === id);
+  const employee = state.employees.find((item) => item.id === id);
+  return employee ? normalizeEmployeeRecord(employee) : null;
+}
+
+function activeEmployeeById(id) {
+  return activeEmployees().find((employee) => employee.id === id);
+}
+
+function activeEmployees() {
+  return state.employees.map(normalizeEmployeeRecord).filter((employee) => employee.status === "active");
+}
+
+function archivedEmployees() {
+  return state.employees.map(normalizeEmployeeRecord).filter((employee) => employee.status === "archived");
+}
+
+function normalizeEmployeeRecord(employee) {
+  if (!employee) return null;
+  employee.certs = Array.isArray(employee.certs) ? employee.certs : [];
+  employee.status = employee.status === "archived" ? "archived" : "active";
+  return employee;
 }
 
 function unitById(id) {
@@ -1563,6 +1867,7 @@ function validateEmployeeImport(rows) {
   rows.forEach((row, index) => {
     const line = index + 2;
     const certs = splitList(row.certs);
+    const status = normalizeImportEmployeeStatus(row.status, row.archived);
     const normalized = {
       id: row.id || `EMP-${String(state.employees.length + validRows.length + 1).padStart(3, "0")}`,
       name: row.name || "",
@@ -1572,9 +1877,11 @@ function validateEmployeeImport(rows) {
       pin: row.pin || (parseBoolean(row.issupervisor) || certs.includes("officer") ? "9000" : "1111"),
       email: row.email || "",
       isSupervisor: parseBoolean(row.issupervisor),
+      status,
     };
     if (!normalized.name) { errors.push({ message: `Row ${line}: missing name.` }); return; }
     if (!["A", "B", "C"].includes(normalized.shift)) { errors.push({ message: `Row ${line}: shift must be A, B, or C.` }); return; }
+    if (!["active", "archived"].includes(normalized.status)) { errors.push({ message: `Row ${line}: status must be active or archived.` }); return; }
     if (!normalized.email) warnings.push({ message: `Row ${line}: no email address.` });
     const invalidCerts = certs.filter((cert) => !employeeRoles.includes(cert));
     if (invalidCerts.length) { errors.push({ message: `Row ${line}: invalid cert values: ${invalidCerts.join(", ")}.` }); return; }
@@ -1622,6 +1929,7 @@ function mergeEmployees(rows) {
       ...row,
       certs: Array.from(new Set(row.certs.length ? row.certs : ["emt"])),
       isSupervisor: row.isSupervisor || row.certs.includes("officer"),
+      status: row.status === "archived" ? "archived" : "active",
     };
     if (existingIndex >= 0) { state.employees[existingIndex] = nextEmployee; }
     else { state.employees.push(nextEmployee); }
@@ -1638,6 +1946,14 @@ function mergeUnits(rows) {
 
 function splitList(value) {
   return (value || "").split(/[|;]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+function normalizeImportEmployeeStatus(statusValue, archivedValue) {
+  const status = String(statusValue || "").trim().toLowerCase();
+  if (status === "active" || status === "archived") {
+    return status;
+  }
+  return parseBoolean(archivedValue) ? "archived" : "active";
 }
 
 function parseBoolean(value) {
@@ -1662,6 +1978,14 @@ function downloadCsv(filename, content) {
 
 function capitalize(value) {
   return String(value).charAt(0).toUpperCase() + String(value).slice(1);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
@@ -1750,6 +2074,7 @@ function serializableState() {
     assignments: state.assignments,
     scheduleStatus: state.scheduleStatus,
     employeeFilter: state.employeeFilter,
+    activeSurface: state.activeSurface,
     activeAdminTab: state.activeAdminTab,
   };
 }
@@ -1766,8 +2091,17 @@ function applyPersistedState(data) {
   state.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
   state.assignments = data.assignments && typeof data.assignments === "object" ? data.assignments : {};
   state.scheduleStatus = data.scheduleStatus || "draft";
-  state.employeeFilter = data.employeeFilter || { shift: "all", sort: "name", showOffShift: false };
-  state.activeAdminTab = data.activeAdminTab || "emp-import";
+  state.employeeFilter = {
+    search: data.employeeFilter?.search || "",
+    shift: data.employeeFilter?.shift || "all",
+    status: data.employeeFilter?.status || "active",
+    sort: data.employeeFilter?.sort || "name",
+  };
+  state.activeSurface = data.activeSurface || "schedule";
+  const adminTabMap = { "emp-import": "imports", "unit-import": "imports", "units-mgmt": "units" };
+  state.activeAdminTab = adminTabMap[data.activeAdminTab] || data.activeAdminTab || "employees";
+  state.selectedEmployeeId = null;
+  state.employeeDraft = null;
   seedAssignments(true);
 }
 
@@ -1775,7 +2109,10 @@ function applyPersistedState(data) {
 function migrateShiftNames(data) {
   const shiftMap = { AA: "A", BB: "B", CC: "C" };
   if (Array.isArray(data.employees)) {
-    data.employees.forEach((e) => { if (shiftMap[e.shift]) e.shift = shiftMap[e.shift]; });
+    data.employees.forEach((e) => {
+      if (shiftMap[e.shift]) e.shift = shiftMap[e.shift];
+      e.status = e.status === "archived" ? "archived" : "active";
+    });
   }
   if (Array.isArray(data.units)) {
     data.units.forEach((u) => { if (shiftMap[u.shift]) u.shift = shiftMap[u.shift]; });

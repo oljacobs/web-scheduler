@@ -360,6 +360,37 @@ textarea:disabled {
   gap: 18px;
 }
 
+.surface-switch {
+  padding: 14px 18px;
+}
+
+.surface-switch-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.surface-switch-buttons {
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(6, 17, 30, 0.5);
+}
+
+.surface-view {
+  display: grid;
+  gap: 20px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.9fr);
+  gap: 20px;
+}
+
 .toolbar-row {
   display: flex;
   justify-content: space-between;
@@ -537,6 +568,12 @@ textarea:disabled {
   gap: 16px;
 }
 
+.admin-two-up {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
 .workflow-card {
   padding: 16px;
   border-radius: 18px;
@@ -627,7 +664,8 @@ textarea:disabled {
 
 @media (max-width: 1180px) {
   .app-shell,
-  .content-grid {
+  .content-grid,
+  .admin-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1021,6 +1059,10 @@ textarea:disabled {
   margin-bottom: 14px;
 }
 
+.admin-filters {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
 .roster-check-label {
   display: flex;
   align-items: center;
@@ -1058,11 +1100,33 @@ textarea:disabled {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: space-between;
 }
 
 .roster-duty-badge {
   font-size: 0.72rem;
   padding: 3px 8px;
+}
+
+.roster-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.roster-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.roster-status small {
+  color: var(--muted);
+}
+
+.roster-row.is-archived {
+  border-color: rgba(255, 209, 102, 0.24);
+  background: rgba(255, 209, 102, 0.07);
 }
 
 .roster-assignments small {
@@ -1087,6 +1151,58 @@ textarea:disabled {
   padding: 6px 10px;
   font-size: 0.84rem;
   border-radius: 8px;
+}
+
+.editor-empty {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(77, 163, 255, 0.06);
+  color: var(--muted);
+}
+
+.editor-card {
+  display: grid;
+  gap: 16px;
+}
+
+.editor-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.editor-section {
+  display: grid;
+  gap: 10px;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.check-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(77, 163, 255, 0.06);
+  border: 1px solid rgba(141, 175, 214, 0.12);
+  cursor: pointer;
+}
+
+.check-tile input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.editor-footer {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* ── Toast ─────────────────────────────────────────────────────────────────── */
@@ -1134,7 +1250,9 @@ textarea:disabled {
 
   .sidebar,
   .hero-actions,
+  .surface-switch,
   .toolbar,
+  #admin-surface,
   #approval-queue,
   #notification-center,
   #audit-log,
@@ -1143,7 +1261,8 @@ textarea:disabled {
   }
 
   .app-shell,
-  .content-grid {
+  .content-grid,
+  .admin-grid {
     display: block;
   }
 
