@@ -802,7 +802,7 @@ function renderEmployeeRoster() {
   const activeShift = getShiftForDate(state.currentDate);
   const query = search.trim().toLowerCase();
 
-  let employees = [...state.employees].filter(normalizeEmployeeRecord);
+  let employees = state.employees.map((employee) => normalizeEmployeeRecord(employee));
 
   if (status !== "all") {
     employees = employees.filter((employee) => employee.status === status);
