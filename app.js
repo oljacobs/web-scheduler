@@ -4,9 +4,8 @@ const state = {
   currentRole: "employee",
   isAuthenticated: false,
   currentView: "day",
-  currentDate: "2026-04-10",
+  currentDate: new Date().toISOString().slice(0, 10),
   scheduleStatus: "draft",
-  smsReady: true,
   units: [],
   employees: [],
   trades: [],
@@ -14,7 +13,11 @@ const state = {
   notifications: [],
   auditLog: [],
   importPreview: null,
+  unitImportPreview: null,
   assignments: {},
+  rotationBaseDate: "2026-04-10",
+  activeAdminTab: "emp-import",
+  employeeFilter: { shift: "all", sort: "name", showOffShift: false },
   persistence: {
     backend: "browser-memory",
     status: "Loading data source…",
@@ -24,9 +27,12 @@ const state = {
   },
 };
 
+// Anchor date for seeding assignment data (kept as constant; rotation anchor is state.rotationBaseDate)
 const baseDate = "2026-04-10";
-const rotationPattern = ["AA", "AA", "off", "off", "off", "off", "BB", "BB", "off", "off", "off", "off", "CC", "CC", "off", "off", "off", "off"];
-const LOCAL_STORAGE_KEY = "d7fr-scheduler-state-v2";
+// A/B/C 48/96 rotation: 2 days on, 4 days off per shift
+const rotationPattern = ["A", "A", "off", "off", "off", "off", "B", "B", "off", "off", "off", "off", "C", "C", "off", "off", "off", "off"];
+// Bump key so old AA/BB/CC data doesn't load and break the renamed shifts
+const LOCAL_STORAGE_KEY = "d7fr-scheduler-state-v3";
 const REMOTE_STATE_ID = "primary";
 
 const firstNames = [
@@ -39,6 +45,7 @@ const lastNames = [
 ];
 
 const employeeRoles = ["paramedic", "emt", "engineer", "officer"];
+const unitTypes = ["engine", "ladder", "ambulance", "supervisor", "specialty", "reserve"];
 
 const dom = {};
 
@@ -57,8 +64,18 @@ function cacheDom() {
     "schedule-container", "schedule-title", "schedule-subtitle", "supervisor-save-btn", "trade-owner",
     "trade-partner", "trade-date", "trade-notes", "submit-trade-btn", "open-unit", "open-date",
     "open-qualification", "open-report-time", "post-open-btn", "unit-toggle-list", "notification-center",
-    "approval-queue", "audit-log", "print-btn", "notify-btn", "import-type", "import-file", "preview-import-btn",
-    "apply-import-btn", "download-employee-template-btn", "download-unit-template-btn", "import-message", "import-preview", "storage-status",
+    "approval-queue", "audit-log", "print-btn", "notify-btn",
+    // Employee import
+    "import-file", "preview-import-btn", "apply-import-btn", "import-message", "import-preview",
+    "download-employee-template-btn",
+    // Unit import
+    "unit-import-file", "unit-preview-import-btn", "unit-apply-import-btn", "unit-import-message",
+    "unit-import-preview", "download-unit-template-btn",
+    // Roster filters
+    "roster-shift-filter", "roster-sort", "roster-off-shift", "employee-roster",
+    // Settings
+    "rotation-base-date",
+    "storage-status",
   ];
   ids.forEach((id) => {
     dom[id] = document.getElementById(id);
@@ -66,6 +83,8 @@ function cacheDom() {
   dom.viewButtons = [...document.querySelectorAll(".view-button")];
   dom.mainContent = document.getElementById("main-content");
   dom.accessGate = document.getElementById("access-gate");
+  dom.tabButtons = [...document.querySelectorAll(".tab-button[data-tab]")];
+  dom.tabPanes = [...document.querySelectorAll(".tab-pane[data-tab-id]")];
 }
 
 function wireEvents() {
@@ -98,14 +117,54 @@ function wireEvents() {
   dom["post-open-btn"].addEventListener("click", createOpenShift);
   dom["print-btn"].addEventListener("click", () => window.print());
   dom["notify-btn"].addEventListener("click", createDailyDigest);
-  dom["preview-import-btn"].addEventListener("click", previewImport);
-  dom["apply-import-btn"].addEventListener("click", applyImport);
+
+  // Employee import
+  dom["preview-import-btn"].addEventListener("click", previewEmployeeImport);
+  dom["apply-import-btn"].addEventListener("click", applyEmployeeImport);
   dom["download-employee-template-btn"].addEventListener("click", downloadEmployeeTemplate);
+
+  // Unit import
+  dom["unit-preview-import-btn"].addEventListener("click", previewUnitImport);
+  dom["unit-apply-import-btn"].addEventListener("click", applyUnitImport);
   dom["download-unit-template-btn"].addEventListener("click", downloadUnitTemplate);
+
+  // Roster filters
+  dom["roster-shift-filter"].addEventListener("change", () => {
+    state.employeeFilter.shift = dom["roster-shift-filter"].value;
+    renderEmployeeRoster();
+  });
+  dom["roster-sort"].addEventListener("change", () => {
+    state.employeeFilter.sort = dom["roster-sort"].value;
+    renderEmployeeRoster();
+  });
+  dom["roster-off-shift"].addEventListener("change", () => {
+    state.employeeFilter.showOffShift = dom["roster-off-shift"].checked;
+    renderEmployeeRoster();
+  });
+
+  // Rotation base date
+  dom["rotation-base-date"].addEventListener("change", () => {
+    if (state.currentRole !== "supervisor") return;
+    state.rotationBaseDate = dom["rotation-base-date"].value;
+    addAudit(`Rotation base date updated to ${state.rotationBaseDate}.`, currentUserName());
+    render();
+    persistAppState("Rotation base date updated");
+  });
+
+  // View switcher
   dom.viewButtons.forEach((button) => {
     button.addEventListener("click", () => {
       state.currentView = button.dataset.view;
       render();
+    });
+  });
+
+  // Admin tabs
+  dom.tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.activeAdminTab = btn.dataset.tab;
+      dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
+      dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
     });
   });
 }
@@ -114,6 +173,13 @@ function initializeControls() {
   dom["role-select"].value = state.loginRole;
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
+  dom["rotation-base-date"].value = state.rotationBaseDate;
+  dom["roster-shift-filter"].value = state.employeeFilter.shift;
+  dom["roster-sort"].value = state.employeeFilter.sort;
+  dom["roster-off-shift"].checked = state.employeeFilter.showOffShift;
+  // Restore active tab
+  dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
+  dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
   populateUserSelect();
   populateTradeSelects();
   populateOpenShiftSelects();
@@ -121,7 +187,7 @@ function initializeControls() {
 }
 
 function seedEmployees() {
-  const shiftAssignments = ["AA", "BB", "CC"];
+  const shiftAssignments = ["A", "B", "C"];
   const pins = ["1111", "2222", "3333", "4444", "5555", "6666"];
   const titles = ["Firefighter", "Driver", "Lieutenant", "Captain", "Medic"];
 
@@ -149,7 +215,8 @@ function seedEmployees() {
 function seedAssignments(preserveExisting = false) {
   const existingAssignments = preserveExisting ? state.assignments || {} : {};
   state.assignments = existingAssignments;
-  for (let offset = 0; offset < 90; offset += 1) {
+  // Seed 180 days of assignments
+  for (let offset = 0; offset < 180; offset += 1) {
     const date = addDays(baseDate, offset);
     const shift = getShiftForDate(date);
     const dayUnits = state.assignments[date] || {};
@@ -166,8 +233,9 @@ function seedAssignments(preserveExisting = false) {
         if (assigned.length >= Math.max(1, targetCount)) {
           return;
         }
-        const unitLoad = Object.values(dayUnits).flat().find((person) => person.id === employee.id);
-        if (!unitLoad) {
+        // In seed, avoid assigning the same employee to two units on the same day
+        const alreadyAssigned = Object.values(dayUnits).flat().find((person) => person.id === employee.id);
+        if (!alreadyAssigned) {
           assigned.push(employee);
         }
       });
@@ -231,12 +299,11 @@ function seedWorkflowData() {
 
   state.notifications = [
     createNotification("Email digest queued for on-duty personnel.", "email", "system"),
-    createNotification("SMS delivery connectors reserved for later activation.", "sms", "system"),
   ];
 
   state.auditLog = [
-    createAuditEntry("Initial trial dataset loaded.", "System"),
-    createAuditEntry("Monthly schedule generated 90 days ahead.", "System"),
+    createAuditEntry("Initial dataset loaded.", "System"),
+    createAuditEntry("Schedule generated 180 days ahead.", "System"),
   ];
 }
 
@@ -279,7 +346,7 @@ async function hydrateAppState() {
     seedDefaultState();
     saveLocalState();
     state.persistence.backend = remoteConfigured ? "supabase-fallback" : "local-storage";
-    setPersistenceStatus(remoteConfigured ? "Using browser fallback data" : "Using browser-only data", remoteConfigured ? "warning" : "warning");
+    setPersistenceStatus(remoteConfigured ? "Using browser fallback data" : "Using browser-only data", "warning");
   }
 }
 
@@ -291,6 +358,7 @@ function seedDefaultState() {
   state.notifications = [];
   state.auditLog = [];
   state.importPreview = null;
+  state.unitImportPreview = null;
   seedEmployees();
   seedAssignments(false);
   seedWorkflowData();
@@ -298,34 +366,37 @@ function seedDefaultState() {
 
 function defaultUnits() {
   return [
-    { id: "E1", name: "Engine 1", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "E2", name: "Engine 2", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "BB", visible: true },
-    { id: "E3", name: "Engine 3", type: "engine", minStaff: 4, requiredCerts: ["paramedic"], shift: "CC", visible: true },
-    { id: "L1", name: "Ladder 1", type: "ladder", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "L2", name: "Ladder 2", type: "ladder", minStaff: 4, requiredCerts: ["paramedic"], shift: "BB", visible: true },
-    { id: "M1", name: "Medic 1", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "M2", name: "Medic 2", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "BB", visible: true },
-    { id: "M3", name: "Medic 3", type: "ambulance", minStaff: 2, requiredCerts: ["paramedic"], shift: "CC", visible: true },
-    { id: "BC1", name: "Battalion 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "AA", visible: true },
-    { id: "BC2", name: "Battalion 2", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "BB", visible: true },
-    { id: "T1", name: "Tender 1", type: "specialty", minStaff: 2, requiredCerts: ["emt"], shift: "CC", visible: true },
-    { id: "R1", name: "Rescue 1", type: "specialty", minStaff: 3, requiredCerts: ["paramedic"], shift: "AA", visible: true },
-    { id: "HM1", name: "Hazmat 1", type: "specialty", minStaff: 3, requiredCerts: ["engineer"], shift: "BB", visible: true },
-    { id: "U14", name: "Utility 14", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "CC", visible: false },
-    { id: "U15", name: "Utility 15", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "AA", visible: false },
-    { id: "R2", name: "Rescue 2", type: "reserve", minStaff: 3, requiredCerts: ["paramedic"], shift: "BB", visible: false },
-    { id: "M4", name: "Medic 4", type: "reserve", minStaff: 2, requiredCerts: ["paramedic"], shift: "CC", visible: false },
-    { id: "B1", name: "Brush 1", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "AA", visible: false },
-    { id: "B2", name: "Brush 2", type: "reserve", minStaff: 2, requiredCerts: ["emt"], shift: "BB", visible: false },
-    { id: "L3", name: "Ladder 3", type: "reserve", minStaff: 4, requiredCerts: ["paramedic"], shift: "CC", visible: false },
-    { id: "E4", name: "Engine 4", type: "reserve", minStaff: 4, requiredCerts: ["paramedic"], shift: "AA", visible: false },
-    { id: "SV1", name: "Safety 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"], shift: "CC", visible: true },
+    { id: "E1",  name: "Engine 1",    type: "engine",     minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "E2",  name: "Engine 2",    type: "engine",     minStaff: 4, requiredCerts: ["paramedic"], shift: "B", visible: true  },
+    { id: "E3",  name: "Engine 3",    type: "engine",     minStaff: 4, requiredCerts: ["paramedic"], shift: "C", visible: true  },
+    { id: "L1",  name: "Ladder 1",    type: "ladder",     minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "L2",  name: "Ladder 2",    type: "ladder",     minStaff: 4, requiredCerts: ["paramedic"], shift: "B", visible: true  },
+    { id: "M1",  name: "Medic 1",     type: "ambulance",  minStaff: 2, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "M2",  name: "Medic 2",     type: "ambulance",  minStaff: 2, requiredCerts: ["paramedic"], shift: "B", visible: true  },
+    { id: "M3",  name: "Medic 3",     type: "ambulance",  minStaff: 2, requiredCerts: ["paramedic"], shift: "C", visible: true  },
+    { id: "BC1", name: "Battalion 1", type: "supervisor", minStaff: 2, requiredCerts: ["officer"],   shift: "A", visible: true  },
+    { id: "BC2", name: "Battalion 2", type: "supervisor", minStaff: 2, requiredCerts: ["officer"],   shift: "B", visible: true  },
+    { id: "T1",  name: "Tender 1",    type: "specialty",  minStaff: 2, requiredCerts: ["emt"],       shift: "C", visible: true  },
+    { id: "R1",  name: "Rescue 1",    type: "specialty",  minStaff: 3, requiredCerts: ["paramedic"], shift: "A", visible: true  },
+    { id: "HM1", name: "Hazmat 1",    type: "specialty",  minStaff: 3, requiredCerts: ["engineer"],  shift: "B", visible: true  },
+    { id: "SV1", name: "Safety 1",    type: "supervisor", minStaff: 2, requiredCerts: ["officer"],   shift: "C", visible: true  },
+    { id: "U14", name: "Utility 14",  type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "C", visible: false },
+    { id: "U15", name: "Utility 15",  type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "A", visible: false },
+    { id: "R2",  name: "Rescue 2",    type: "reserve",    minStaff: 3, requiredCerts: ["paramedic"], shift: "B", visible: false },
+    { id: "M4",  name: "Medic 4",     type: "reserve",    minStaff: 2, requiredCerts: ["paramedic"], shift: "C", visible: false },
+    { id: "B1",  name: "Brush 1",     type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "A", visible: false },
+    { id: "B2",  name: "Brush 2",     type: "reserve",    minStaff: 2, requiredCerts: ["emt"],       shift: "B", visible: false },
+    { id: "L3",  name: "Ladder 3",    type: "reserve",    minStaff: 4, requiredCerts: ["paramedic"], shift: "C", visible: false },
+    { id: "E4",  name: "Engine 4",    type: "reserve",    minStaff: 4, requiredCerts: ["paramedic"], shift: "A", visible: false },
   ];
 }
+
+// ─── Render ──────────────────────────────────────────────────────────────────
 
 function render() {
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
+  dom["rotation-base-date"].value = state.rotationBaseDate;
   dom.viewButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.view === state.currentView));
   renderSummary();
   renderAlerts();
@@ -335,6 +406,8 @@ function render() {
   renderApprovalQueue();
   renderAuditLog();
   renderImportPreview();
+  renderUnitImportPreview();
+  renderEmployeeRoster();
   populateTradeSelects();
   populateOpenShiftSelects();
   renderPermissionStates();
@@ -375,8 +448,8 @@ function populateTradeSelects() {
   const employees = state.employees.map((employee) => `<option value="${employee.id}">${employee.name} • ${employee.shift}</option>`).join("");
   dom["trade-owner"].innerHTML = employees;
   dom["trade-partner"].innerHTML = employees;
-  dom["trade-owner"].value = state.currentUserId || state.employees[0].id;
-  dom["trade-partner"].value = state.employees.find((employee) => employee.id !== dom["trade-owner"].value)?.id || state.employees[1].id;
+  dom["trade-owner"].value = state.currentUserId || state.employees[0]?.id;
+  dom["trade-partner"].value = state.employees.find((employee) => employee.id !== dom["trade-owner"].value)?.id || state.employees[1]?.id;
   dom["trade-date"].value = addDays(state.currentDate, 3);
 }
 
@@ -424,29 +497,32 @@ function renderAlerts() {
     dom["alert-strip"].innerHTML = `<div class="alert-chip">No staffing alerts for ${formatDate(state.currentDate)}</div>`;
     return;
   }
-
   dom["alert-strip"].innerHTML = alerts
     .map((alert) => `<div class="alert-chip">${alert.message}</div>`)
     .join("");
 }
 
+// ─── Schedule Views ───────────────────────────────────────────────────────────
+
 function renderSchedule() {
   const range = getDateRange();
-  dom["schedule-title"].textContent =
-    state.currentView === "day"
-      ? `Daily Schedule`
-      : state.currentView === "week"
-        ? "Weekly Schedule"
-        : "Monthly Schedule";
+  const viewLabels = { day: "Daily Schedule", week: "Weekly Schedule", month: "Monthly Schedule" };
+  dom["schedule-title"].textContent = viewLabels[state.currentView] || "Schedule View";
   dom["schedule-subtitle"].textContent = `${formatDate(range[0])}${range.length > 1 ? ` through ${formatDate(range[range.length - 1])}` : ""}`;
 
-  dom["schedule-container"].innerHTML = range
-    .map((date) => renderTimelineCard(date))
-    .join("");
+  if (state.currentView === "day") {
+    dom["schedule-container"].innerHTML = renderTimelineCard(range[0]);
+  } else if (state.currentView === "week") {
+    dom["schedule-container"].innerHTML = renderWeekCalendar(range);
+  } else {
+    dom["schedule-container"].innerHTML = renderMonthCalendar(range);
+  }
 
   attachUnitMoveEvents();
+  attachCalendarNavEvents();
 }
 
+// Day view: full timeline card with unit details
 function renderTimelineCard(date) {
   const shift = getShiftForDate(date);
   const alerts = getStaffingAlerts(date);
@@ -459,15 +535,100 @@ function renderTimelineCard(date) {
       <div class="timeline-head">
         <div>
           <h3>${formatDate(date)}</h3>
-          <p class="helper-text">${shift} shift on duty • 48/96 rotation</p>
+          <p class="helper-text">${shift === "off" ? "No shift on duty" : `${shift} Shift on duty • 48/96 rotation`}</p>
         </div>
         <div class="pill-group">
           <span class="pill">${alerts.filter((item) => item.level === "danger").length} staffing risks</span>
           <span class="pill pill-highlight">${alerts.filter((item) => item.level === "warning").length} watch items</span>
         </div>
       </div>
-      <div class="timeline-grid">${unitsMarkup}</div>
+      <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
     </article>
+  `;
+}
+
+// Week view: compact 7-column calendar grid
+function renderWeekCalendar(dates) {
+  const today = todayIso();
+  const cols = dates.map((date) => {
+    const shift = getShiftForDate(date);
+    const alerts = getStaffingAlerts(date);
+    const riskCount = alerts.filter((a) => a.level === "danger").length;
+    const warnCount = alerts.filter((a) => a.level === "warning").length;
+    const isToday = date === today;
+    const isSelected = date === state.currentDate;
+    const dayName = new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(new Date(`${date}T12:00:00`));
+    const dayNum = new Date(`${date}T12:00:00`).getDate();
+
+    const activeUnits = visibleUnits().filter((u) => u.shift === shift);
+    const unitRows = activeUnits
+      .map((unit) => {
+        const people = getAssignments(date, unit.id);
+        const ok = people.length >= unit.minStaff;
+        return `<div class="cal-unit-row ${ok ? "cal-ok" : "cal-warn"}">
+          <span class="cal-unit-name">${unit.name}</span>
+          <span class="cal-unit-count">${people.length}/${unit.minStaff}</span>
+        </div>`;
+      })
+      .join("");
+
+    return `
+      <div class="cal-day-col ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}">
+        <button class="cal-day-head" data-nav-date="${date}">
+          <span class="cal-weekday">${dayName}</span>
+          <span class="cal-date-num">${dayNum}</span>
+          <span class="shift-chip shift-${shift.toLowerCase()}">${shift}</span>
+          ${riskCount > 0 ? `<span class="risk-chip">${riskCount} risk${riskCount > 1 ? "s" : ""}</span>` : ""}
+          ${warnCount > 0 && riskCount === 0 ? `<span class="warn-chip">${warnCount} watch</span>` : ""}
+        </button>
+        <div class="cal-units">
+          ${shift === "off" ? '<span class="cal-off-label">Off rotation</span>' : unitRows || '<span class="cal-off-label">No visible units</span>'}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  return `<div class="week-calendar">${cols}</div>`;
+}
+
+// Month view: traditional calendar grid
+function renderMonthCalendar(dates) {
+  const today = todayIso();
+  const firstDate = new Date(`${dates[0]}T12:00:00`);
+  // Monday-anchored: Mon=0 … Sun=6
+  const firstDow = (firstDate.getDay() + 6) % 7;
+
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const header = dayNames.map((d) => `<div class="cal-month-head">${d}</div>`).join("");
+
+  const emptyCells = Array.from({ length: firstDow }, () => '<div class="cal-month-cell is-empty"></div>').join("");
+
+  const dayCells = dates
+    .map((date) => {
+      const shift = getShiftForDate(date);
+      const alerts = getStaffingAlerts(date);
+      const riskCount = alerts.filter((a) => a.level === "danger").length;
+      const isToday = date === today;
+      const isSelected = date === state.currentDate;
+      const dayNum = new Date(`${date}T12:00:00`).getDate();
+
+      return `
+        <div class="cal-month-cell ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}">
+          <button class="cal-month-day-btn" data-nav-date="${date}">
+            <span class="cal-date-num">${dayNum}</span>
+            <span class="shift-chip shift-${shift.toLowerCase()}">${shift === "off" ? "·" : shift}</span>
+            ${riskCount > 0 ? `<span class="risk-chip">${riskCount}</span>` : ""}
+          </button>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="month-calendar">
+      <div class="month-cal-header">${header}</div>
+      <div class="month-cal-grid">${emptyCells}${dayCells}</div>
+    </div>
   `;
 }
 
@@ -479,9 +640,13 @@ function renderUnitCard(unit, date, activeShift) {
   const statusClass = !isActive ? "badge-soft" : staffingOk && certCoverage ? "badge-success" : "badge-danger";
   const statusLabel = !isActive ? "Off rotation" : staffingOk && certCoverage ? "Staffed" : "Needs attention";
 
-  const options = state.employees
-    .filter((employee) => employee.shift === unit.shift)
-    .map((employee) => `<option value="${employee.id}">${employee.name}</option>`)
+  // Show employees from the same shift as the unit; supervisors can also see off-shift options
+  const eligibleEmployees = state.currentRole === "supervisor"
+    ? state.employees  // supervisors can assign anyone (multi-truck same day is intentionally allowed)
+    : state.employees.filter((employee) => employee.shift === unit.shift);
+
+  const options = eligibleEmployees
+    .map((employee) => `<option value="${employee.id}">${employee.name} (${employee.shift})</option>`)
     .join("");
 
   return `
@@ -525,9 +690,9 @@ function renderUnitCard(unit, date, activeShift) {
       </div>
       <div class="workflow-form ${state.currentRole !== "supervisor" ? "hidden" : ""}">
         <label>
-          Add Or Reassign Personnel
+          Add Personnel
           <select data-date="${date}" data-unit="${unit.id}" class="assignment-select">
-            <option value="">Choose employee</option>
+            <option value="">Choose employee…</option>
             ${options}
           </select>
         </label>
@@ -536,32 +701,128 @@ function renderUnitCard(unit, date, activeShift) {
   `;
 }
 
+// ─── Unit Controls (Units tab) ────────────────────────────────────────────────
+
 function renderUnitControls() {
   const supervisorLocked = !state.isAuthenticated || state.currentRole !== "supervisor";
+
   dom["unit-toggle-list"].innerHTML = state.units
     .map(
       (unit) => `
-      <label class="toggle-item">
-        <div>
+      <div class="toggle-item unit-edit-row">
+        <div class="unit-edit-info">
           <strong>${unit.name}</strong>
-          <p class="helper-text">${unit.type} • ${unit.shift} shift</p>
+          ${
+            supervisorLocked
+              ? `<p class="helper-text">${unit.type} • ${unit.shift} shift</p>`
+              : `<select class="unit-type-select" data-unit-type="${unit.id}" title="Edit unit type">
+                  ${unitTypes.map((t) => `<option value="${t}" ${t === unit.type ? "selected" : ""}>${t}</option>`).join("")}
+                </select>`
+          }
         </div>
-        <input type="checkbox" data-unit-toggle="${unit.id}" ${unit.visible ? "checked" : ""} ${supervisorLocked ? "disabled" : ""} />
-      </label>
+        <input type="checkbox" data-unit-toggle="${unit.id}" ${unit.visible ? "checked" : ""} ${supervisorLocked ? "disabled" : ""} aria-label="Show ${unit.name}" />
+      </div>
     `,
     )
     .join("");
 
+  // Visibility toggles
   [...document.querySelectorAll("[data-unit-toggle]")].forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
       const unit = state.units.find((item) => item.id === checkbox.dataset.unitToggle);
+      if (!unit) return;
       unit.visible = checkbox.checked;
       addAudit(`${unit.name} ${unit.visible ? "shown" : "hidden"} on schedule view.`, currentUserName());
       render();
       persistAppState("Unit visibility updated");
     });
   });
+
+  // Type editing
+  [...document.querySelectorAll("[data-unit-type]")].forEach((select) => {
+    select.addEventListener("change", () => {
+      const unit = state.units.find((item) => item.id === select.dataset.unitType);
+      if (!unit) return;
+      const oldType = unit.type;
+      unit.type = select.value;
+      addAudit(`${unit.name} type changed from ${oldType} to ${unit.type}.`, currentUserName());
+      persistAppState("Unit type updated");
+    });
+  });
 }
+
+// ─── Employee Roster ──────────────────────────────────────────────────────────
+
+function renderEmployeeRoster() {
+  const { shift, sort, showOffShift } = state.employeeFilter;
+  const activeShift = getShiftForDate(state.currentDate);
+
+  let employees = [...state.employees];
+
+  // Filter by shift
+  if (shift !== "all") {
+    employees = employees.filter((e) => e.shift === shift);
+  }
+
+  // If showOffShift is false and no explicit shift filter, only show employees whose shift matches today
+  // (The checkbox explicitly opts in to seeing off-shift employees for overtime planning)
+  // When "all" is selected, show everyone but mark on/off duty clearly
+
+  // Sort
+  if (sort === "name") {
+    employees.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (sort === "cert") {
+    const certOrder = { officer: 0, paramedic: 1, engineer: 2, emt: 3 };
+    employees.sort((a, b) => {
+      const aLevel = Math.min(...a.certs.map((c) => certOrder[c] ?? 99));
+      const bLevel = Math.min(...b.certs.map((c) => certOrder[c] ?? 99));
+      return aLevel - bLevel || a.name.localeCompare(b.name);
+    });
+  }
+
+  if (!employees.length) {
+    dom["employee-roster"].innerHTML = '<div class="empty-state">No employees match the current filter.</div>';
+    return;
+  }
+
+  // Group by shift when sort is "cert" to make credential levels clear
+  const rows = employees
+    .filter((emp) => showOffShift || emp.shift === activeShift || shift !== "all")
+    .map((emp) => {
+      const onDuty = emp.shift === activeShift;
+
+      // Find their assignments for the current date
+      const dayAssignments = Object.entries(state.assignments[state.currentDate] || {})
+        .filter(([, people]) => people.some((p) => p.id === emp.id))
+        .map(([unitId]) => unitById(unitId)?.name)
+        .filter(Boolean);
+
+      const dutyBadge = onDuty
+        ? `<span class="badge badge-success roster-duty-badge">On duty</span>`
+        : `<span class="badge badge-soft roster-duty-badge">Off duty</span>`;
+
+      return `
+        <div class="roster-row">
+          <div class="roster-row-info">
+            <strong>${emp.name}</strong>
+            <small>${emp.title} • ${emp.shift} Shift</small>
+          </div>
+          <div class="roster-row-meta">
+            <div class="pill-group">
+              ${emp.certs.map((c) => `<span class="pill">${c}</span>`).join("")}
+            </div>
+            ${dutyBadge}
+          </div>
+          ${dayAssignments.length ? `<div class="roster-assignments"><small>Assigned: ${dayAssignments.join(", ")}</small></div>` : ""}
+        </div>
+      `;
+    })
+    .join("");
+
+  dom["employee-roster"].innerHTML = rows || '<div class="empty-state">No employees on duty for this shift. Enable "Show off-shift availability" to see all personnel.</div>';
+}
+
+// ─── Notifications, Queues, Audit ─────────────────────────────────────────────
 
 function renderNotifications() {
   dom["notification-center"].innerHTML = state.notifications.length
@@ -643,73 +904,73 @@ function renderAuditLog() {
 
 function renderImportPreview() {
   if (!state.importPreview) {
-    dom["import-preview"].innerHTML = `<div class="empty-state">No import preview yet. Choose a CSV and preview it before applying.</div>`;
+    dom["import-preview"].innerHTML = `<div class="empty-state">No preview yet. Choose a CSV and click Preview.</div>`;
     return;
   }
+  dom["import-preview"].innerHTML = buildImportPreviewHtml(state.importPreview, "Employee");
+}
 
-  const { type, stats, errors, warnings, rows } = state.importPreview;
+function renderUnitImportPreview() {
+  if (!state.unitImportPreview) {
+    dom["unit-import-preview"].innerHTML = `<div class="empty-state">No preview yet. Choose a CSV and click Preview.</div>`;
+    return;
+  }
+  dom["unit-import-preview"].innerHTML = buildImportPreviewHtml(state.unitImportPreview, "Unit");
+}
+
+function buildImportPreviewHtml(preview, label) {
+  const { stats, errors, warnings, rows } = preview;
   const sampleRows = rows.slice(0, 5);
   const tableHeaders = sampleRows.length ? Object.keys(sampleRows[0]) : [];
 
-  dom["import-preview"].innerHTML = `
+  return `
     <article class="queue-item">
-      <strong>${capitalize(type)} import preview</strong>
+      <strong>${label} import preview</strong>
       <p>${stats.valid} valid row(s), ${errors.length} error(s), ${warnings.length} warning(s)</p>
       <time>Ready for supervisor review</time>
     </article>
     ${
       errors.length
-        ? `
-      <article class="queue-item">
-        <strong>Errors</strong>
-        <div class="status-box status-box-error">
-          <p>The import is blocked until these are fixed:</p>
-          <ul class="status-list">
-            ${errors.map((error) => `<li>${error.message || "Unknown import error."}</li>`).join("")}
-          </ul>
-        </div>
-      </article>
-    `
+        ? `<article class="queue-item">
+            <strong>Errors</strong>
+            <div class="status-box status-box-error">
+              <p>The import is blocked until these are fixed:</p>
+              <ul class="status-list">${errors.map((e) => `<li>${e.message || "Unknown error."}</li>`).join("")}</ul>
+            </div>
+          </article>`
         : ""
     }
     ${
       warnings.length
-        ? `
-      <article class="queue-item">
-        <strong>Warnings</strong>
-        <div class="status-box status-box-warning">
-          <p>Warnings will not block import, but they should be reviewed:</p>
-          <ul class="status-list">
-            ${warnings.map((warning) => `<li>${warning.message || "Unknown import warning."}</li>`).join("")}
-          </ul>
-        </div>
-      </article>
-    `
+        ? `<article class="queue-item">
+            <strong>Warnings</strong>
+            <div class="status-box status-box-warning">
+              <p>These will not block import but should be reviewed:</p>
+              <ul class="status-list">${warnings.map((w) => `<li>${w.message || "Unknown warning."}</li>`).join("")}</ul>
+            </div>
+          </article>`
         : ""
     }
     ${
       sampleRows.length
-        ? `
-      <article class="queue-item">
-        <strong>Sample rows</strong>
-        <table class="preview-table">
-          <thead>
-            <tr>${tableHeaders.map((header) => `<th>${header}</th>`).join("")}</tr>
-          </thead>
-          <tbody>
-            ${sampleRows.map((row) => `<tr>${tableHeaders.map((header) => `<td>${row[header] ?? ""}</td>`).join("")}</tr>`).join("")}
-          </tbody>
-        </table>
-      </article>
-    `
+        ? `<article class="queue-item">
+            <strong>Sample rows</strong>
+            <table class="preview-table">
+              <thead><tr>${tableHeaders.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+              <tbody>${sampleRows.map((row) => `<tr>${tableHeaders.map((h) => `<td>${row[h] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody>
+            </table>
+          </article>`
         : ""
     }
   `;
 }
 
+// ─── Permission States ────────────────────────────────────────────────────────
+
 function renderPermissionStates() {
   const supervisorLocked = !state.isAuthenticated || state.currentRole !== "supervisor";
   const employeeLocked = !state.isAuthenticated;
+
   dom["publish-btn"].disabled = supervisorLocked;
   dom["supervisor-save-btn"].disabled = supervisorLocked;
   dom["post-open-btn"].disabled = supervisorLocked;
@@ -725,12 +986,19 @@ function renderPermissionStates() {
   dom["open-date"].disabled = supervisorLocked;
   dom["open-qualification"].disabled = supervisorLocked;
   dom["open-report-time"].disabled = supervisorLocked;
-  dom["import-type"].disabled = supervisorLocked;
+  // Employee import
   dom["import-file"].disabled = supervisorLocked;
   dom["preview-import-btn"].disabled = supervisorLocked;
   dom["apply-import-btn"].disabled = supervisorLocked || !state.importPreview || state.importPreview.errors.length > 0;
   dom["download-employee-template-btn"].disabled = supervisorLocked;
+  // Unit import
+  dom["unit-import-file"].disabled = supervisorLocked;
+  dom["unit-preview-import-btn"].disabled = supervisorLocked;
+  dom["unit-apply-import-btn"].disabled = supervisorLocked || !state.unitImportPreview || state.unitImportPreview.errors.length > 0;
   dom["download-unit-template-btn"].disabled = supervisorLocked;
+  // Settings
+  dom["rotation-base-date"].disabled = supervisorLocked;
+
   dom.mainContent.classList.toggle("is-locked", !state.isAuthenticated);
   dom.accessGate.classList.toggle("hidden", state.isAuthenticated);
 
@@ -743,22 +1011,26 @@ function renderPermissionStates() {
   }
 }
 
+// ─── Event Handlers ───────────────────────────────────────────────────────────
+
 function attachUnitMoveEvents() {
   [...document.querySelectorAll(".assignment-select")].forEach((select) => {
     select.addEventListener("change", () => {
-      if (!select.value) {
-        return;
-      }
+      if (!select.value) return;
       const date = select.dataset.date;
       const unitId = select.dataset.unit;
       const employee = employeeById(select.value);
+      if (!employee) return;
       const existingAssignments = getAssignments(date, unitId);
+      // Prevent adding the same employee to the same unit twice, but allow them on multiple units
       if (existingAssignments.find((person) => person.id === employee.id)) {
+        select.value = "";
         return;
       }
+      if (!state.assignments[date]) state.assignments[date] = {};
       state.assignments[date][unitId] = [...existingAssignments, employee];
-      addAudit(`${employee.name} added to ${unitById(unitId).name} on ${formatDate(date)}.`, currentUserName());
-      createNotification(`${employee.name} reassigned to ${unitById(unitId).name} for ${formatDate(date)}.`, "email", currentUserName());
+      addAudit(`${employee.name} added to ${unitById(unitId)?.name} on ${formatDate(date)}.`, currentUserName());
+      createNotification(`${employee.name} assigned to ${unitById(unitId)?.name} for ${formatDate(date)}.`, "email", currentUserName());
       render();
       persistAppState("Assignment updated");
     });
@@ -769,11 +1041,22 @@ function attachUnitMoveEvents() {
       const date = button.dataset.removeDate;
       const unitId = button.dataset.removeUnit;
       const employeeId = button.dataset.removeAssignment;
+      if (!state.assignments[date]) return;
       state.assignments[date][unitId] = getAssignments(date, unitId).filter((person) => person.id !== employeeId);
-      addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId).name} on ${formatDate(date)}.`, currentUserName());
-      createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId).name} for ${formatDate(date)}.`, "email", currentUserName());
+      addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId)?.name} on ${formatDate(date)}.`, currentUserName());
+      createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId)?.name} for ${formatDate(date)}.`, "email", currentUserName());
       render();
       persistAppState("Assignment removed");
+    });
+  });
+}
+
+function attachCalendarNavEvents() {
+  [...document.querySelectorAll("[data-nav-date]")].forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.currentDate = btn.dataset.navDate;
+      state.currentView = "day";
+      render();
     });
   });
 }
@@ -785,7 +1068,7 @@ function handleSignIn() {
     return;
   }
   if (dom["pin-input"].value !== user.pin) {
-    dom["auth-message"].textContent = "PIN did not match. Trial employee PINs rotate through 1111-6666. Supervisor PIN is 9000.";
+    dom["auth-message"].textContent = "PIN did not match. Employee PINs cycle through 1111–6666. Supervisor PIN is 9000.";
     return;
   }
   state.isAuthenticated = true;
@@ -804,7 +1087,7 @@ function handlePublish() {
   state.scheduleStatus = "published";
   dom["schedule-status"].value = "published";
   addAudit(`Published ${state.currentView} schedule anchored on ${formatDate(state.currentDate)}.`, currentUserName());
-  createNotification(`Schedule published for ${formatDate(state.currentDate)} and forward planning window.`, "email", currentUserName());
+  createNotification(`Schedule published for ${formatDate(state.currentDate)}.`, "email", currentUserName());
   render();
   persistAppState("Schedule published");
 }
@@ -816,8 +1099,9 @@ function saveSupervisorEdits() {
   }
   addAudit(`Supervisor staffing edits saved for ${formatDate(state.currentDate)}.`, currentUserName());
   createNotification(`Staffing updates saved for ${formatDate(state.currentDate)}.`, "email", currentUserName());
-  render();
   persistAppState("Supervisor edits saved");
+  showToast("Supervisor edits saved successfully.", "success");
+  render();
 }
 
 function createTradeRequest() {
@@ -828,9 +1112,7 @@ function createTradeRequest() {
   const ownerId = dom["trade-owner"].value;
   const partnerId = dom["trade-partner"].value;
   const date = dom["trade-date"].value;
-  if (!ownerId || !partnerId || ownerId === partnerId) {
-    return;
-  }
+  if (!ownerId || !partnerId || ownerId === partnerId) return;
   const trade = {
     id: `TR-${Date.now()}`,
     status: "pending",
@@ -864,9 +1146,9 @@ function createOpenShift() {
     applicants: availableEmployeesForOpenShift(dom["open-date"].value).slice(0, 3).map((employee) => employee.id),
   };
   state.overtimePosts.push(post);
-  addAudit(`Open shift posted for ${unitById(post.unitId).name} on ${formatDate(post.date)}.`, currentUserName());
+  addAudit(`Open shift posted for ${unitById(post.unitId)?.name} on ${formatDate(post.date)}.`, currentUserName());
   createNotification(
-    `Open shift posted for ${unitById(post.unitId).name}. Eligible off-duty employees were notified by email. SMS can be enabled later.`,
+    `Open shift posted for ${unitById(post.unitId)?.name}. Eligible off-duty employees notified by email.`,
     "email",
     currentUserName(),
   );
@@ -879,13 +1161,15 @@ function createDailyDigest() {
     dom["auth-message"].textContent = "Sign in is required to send the daily digest.";
     return;
   }
-  createNotification(`Daily digest sent for ${formatDate(state.currentDate)} to logged-in department members.`, "email", "System");
+  createNotification(`Daily digest sent for ${formatDate(state.currentDate)} to on-duty personnel.`, "email", "System");
   addAudit(`Daily digest generated for ${formatDate(state.currentDate)}.`, "System");
   render();
   persistAppState("Daily digest created");
 }
 
-async function previewImport() {
+// ─── Import ───────────────────────────────────────────────────────────────────
+
+async function previewEmployeeImport() {
   if (state.currentRole !== "supervisor" || !state.isAuthenticated) {
     dom["import-message"].textContent = "Supervisor sign-in is required to preview imports.";
     return;
@@ -895,47 +1179,30 @@ async function previewImport() {
     dom["import-message"].textContent = "Choose a CSV file first.";
     return;
   }
-
   const raw = await file.text();
   const rows = parseCsv(raw);
   if (!rows.length) {
-    state.importPreview = {
-      type: dom["import-type"].value,
-      rows: [],
-      errors: [{ message: "The CSV did not contain any data rows." }],
-      warnings: [],
-      validRows: [],
-      stats: { valid: 0 },
-    };
+    state.importPreview = { type: "employees", rows: [], errors: [{ message: "The CSV did not contain any data rows." }], warnings: [], validRows: [], stats: { valid: 0 } };
     dom["import-message"].textContent = "The selected CSV was empty.";
     render();
     return;
   }
-  const type = dom["import-type"].value;
-  const preview = type === "employees" ? validateEmployeeImport(rows) : validateUnitImport(rows);
-  state.importPreview = { ...preview, type };
+  const preview = validateEmployeeImport(rows);
+  state.importPreview = { ...preview, type: "employees" };
   if (preview.errors.length) {
-    const topErrors = preview.errors
-      .slice(0, 3)
-      .map((error) => error.message || "Unknown import error.")
-      .join(" ");
-    dom["import-message"].textContent = `Preview found ${preview.errors.length} error(s). ${topErrors}`;
+    dom["import-message"].textContent = `Preview found ${preview.errors.length} error(s). ${preview.errors.slice(0, 2).map((e) => e.message).join(" ")}`;
   } else if (preview.warnings.length) {
-    const topWarnings = preview.warnings
-      .slice(0, 2)
-      .map((warning) => warning.message || "Unknown import warning.")
-      .join(" ");
-    dom["import-message"].textContent = `Preview found ${preview.warnings.length} warning(s). ${topWarnings}`;
+    dom["import-message"].textContent = `Preview ready with ${preview.warnings.length} warning(s). Review before applying.`;
   } else {
-    dom["import-message"].textContent = `Preview ready for ${rows.length} row(s). No blocking errors were found.`;
+    dom["import-message"].textContent = `Preview ready for ${rows.length} row(s). No blocking errors.`;
   }
   render();
   dom["import-preview"].scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function applyImport() {
+function applyEmployeeImport() {
   if (state.currentRole !== "supervisor" || !state.isAuthenticated) {
-    dom["import-message"].textContent = "Supervisor sign-in is required to apply imports.";
+    dom["import-message"].textContent = "Supervisor sign-in is required.";
     return;
   }
   if (!state.importPreview) {
@@ -946,24 +1213,76 @@ function applyImport() {
     dom["import-message"].textContent = "Resolve import errors before applying.";
     return;
   }
-
-  if (state.importPreview.type === "employees") {
-    mergeEmployees(state.importPreview.validRows);
-  } else {
-    mergeUnits(state.importPreview.validRows);
-  }
-
+  mergeEmployees(state.importPreview.validRows);
   state.importPreview = null;
   seedAssignments(true);
   populateUserSelect();
   populateTradeSelects();
   populateOpenShiftSelects();
-  addAudit(`${capitalize(dom["import-type"].value)} CSV import applied.`, currentUserName());
-  createNotification(`${capitalize(dom["import-type"].value)} import completed successfully.`, "email", currentUserName());
-  dom["import-message"].textContent = "Import applied successfully and the schedule was regenerated.";
+  addAudit("Employee CSV import applied.", currentUserName());
+  createNotification("Employee import completed successfully.", "email", currentUserName());
+  dom["import-message"].textContent = "Employee import applied and schedule regenerated.";
   dom["import-file"].value = "";
   render();
-  persistAppState("CSV import applied");
+  showToast("Employee import applied successfully.", "success");
+  persistAppState("Employee CSV import applied");
+}
+
+async function previewUnitImport() {
+  if (state.currentRole !== "supervisor" || !state.isAuthenticated) {
+    dom["unit-import-message"].textContent = "Supervisor sign-in is required to preview imports.";
+    return;
+  }
+  const file = dom["unit-import-file"].files[0];
+  if (!file) {
+    dom["unit-import-message"].textContent = "Choose a CSV file first.";
+    return;
+  }
+  const raw = await file.text();
+  const rows = parseCsv(raw);
+  if (!rows.length) {
+    state.unitImportPreview = { type: "units", rows: [], errors: [{ message: "The CSV did not contain any data rows." }], warnings: [], validRows: [], stats: { valid: 0 } };
+    dom["unit-import-message"].textContent = "The selected CSV was empty.";
+    render();
+    return;
+  }
+  const preview = validateUnitImport(rows);
+  state.unitImportPreview = { ...preview, type: "units" };
+  if (preview.errors.length) {
+    dom["unit-import-message"].textContent = `Preview found ${preview.errors.length} error(s). ${preview.errors.slice(0, 2).map((e) => e.message).join(" ")}`;
+  } else if (preview.warnings.length) {
+    dom["unit-import-message"].textContent = `Preview ready with ${preview.warnings.length} warning(s). Review before applying.`;
+  } else {
+    dom["unit-import-message"].textContent = `Preview ready for ${rows.length} row(s). No blocking errors.`;
+  }
+  render();
+  dom["unit-import-preview"].scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function applyUnitImport() {
+  if (state.currentRole !== "supervisor" || !state.isAuthenticated) {
+    dom["unit-import-message"].textContent = "Supervisor sign-in is required.";
+    return;
+  }
+  if (!state.unitImportPreview) {
+    dom["unit-import-message"].textContent = "Preview the CSV before applying it.";
+    return;
+  }
+  if (state.unitImportPreview.errors.length) {
+    dom["unit-import-message"].textContent = "Resolve import errors before applying.";
+    return;
+  }
+  mergeUnits(state.unitImportPreview.validRows);
+  state.unitImportPreview = null;
+  seedAssignments(true);
+  populateOpenShiftSelects();
+  addAudit("Unit CSV import applied.", currentUserName());
+  createNotification("Unit import completed successfully.", "email", currentUserName());
+  dom["unit-import-message"].textContent = "Unit import applied and schedule regenerated.";
+  dom["unit-import-file"].value = "";
+  render();
+  showToast("Unit import applied successfully.", "success");
+  persistAppState("Unit CSV import applied");
 }
 
 function downloadEmployeeTemplate() {
@@ -971,8 +1290,8 @@ function downloadEmployeeTemplate() {
     "d7fr-employees-template.csv",
     [
       "id,name,shift,title,certs,pin,email,isSupervisor",
-      'EMP-061,"Jamie Stone",AA,Firefighter,"emt|paramedic",1234,jamie.stone@d7fr.org,false',
-      'EMP-062,"Avery Cole",BB,Captain,"officer|emt",9000,avery.cole@d7fr.org,true',
+      'EMP-061,"Jamie Stone",A,Firefighter,"emt|paramedic",1234,jamie.stone@d7fr.org,false',
+      'EMP-062,"Avery Cole",B,Captain,"officer|emt",9000,avery.cole@d7fr.org,true',
     ].join("\n"),
   );
 }
@@ -982,8 +1301,8 @@ function downloadUnitTemplate() {
     "d7fr-units-template.csv",
     [
       "id,name,type,minStaff,requiredCerts,shift,visible",
-      'E5,"Engine 5",engine,4,"paramedic",AA,true',
-      'M5,"Medic 5",ambulance,2,"paramedic",BB,false',
+      'E5,"Engine 5",engine,4,"paramedic",A,true',
+      'M5,"Medic 5",ambulance,2,"paramedic",B,false',
     ].join("\n"),
   );
 }
@@ -992,24 +1311,23 @@ function approveQueueItem(id) {
   const trade = state.trades.find((item) => item.id === id);
   if (trade) {
     trade.status = "approved";
-    createNotification(`Trade for ${formatDate(trade.date)} approved for ${employeeById(trade.employeeId).name} and ${employeeById(trade.partnerId).name}.`, "email", currentUserName());
+    createNotification(`Trade for ${formatDate(trade.date)} approved for ${employeeById(trade.employeeId)?.name} and ${employeeById(trade.partnerId)?.name}.`, "email", currentUserName());
     addAudit(`Trade ${trade.id} approved.`, currentUserName());
     render();
     persistAppState("Trade approved");
     return;
   }
-
   const overtime = state.overtimePosts.find((item) => item.id === id);
   if (overtime) {
     overtime.status = "approved";
     overtime.approvedEmployeeId = overtime.applicants[0];
     const employee = employeeById(overtime.approvedEmployeeId);
     createNotification(
-      `${employee.name} approved for overtime on ${formatDate(overtime.date)} at ${unitById(overtime.unitId).name}. Report at ${overtime.reportTime}.`,
+      `${employee?.name} approved for overtime on ${formatDate(overtime.date)} at ${unitById(overtime.unitId)?.name}. Report at ${overtime.reportTime}.`,
       "email",
       currentUserName(),
     );
-    addAudit(`Overtime ${overtime.id} awarded to ${employee.name}.`, currentUserName());
+    addAudit(`Overtime ${overtime.id} awarded to ${employee?.name}.`, currentUserName());
     render();
     persistAppState("Overtime approved");
   }
@@ -1028,12 +1346,37 @@ function denyQueueItem(id) {
   const overtime = state.overtimePosts.find((item) => item.id === id);
   if (overtime) {
     overtime.status = "denied";
-    createNotification(`Open shift for ${unitById(overtime.unitId).name} on ${formatDate(overtime.date)} was closed without assignment.`, "email", currentUserName());
+    createNotification(`Open shift for ${unitById(overtime.unitId)?.name} on ${formatDate(overtime.date)} was closed without assignment.`, "email", currentUserName());
     addAudit(`Overtime ${overtime.id} denied or closed.`, currentUserName());
     render();
     persistAppState("Overtime denied");
   }
 }
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+
+function showToast(message, type = "success") {
+  const existing = document.getElementById("app-toast");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "app-toast";
+  toast.className = `app-toast app-toast-${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  // Trigger transition
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => toast.classList.add("is-visible"));
+  });
+
+  setTimeout(() => {
+    toast.classList.remove("is-visible");
+    setTimeout(() => toast.remove(), 350);
+  }, 3000);
+}
+
+// ─── Date / Schedule Helpers ──────────────────────────────────────────────────
 
 function shiftDate(direction) {
   const amount = state.currentView === "day" ? 1 : state.currentView === "week" ? 7 : 28;
@@ -1062,25 +1405,20 @@ function getStaffingAlerts(date) {
       const people = getAssignments(date, unit.id);
       const alerts = [];
       if (people.length < unit.minStaff) {
-        alerts.push({
-          level: "danger",
-          message: `${unit.name} short ${unit.minStaff - people.length} staffing slot(s).`,
-        });
+        alerts.push({ level: "danger", message: `${unit.name} short ${unit.minStaff - people.length} staffing slot(s).` });
       }
       unit.requiredCerts.forEach((cert) => {
         if (!people.some((person) => person.certs.includes(cert))) {
-          alerts.push({
-            level: "warning",
-            message: `${unit.name} missing ${cert} coverage.`,
-          });
+          alerts.push({ level: "warning", message: `${unit.name} missing ${cert} coverage.` });
         }
       });
       return alerts;
     });
 }
 
+// Use state.rotationBaseDate as the anchor so admins can configure it
 function getShiftForDate(date) {
-  const diff = diffDays(baseDate, date);
+  const diff = diffDays(state.rotationBaseDate, date);
   const index = ((diff % rotationPattern.length) + rotationPattern.length) % rotationPattern.length;
   return rotationPattern[index];
 }
@@ -1098,8 +1436,10 @@ function availableEmployeesForOpenShift(date) {
   return state.employees.filter((employee) => employee.shift !== activeShift);
 }
 
+// ─── Notification / Audit Helpers ─────────────────────────────────────────────
+
 function createNotification(message, channel, createdBy) {
-  const title = channel === "sms" ? "SMS-ready integration" : "Email notification";
+  const title = channel === "sms" ? "SMS notification" : "Email notification";
   const entry = {
     id: `NT-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     title,
@@ -1137,8 +1477,10 @@ function unitById(id) {
   return state.units.find((unit) => unit.id === id);
 }
 
+// ─── Date Utilities ───────────────────────────────────────────────────────────
+
 function todayIso() {
-  return "2026-04-10";
+  return new Date().toISOString().slice(0, 10);
 }
 
 function addDays(dateString, amount) {
@@ -1183,6 +1525,8 @@ function formatDateTime(date) {
   }).format(date);
 }
 
+// ─── CSV Parsing & Validation ─────────────────────────────────────────────────
+
 function parseCsv(input) {
   const rows = [];
   let current = "";
@@ -1192,56 +1536,31 @@ function parseCsv(input) {
   for (let index = 0; index < input.length; index += 1) {
     const char = input[index];
     const next = input[index + 1];
-
     if (char === '"') {
-      if (inQuotes && next === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
+      if (inQuotes && next === '"') { current += '"'; index += 1; }
+      else { inQuotes = !inQuotes; }
       continue;
     }
-
-    if (char === "," && !inQuotes) {
-      row.push(current.trim());
-      current = "";
-      continue;
-    }
-
+    if (char === "," && !inQuotes) { row.push(current.trim()); current = ""; continue; }
     if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && next === "\n") {
-        index += 1;
-      }
+      if (char === "\r" && next === "\n") index += 1;
       row.push(current.trim());
-      if (row.some((cell) => cell !== "")) {
-        rows.push(row);
-      }
-      row = [];
-      current = "";
+      if (row.some((cell) => cell !== "")) rows.push(row);
+      row = []; current = "";
       continue;
     }
-
     current += char;
   }
-
   if (current || row.length) {
     row.push(current.trim());
-    if (row.some((cell) => cell !== "")) {
-      rows.push(row);
-    }
+    if (row.some((cell) => cell !== "")) rows.push(row);
   }
-
-  if (!rows.length) {
-    return [];
-  }
+  if (!rows.length) return [];
 
   const headers = rows[0].map((header) => normalizeHeader(header));
   return rows.slice(1).map((cells) => {
     const entry = {};
-    headers.forEach((header, index) => {
-      entry[header] = cells[index] ?? "";
-    });
+    headers.forEach((header, index) => { entry[header] = cells[index] ?? ""; });
     return entry;
   });
 }
@@ -1264,40 +1583,21 @@ function validateEmployeeImport(rows) {
       email: row.email || "",
       isSupervisor: parseBoolean(row.issupervisor),
     };
-
-    if (!normalized.name) {
-      errors.push({ message: `Employee row ${line} is missing a name.` });
-      return;
-    }
-    if (!["AA", "BB", "CC"].includes(normalized.shift)) {
-      errors.push({ message: `Employee row ${line} must use shift AA, BB, or CC.` });
-      return;
-    }
-    if (!normalized.email) {
-      warnings.push({ message: `Employee row ${line} has no email address.` });
-    }
+    if (!normalized.name) { errors.push({ message: `Row ${line}: missing name.` }); return; }
+    if (!["A", "B", "C"].includes(normalized.shift)) { errors.push({ message: `Row ${line}: shift must be A, B, or C.` }); return; }
+    if (!normalized.email) warnings.push({ message: `Row ${line}: no email address.` });
     const invalidCerts = certs.filter((cert) => !employeeRoles.includes(cert));
-    if (invalidCerts.length) {
-      errors.push({ message: `Employee row ${line} has invalid cert values: ${invalidCerts.join(", ")}.` });
-      return;
-    }
+    if (invalidCerts.length) { errors.push({ message: `Row ${line}: invalid cert values: ${invalidCerts.join(", ")}.` }); return; }
     validRows.push(normalized);
   });
 
-  return {
-    rows,
-    errors,
-    warnings,
-    validRows,
-    stats: { valid: validRows.length },
-  };
+  return { rows, errors, warnings, validRows, stats: { valid: validRows.length } };
 }
 
 function validateUnitImport(rows) {
   const errors = [];
   const warnings = [];
   const validRows = [];
-  const allowedTypes = ["engine", "ladder", "ambulance", "supervisor", "specialty", "reserve"];
 
   rows.forEach((row, index) => {
     const line = index + 2;
@@ -1311,41 +1611,17 @@ function validateUnitImport(rows) {
       shift: (row.shift || "").toUpperCase(),
       visible: parseBoolean(row.visible),
     };
-
-    if (!normalized.id || !normalized.name) {
-      errors.push({ message: `Unit row ${line} is missing id or name.` });
-      return;
-    }
-    if (!allowedTypes.includes(normalized.type)) {
-      errors.push({ message: `Unit row ${line} has an invalid type.` });
-      return;
-    }
-    if (!Number.isFinite(normalized.minStaff) || normalized.minStaff < 1) {
-      errors.push({ message: `Unit row ${line} needs a valid minimum staffing number.` });
-      return;
-    }
-    if (!["AA", "BB", "CC"].includes(normalized.shift)) {
-      errors.push({ message: `Unit row ${line} must use shift AA, BB, or CC.` });
-      return;
-    }
+    if (!normalized.id || !normalized.name) { errors.push({ message: `Row ${line}: missing id or name.` }); return; }
+    if (!unitTypes.includes(normalized.type)) { errors.push({ message: `Row ${line}: invalid type "${normalized.type}". Must be one of: ${unitTypes.join(", ")}.` }); return; }
+    if (!Number.isFinite(normalized.minStaff) || normalized.minStaff < 1) { errors.push({ message: `Row ${line}: minStaff must be a positive number.` }); return; }
+    if (!["A", "B", "C"].includes(normalized.shift)) { errors.push({ message: `Row ${line}: shift must be A, B, or C.` }); return; }
     const invalidCerts = requiredCerts.filter((cert) => !employeeRoles.includes(cert));
-    if (invalidCerts.length) {
-      errors.push({ message: `Unit row ${line} has invalid required certs: ${invalidCerts.join(", ")}.` });
-      return;
-    }
-    if (normalized.type === "reserve" && normalized.visible) {
-      warnings.push({ message: `Unit row ${line} is reserve but marked visible.` });
-    }
+    if (invalidCerts.length) { errors.push({ message: `Row ${line}: invalid required certs: ${invalidCerts.join(", ")}.` }); return; }
+    if (normalized.type === "reserve" && normalized.visible) warnings.push({ message: `Row ${line}: reserve unit marked visible.` });
     validRows.push(normalized);
   });
 
-  return {
-    rows,
-    errors,
-    warnings,
-    validRows,
-    stats: { valid: validRows.length },
-  };
+  return { rows, errors, warnings, validRows, stats: { valid: validRows.length } };
 }
 
 function mergeEmployees(rows) {
@@ -1357,30 +1633,21 @@ function mergeEmployees(rows) {
       certs: Array.from(new Set(row.certs.length ? row.certs : ["emt"])),
       isSupervisor: row.isSupervisor || row.certs.includes("officer"),
     };
-    if (existingIndex >= 0) {
-      state.employees[existingIndex] = nextEmployee;
-    } else {
-      state.employees.push(nextEmployee);
-    }
+    if (existingIndex >= 0) { state.employees[existingIndex] = nextEmployee; }
+    else { state.employees.push(nextEmployee); }
   });
 }
 
 function mergeUnits(rows) {
   rows.forEach((row) => {
     const existingIndex = state.units.findIndex((unit) => unit.id === row.id);
-    if (existingIndex >= 0) {
-      state.units[existingIndex] = { ...state.units[existingIndex], ...row };
-    } else {
-      state.units.push(row);
-    }
+    if (existingIndex >= 0) { state.units[existingIndex] = { ...state.units[existingIndex], ...row }; }
+    else { state.units.push(row); }
   });
 }
 
 function splitList(value) {
-  return (value || "")
-    .split(/[|;]+/)
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+  return (value || "").split(/[|;]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
 }
 
 function parseBoolean(value) {
@@ -1388,10 +1655,7 @@ function parseBoolean(value) {
 }
 
 function normalizeHeader(header) {
-  return String(header || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+  return String(header || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function downloadCsv(filename, content) {
@@ -1410,6 +1674,8 @@ function capitalize(value) {
   return String(value).charAt(0).toUpperCase() + String(value).slice(1);
 }
 
+// ─── Persistence ──────────────────────────────────────────────────────────────
+
 function hasRemotePersistence() {
   const config = window.APP_CONFIG || {};
   return Boolean(config.supabaseUrl && config.supabaseAnonKey);
@@ -1423,9 +1689,7 @@ async function loadRemoteState() {
   const response = await fetch(`${remoteBaseUrl()}?id=eq.${encodeURIComponent(REMOTE_STATE_ID)}&select=state`, {
     headers: remoteHeaders(),
   });
-  if (!response.ok) {
-    throw new Error(`Remote load failed with status ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Remote load failed with status ${response.status}`);
   const rows = await response.json();
   return rows[0]?.state || null;
 }
@@ -1462,14 +1726,9 @@ async function saveRemoteState() {
       "Content-Type": "application/json",
       Prefer: "resolution=merge-duplicates,return=minimal",
     },
-    body: JSON.stringify({
-      id: REMOTE_STATE_ID,
-      state: serializableState(),
-    }),
+    body: JSON.stringify({ id: REMOTE_STATE_ID, state: serializableState() }),
   });
-  if (!response.ok) {
-    throw new Error(`Remote save failed with status ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Remote save failed with status ${response.status}`);
 }
 
 function remoteHeaders() {
@@ -1485,15 +1744,9 @@ function saveLocalState() {
 
 function loadLocalState() {
   const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    console.error("Local state parse failed", error);
-    return null;
-  }
+  if (!raw) return null;
+  try { return JSON.parse(raw); }
+  catch (error) { console.error("Local state parse failed", error); return null; }
 }
 
 function serializableState() {
@@ -1506,10 +1759,16 @@ function serializableState() {
     auditLog: state.auditLog,
     assignments: state.assignments,
     scheduleStatus: state.scheduleStatus,
+    rotationBaseDate: state.rotationBaseDate,
+    employeeFilter: state.employeeFilter,
+    activeAdminTab: state.activeAdminTab,
   };
 }
 
 function applyPersistedState(data) {
+  // Migrate old AA/BB/CC shift names to A/B/C
+  migrateShiftNames(data);
+
   state.units = Array.isArray(data.units) ? data.units : defaultUnits();
   state.employees = Array.isArray(data.employees) ? data.employees : [];
   state.trades = Array.isArray(data.trades) ? data.trades : [];
@@ -1518,7 +1777,21 @@ function applyPersistedState(data) {
   state.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
   state.assignments = data.assignments && typeof data.assignments === "object" ? data.assignments : {};
   state.scheduleStatus = data.scheduleStatus || "draft";
+  state.rotationBaseDate = data.rotationBaseDate || "2026-04-10";
+  state.employeeFilter = data.employeeFilter || { shift: "all", sort: "name", showOffShift: false };
+  state.activeAdminTab = data.activeAdminTab || "emp-import";
   seedAssignments(true);
+}
+
+// Backward-compatible migration from AA/BB/CC → A/B/C
+function migrateShiftNames(data) {
+  const shiftMap = { AA: "A", BB: "B", CC: "C" };
+  if (Array.isArray(data.employees)) {
+    data.employees.forEach((e) => { if (shiftMap[e.shift]) e.shift = shiftMap[e.shift]; });
+  }
+  if (Array.isArray(data.units)) {
+    data.units.forEach((u) => { if (shiftMap[u.shift]) u.shift = shiftMap[u.shift]; });
+  }
 }
 
 function setPersistenceStatus(message, level) {

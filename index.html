@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>D7FR Crew Scheduler Trial</title>
+    <title>D7FR Crew Scheduler</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,7 +19,7 @@
           <p class="eyebrow">District 7 Fire Rescue</p>
           <h1>D7FR Crew Scheduler</h1>
           <p class="lede">
-            Lightweight trial build for shift planning, trade approvals, and overtime coverage.
+            Shift planning, trade approvals, and staffing coverage for District 7 Fire Rescue.
           </p>
         </div>
 
@@ -47,24 +47,8 @@
           </div>
           <button id="sign-in-btn" class="button button-primary">Sign In</button>
           <p id="auth-message" class="helper-text">
-            Trial access uses simple PIN verification. Supervisor login unlocks schedule editing and approvals.
+            Sign in with your department PIN to view and manage the schedule.
           </p>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>What’s Included</h2>
-          </div>
-          <ul class="feature-list">
-            <li>Daily, weekly, and monthly views</li>
-            <li>48/96 AA/BB/CC rotation engine</li>
-            <li>Configurable staffing and medic rules</li>
-            <li>Unit visibility controls for reserve apparatus</li>
-            <li>Shift trade and overtime approval workflows</li>
-            <li>Publish vs draft schedule modes</li>
-            <li>Audit log, printable roster, and PDF-friendly layout</li>
-            <li>Email notices now with SMS-ready placeholders later</li>
-          </ul>
         </section>
       </aside>
 
@@ -72,20 +56,14 @@
         <section id="access-gate" class="panel access-gate">
           <div>
             <p class="eyebrow">Department-only access</p>
-            <h2>Sign in to view and manage the live schedule</h2>
-            <p class="helper-text">
-              The trial is configured for logged-in department members now, with a future option to open the schedule publicly later.
-            </p>
+            <h2>Sign in to view and manage the schedule</h2>
           </div>
         </section>
 
         <section class="hero-card">
           <div>
-            <p class="eyebrow">Internet-ready trial</p>
-            <h2>Responsive scheduling for phones, tablets, and desktops</h2>
-            <p>
-              Built for logged-in department members now, with an upgrade path to public schedule publishing later.
-            </p>
+            <p class="eyebrow">District 7 Fire Rescue</p>
+            <h2>Crew Scheduling &amp; Staffing Management</h2>
           </div>
           <div class="hero-actions">
             <div id="storage-status" class="status-pill">Loading data source…</div>
@@ -209,55 +187,109 @@
           </div>
 
           <div class="secondary-column">
+
+            <!-- Admin Tab Panel: Employee Import | Unit Import | Units | Settings -->
+            <section class="panel tab-panel">
+              <div class="tab-bar">
+                <button class="tab-button is-active" data-tab="emp-import">Employees</button>
+                <button class="tab-button" data-tab="unit-import">Units Import</button>
+                <button class="tab-button" data-tab="units-mgmt">Units</button>
+                <button class="tab-button" data-tab="settings">Settings</button>
+              </div>
+
+              <!-- Employee Import -->
+              <div class="tab-pane" data-tab-id="emp-import">
+                <p class="helper-text tab-desc">Import employee records from a CSV file. Requires supervisor sign-in.</p>
+                <div class="workflow-form">
+                  <label>
+                    CSV File
+                    <input id="import-file" type="file" accept=".csv,text/csv" />
+                  </label>
+                  <div class="button-row">
+                    <button id="preview-import-btn" class="button button-primary">Preview</button>
+                    <button id="apply-import-btn" class="button button-secondary">Apply Import</button>
+                  </div>
+                  <button id="download-employee-template-btn" class="button button-secondary">Download Template</button>
+                  <p id="import-message" class="helper-text"></p>
+                </div>
+                <div id="import-preview" class="stack-list"></div>
+              </div>
+
+              <!-- Unit Import -->
+              <div class="tab-pane hidden" data-tab-id="unit-import">
+                <p class="helper-text tab-desc">Import unit and apparatus records from a CSV file. Requires supervisor sign-in.</p>
+                <div class="workflow-form">
+                  <label>
+                    CSV File
+                    <input id="unit-import-file" type="file" accept=".csv,text/csv" />
+                  </label>
+                  <div class="button-row">
+                    <button id="unit-preview-import-btn" class="button button-primary">Preview</button>
+                    <button id="unit-apply-import-btn" class="button button-secondary">Apply Import</button>
+                  </div>
+                  <button id="download-unit-template-btn" class="button button-secondary">Download Template</button>
+                  <p id="unit-import-message" class="helper-text"></p>
+                </div>
+                <div id="unit-import-preview" class="stack-list"></div>
+              </div>
+
+              <!-- Units Management: visibility + type editing -->
+              <div class="tab-pane hidden" data-tab-id="units-mgmt">
+                <p class="helper-text tab-desc">Toggle unit visibility and edit unit type. Supervisor sign-in required.</p>
+                <div id="unit-toggle-list" class="toggle-list"></div>
+              </div>
+
+              <!-- Settings -->
+              <div class="tab-pane hidden" data-tab-id="settings">
+                <p class="helper-text tab-desc">Schedule configuration and rotation settings. Supervisor sign-in required.</p>
+                <div class="workflow-form">
+                  <label>
+                    Rotation Start Date (A Shift anchor)
+                    <input id="rotation-base-date" type="date" />
+                    <span class="helper-text" style="font-size:0.82rem">Changing this regenerates all shift rotation labels. Manual assignment data is preserved.</span>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <!-- Employee Roster -->
             <section class="panel">
               <div class="panel-heading">
                 <div>
-                  <h2>CSV Import</h2>
-                  <p class="helper-text">Supervisor-only import for employees, units, and credential mappings.</p>
+                  <h2>Employee Roster</h2>
+                  <p class="helper-text">Filter and sort the crew list</p>
                 </div>
               </div>
-              <div class="workflow-form">
+              <div class="roster-filters">
                 <label>
-                  Import Type
-                  <select id="import-type">
-                    <option value="employees">Employees</option>
-                    <option value="units">Units</option>
+                  Shift
+                  <select id="roster-shift-filter">
+                    <option value="all">All Shifts</option>
+                    <option value="A">A Shift</option>
+                    <option value="B">B Shift</option>
+                    <option value="C">C Shift</option>
                   </select>
                 </label>
                 <label>
-                  CSV File
-                  <input id="import-file" type="file" accept=".csv,text/csv" />
+                  Sort
+                  <select id="roster-sort">
+                    <option value="name">Name (A–Z)</option>
+                    <option value="cert">Credential Level</option>
+                  </select>
                 </label>
-                <div class="button-row">
-                  <button id="preview-import-btn" class="button button-primary">Preview Import</button>
-                  <button id="apply-import-btn" class="button button-secondary">Apply Import</button>
-                </div>
-                <div class="button-row">
-                  <button id="download-employee-template-btn" class="button button-secondary">Employee Template</button>
-                  <button id="download-unit-template-btn" class="button button-secondary">Unit Template</button>
-                </div>
-                <p id="import-message" class="helper-text">
-                  CSV is supported first because it is faster, lighter, and easier to validate than XLSX.
-                </p>
+                <label class="roster-check-label">
+                  <input type="checkbox" id="roster-off-shift" />
+                  Show off-shift availability
+                </label>
               </div>
-              <div id="import-preview" class="stack-list"></div>
-            </section>
-
-            <section class="panel">
-              <div class="panel-heading">
-                <div>
-                  <h2>Unit Controls</h2>
-                  <p class="helper-text">Hide reserve or out-of-service units to reduce clutter.</p>
-                </div>
-              </div>
-              <div id="unit-toggle-list" class="toggle-list"></div>
+              <div id="employee-roster" class="stack-list"></div>
             </section>
 
             <section class="panel">
               <div class="panel-heading">
                 <div>
                   <h2>Notifications</h2>
-                  <p class="helper-text">Email enabled in trial. SMS hooks are prepared for later.</p>
+                  <p class="helper-text">Email and alert history.</p>
                 </div>
               </div>
               <div id="notification-center" class="stack-list"></div>
