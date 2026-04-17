@@ -1,0 +1,33 @@
+web-scheduler quick preload (app.js)
+
+STATE keys:
+currentUserId, loginRole, currentRole, isAuthenticated, currentView, currentDate, scheduleStatus,
+units[], employees[], trades[], overtimePosts[], notifications[], auditLog[],
+importPreview, unitImportPreview, assignments{date->{unitId->Employee[]}},
+activeSurface, activeAdminTab, employeeFilter{search,shift,status,sort},
+selectedEmployeeId, employeeDraft, persistence{backend,status,hasRemote,isSaving,lastSavedAt,level}
+
+Canonical enums/constants:
+employeeRoles=["paramedic","emt","engineer","officer"]
+unitTypes=["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue"]
+employeeTitleOptions includes "Batt Chief"
+views: day|week|month; scheduleStatus: draft|published; shifts: A|B|C
+
+Core entities:
+Employee{id,name,shift,title,certs,pin,email,isSupervisor,status}
+Unit{id,name,type,minStaff,requiredCerts,shift,visible}
+Trade{id,status,employeeId,partnerId,date,notes,type,createdBy}
+OvertimePost{id,status,unitId,date,qualification,reportTime,applicants,approvedEmployeeId?}
+
+Startup/persistence:
+DOMContentLoaded -> hydrateAppState -> initializeControls -> render
+seedDefaultState currently starts EMPTY (no sample seed data)
+serializableState persists: units, employees, trades, overtimePosts, notifications, auditLog,
+assignments, scheduleStatus, employeeFilter, activeSurface, activeAdminTab
+local: LOCAL_STORAGE_KEY ; remote optional Supabase via REMOTE_STATE_ID
+applyPersistedState runs migrateShiftNames + migratePersistedUnitTypes
+
+High-use functions:
+render/renderSchedule/renderUnitControls/renderEmployeeRoster/renderEmployeeEditor
+validateEmployeeImport/mergeEmployees, validateUnitImport/mergeUnits
+getAssignments/getStaffingAlerts/getShiftForDate/visibleUnits/activeEmployees

@@ -123,6 +123,34 @@ Example required cert format:
 - Schedule assignments are preserved where possible and missing dates or units are filled in
 - Employee `status` supports `active` and `archived`
 
+## AI Agent Context Files
+
+These files provide a compact app-state map for future AI sessions:
+
+- `AI_STATE_SUMMARY.txt` (detailed but compact)
+- `AI_STATE_MIN.txt` (ultra-compact preload)
+
+Update both whenever `app.js` changes any of:
+
+- state keys/shapes
+- entity fields
+- enums/constants
+- startup/persistence/migration flow
+
+### Keep them enforced with a pre-commit hook
+
+1. Enable repo-managed hooks:
+   - `git config core.hooksPath .githooks`
+2. Ensure hook scripts are executable:
+   - `chmod +x .githooks/pre-commit scripts/check-ai-state-summary.sh`
+
+What this hook does:
+
+- If `app.js` is staged, it blocks commit unless at least one of:
+  - `AI_STATE_SUMMARY.txt`
+  - `AI_STATE_MIN.txt`
+  is also staged.
+
 ## Easiest Free Deployment Path
 
 I recommend deploying this trial to a subdomain like `schedule.d7fr.org`.
