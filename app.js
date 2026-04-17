@@ -374,7 +374,7 @@ async function hydrateAppState() {
 
 function seedDefaultState() {
   state.employees = [];
-  state.units = defaultUnits();
+  state.units = [];
   state.trades = [];
   state.overtimePosts = [];
   state.notifications = [];
@@ -386,9 +386,7 @@ function seedDefaultState() {
   state.employeeFilter = { search: "", shift: "all", status: "active", sort: "name" };
   state.selectedEmployeeId = null;
   state.employeeDraft = null;
-  seedEmployees();
-  seedAssignments(false);
-  seedWorkflowData();
+  state.assignments = {};
 }
 
 function defaultUnits() {
