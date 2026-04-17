@@ -1,0 +1,80 @@
+web-scheduler app quick context (app.js)
+
+PRIMARY STATE OBJECT (`state`)
+- currentUserId: string|null
+- loginRole: "employee" | "supervisor"
+- currentRole: "employee" | "supervisor"
+- isAuthenticated: boolean
+- currentView: "day" | "week" | "month"
+- currentDate: ISO date string (YYYY-MM-DD)
+- scheduleStatus: "draft" | "published"
+- units: Unit[]
+- employees: Employee[]
+- trades: Trade[]
+- overtimePosts: OvertimePost[]
+- notifications: Notification[]
+- auditLog: AuditEntry[]
+- importPreview: EmployeeImportPreview|null
+- unitImportPreview: UnitImportPreview|null
+- assignments: Record<date, Record<unitId, Employee[]>>
+- activeSurface: "schedule" | "admin"
+- activeAdminTab: string (default "employees")
+- employeeFilter: { search, shift, status, sort }
+- selectedEmployeeId: string|null
+- employeeDraft: Employee|null
+- persistence:
+  - backend: "browser-memory" | "local-storage" | "supabase" | "supabase-fallback"
+  - status: string
+  - hasRemote: boolean
+  - isSaving: boolean
+  - lastSavedAt: ISO timestamp|null
+  - level: "ok" | "warning" | "danger" (set dynamically)
+
+COMMON ENTITY SHAPES
+- Employee:
+  { id, name, shift, title, certs[], pin, email, isSupervisor, status }
+- Unit:
+  { id, name, type, minStaff, requiredCerts[], shift, visible }
+- Trade:
+  { id, status, employeeId, partnerId, date, notes, type, createdBy }
+- OvertimePost:
+  { id, status, unitId, date, qualification, reportTime, applicants[], approvedEmployeeId? }
+
+IMPORTANT TOP-LEVEL CONSTANTS
+- baseDate
+- ROTATION_BASE_DATE
+- rotationPattern
+- LOCAL_STORAGE_KEY
+- REMOTE_STATE_ID
+- employeeRoles
+- unitTypes
+- employeeTitleOptions
+
+SEED / INIT FLOW (current behavior)
+- DOMContentLoaded -> hydrateAppState() -> initializeControls() -> render()
+- seedDefaultState() is currently EMPTY-DATA only:
+  - employees = []
+  - units = []
+  - trades = []
+  - overtimePosts = []
+  - notifications = []
+  - auditLog = []
+  - assignments = {}
+  (no sample seed calls)
+
+PERSISTENCE FLOW
+- serializableState(): units, employees, trades, overtimePosts, notifications,
+  auditLog, assignments, scheduleStatus, employeeFilter, activeSurface, activeAdminTab
+- saveLocalState()/loadLocalState() use LOCAL_STORAGE_KEY
+- optional remote via Supabase REST (loadRemoteState/saveRemoteState)
+- applyPersistedState(data):
+  - migrateShiftNames(data)
+  - migratePersistedUnitTypes(data.units) when present
+  - then assigns state collections and UI prefs
+
+HIGH-USE FUNCTIONS (names only)
+- render(), renderSchedule(), renderUnitControls(), renderEmployeeRoster(), renderEmployeeEditor()
+- attachUnitMoveEvents(), attachEmployeeManagementEvents(), attachEmployeeEditorEvents()
+- previewEmployeeImport(), applyEmployeeImport(), validateEmployeeImport(), mergeEmployees()
+- previewUnitImport(), applyUnitImport(), validateUnitImport(), mergeUnits()
+- getAssignments(), getStaffingAlerts(), getShiftForDate(), visibleUnits(), activeEmployees()
