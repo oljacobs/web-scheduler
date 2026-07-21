@@ -29,6 +29,8 @@ initMsal() silent → handleMsalLogin() popup → setAuthFromToken() → syncEmp
 handleMsalSignOut() clears state + logoutPopup
 Popup uses redirectUri = origin + "/blank.html" (blank.html must be registered in Azure as SPA URI)
 initMsal() surfaces errors to dom["auth-message"] instead of failing silently
+ROSTER IS AUTHORITATIVE: syncEmployeeFromEntraProfile() only updates identity fields (entraId/name/email)
+  on existing records; title/certs/shift preserved from roster. Entra ID title only used for new unmatched employees.
 
 Startup/persistence:
 DOMContentLoaded -> hydrateAppState -> initMsal -> initializeControls -> render

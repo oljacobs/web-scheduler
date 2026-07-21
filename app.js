@@ -1499,18 +1499,20 @@ function handleMsalSignOut() {
 
 async function setAuthFromToken(accessToken, account) {
   const profile = await fetchGraphProfile(accessToken);
-  const jobTitle = (profile.jobTitle || "").trim();
+  const entraJobTitle = (profile.jobTitle || "").trim();
   const displayName = (profile.displayName || account.name || "Unknown").trim();
   const email = (profile.mail || profile.userPrincipalName || account.username || "").trim();
   const entraId = profile.id || account.localAccountId;
-  const isSupervisor = SUPERVISOR_TITLES.some((t) => t.toLowerCase() === jobTitle.toLowerCase());
-  const employee = syncEmployeeFromEntraProfile({ entraId, name: displayName, email, jobTitle });
+  // Sync identity — roster title/certs take precedence over Entra ID job title
+  const employee = syncEmployeeFromEntraProfile({ entraId, name: displayName, email, entraJobTitle });
   state.currentUserId = employee.id;
   state.currentUserDisplayName = displayName;
-  state.currentUserTitle = jobTitle;
+  // Use the roster title (authoritative); fall back to what Entra ID reports
+  state.currentUserTitle = employee.title || entraJobTitle;
   state.currentUserEmail = email;
   state.currentUserEntraId = entraId;
-  state.loginRole = isSupervisor ? "supervisor" : "employee";
+  // Role is derived from the matched/updated employee record, not raw Entra ID title
+  state.loginRole = employee.isSupervisor ? "supervisor" : "employee";
   state.currentRole = state.loginRole;
   state.isAuthenticated = true;
   addAudit(`${displayName} signed in via Microsoft Entra ID.`, "System");
@@ -1525,33 +1527,41 @@ async function fetchGraphProfile(accessToken) {
   return res.json();
 }
 
-function syncEmployeeFromEntraProfile({ entraId, name, email, jobTitle }) {
-  // Try to match an existing record by Entra ID or email
+function syncEmployeeFromEntraProfile({ entraId, name, email, entraJobTitle }) {
+  // Match by Entra ID first, then email — links existing roster entries to their Azure AD identity
   let emp = state.employees.find(
     (e) => (e.entraId && e.entraId === entraId) || (e.email && e.email.toLowerCase() === email.toLowerCase())
   );
-  const isSup = SUPERVISOR_TITLES.some((t) => t.toLowerCase() === (jobTitle || "").toLowerCase());
   if (emp) {
+    // Roster is authoritative for title, shift, and certs.
+    // Entra ID only provides identity fields (who you are, not what rank you hold).
     emp.entraId = entraId;
     emp.name = name;
     emp.email = email;
-    emp.title = jobTitle || emp.title;
-    emp.isSupervisor = isSup;
     emp.status = "active";
+    // Only apply Entra ID job title if the roster record has no title yet
+    if (!emp.title && entraJobTitle) {
+      emp.title = entraJobTitle;
+      emp.certs = defaultCertsForTitle(entraJobTitle);
+    }
+    // Always recalculate isSupervisor from the current (possibly roster-set) title
+    emp.isSupervisor = SUPERVISOR_TITLES.some((t) => t.toLowerCase() === (emp.title || "").toLowerCase());
   } else {
+    // No roster match — create a placeholder record using whatever Entra ID provides.
+    // A supervisor should import the full roster so new logins get linked properly.
     emp = {
       id: `ENTRA-${entraId.slice(-8).toUpperCase()}`,
       entraId,
       name,
       shift: null,
-      title: jobTitle || "FF/EMT",
-      certs: defaultCertsForTitle(jobTitle),
+      title: entraJobTitle || "",
+      certs: defaultCertsForTitle(entraJobTitle),
       email,
-      isSupervisor: isSup,
+      isSupervisor: SUPERVISOR_TITLES.some((t) => t.toLowerCase() === (entraJobTitle || "").toLowerCase()),
       status: "active",
     };
     state.employees.push(emp);
-    addAudit(`${name} added to roster via Entra ID.`, "System");
+    addAudit(`${name} added to roster via Entra ID (unmatched — import roster to assign title).`, "System");
   }
   return emp;
 }

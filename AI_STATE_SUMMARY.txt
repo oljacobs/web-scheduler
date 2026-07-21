@@ -67,7 +67,11 @@ AUTH FLOW (Entra ID / MSAL)
 - handleMsalSignOut(): clears state, calls logoutPopup
 - setAuthFromToken(accessToken, account): fetchGraphProfile → syncEmployeeFromEntraProfile → set state
 - fetchGraphProfile(token): GET /v1.0/me?$select=id,displayName,mail,userPrincipalName,jobTitle,department
-- syncEmployeeFromEntraProfile({entraId, name, email, jobTitle}): match by entraId/email; update or create
+- syncEmployeeFromEntraProfile({entraId, name, email, entraJobTitle}): match by entraId/email; update or create
+  - ROSTER IS AUTHORITATIVE: on existing records, only identity fields updated (entraId, name, email, status)
+  - title/certs/shift from the roster are preserved; Entra ID jobTitle only fills in if emp.title is blank
+  - isSupervisor always recalculated from the current emp.title (not raw Entra ID title)
+  - Unmatched logins get a placeholder record; audit entry prompts supervisor to import roster
 - defaultCertsForTitle(title): maps D7FR title → certs[]
 - MSAL config: APP_CONFIG.msalConfig (clientId + authority in config.js)
 - blank.html: dedicated empty page at repo root; MUST be registered in Azure App Registration →
