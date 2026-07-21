@@ -1,7 +1,11 @@
 web-scheduler app quick context (app.js)
 
 PRIMARY STATE OBJECT (`state`)
-- currentUserId: string|null
+- currentUserId: string|null             — employee.id of signed-in user
+- currentUserDisplayName: string|null    — from Entra ID displayName
+- currentUserTitle: string|null          — from Entra ID jobTitle
+- currentUserEmail: string|null          — from Entra ID mail/UPN
+- currentUserEntraId: string|null        — Azure AD object ID
 - loginRole: "employee" | "supervisor"
 - currentRole: "employee" | "supervisor"
 - isAuthenticated: boolean
@@ -32,7 +36,8 @@ PRIMARY STATE OBJECT (`state`)
 
 COMMON ENTITY SHAPES
 - Employee:
-  { id, name, shift, title, certs[], pin, email, isSupervisor, status }
+  { id, entraId?, name, shift (A|B|C|null), title, certs[], email, isSupervisor, status }
+  NOTE: `pin` removed — auth is now Entra ID only
 - Unit:
   { id, name, type, minStaff, requiredCerts[], shift, visible }
 - Trade:
@@ -41,26 +46,30 @@ COMMON ENTITY SHAPES
   { id, status, unitId, date, qualification, reportTime, applicants[], approvedEmployeeId? }
 
 IMPORTANT TOP-LEVEL CONSTANTS
-- baseDate
-- ROTATION_BASE_DATE
-- rotationPattern
-- LOCAL_STORAGE_KEY
-- REMOTE_STATE_ID
-- employeeRoles
-- unitTypes
-- employeeTitleOptions
+- baseDate, ROTATION_BASE_DATE, rotationPattern, LOCAL_STORAGE_KEY, REMOTE_STATE_ID
+- SUPERVISOR_TITLES: ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "MOF"]
+- UNIT_POSITION_REQUIREMENTS: Record<unitType, {role, label, eligibleTitles[]}[]>
+  Types: Batt, Ladder, Medic, MOF, Engine, Rescue, Tender, Brush
+  Positions listed most-restrictive-first for greedy matching in checkPositionStaffing()
+- employeeRoles: ["paramedic","emt","engineer","officer"]
+- unitTypes: ["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue"]
+- employeeTitleOptions: ["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
+- msalInstance: PublicClientApplication | null
+- GRAPH_SCOPES: ["User.Read","User.ReadBasic.All"]
+
+AUTH FLOW (Entra ID / MSAL)
+- initMsal(): initializes MSAL, attempts silent token from cached session
+- handleMsalLogin(): loginPopup → acquireTokenSilent → setAuthFromToken → render
+- handleMsalSignOut(): clears state, calls logoutPopup
+- setAuthFromToken(accessToken, account): fetchGraphProfile → syncEmployeeFromEntraProfile → set state
+- fetchGraphProfile(token): GET /v1.0/me?$select=id,displayName,mail,userPrincipalName,jobTitle,department
+- syncEmployeeFromEntraProfile({entraId, name, email, jobTitle}): match by entraId/email; update or create
+- defaultCertsForTitle(title): maps D7FR title → certs[]
+- MSAL config: APP_CONFIG.msalConfig (clientId + authority in config.js)
 
 SEED / INIT FLOW (current behavior)
-- DOMContentLoaded -> hydrateAppState() -> initializeControls() -> render()
-- seedDefaultState() is currently EMPTY-DATA only:
-  - employees = []
-  - units = []
-  - trades = []
-  - overtimePosts = []
-  - notifications = []
-  - auditLog = []
-  - assignments = {}
-  (no sample seed calls)
+- DOMContentLoaded -> hydrateAppState() -> initMsal() -> initializeControls() -> render()
+- seedDefaultState() is EMPTY-DATA only (employees=[], units=[], etc.)
 
 PERSISTENCE FLOW
 - serializableState(): units, employees, trades, overtimePosts, notifications,
@@ -69,12 +78,20 @@ PERSISTENCE FLOW
 - optional remote via Supabase REST (loadRemoteState/saveRemoteState)
 - applyPersistedState(data):
   - migrateShiftNames(data)
-  - migratePersistedUnitTypes(data.units) when present
+  - migrateEmployeeTitles(data)   ← maps legacy title strings to current D7FR titles
+  - migratePersistedUnitTypes(data.units)
   - then assigns state collections and UI prefs
+
+STAFFING ALERTS
+- getStaffingAlerts(date): uses UNIT_POSITION_REQUIREMENTS when available
+- checkPositionStaffing(unit, people, positions): greedy match; unfilled positions → danger alert
+- Falls back to minStaff + requiredCerts for any unit type not in UNIT_POSITION_REQUIREMENTS
 
 HIGH-USE FUNCTIONS (names only)
 - render(), renderSchedule(), renderUnitControls(), renderEmployeeRoster(), renderEmployeeEditor()
+- renderPermissionStates(): drives auth-signed-in/out panels + role badge
 - attachUnitMoveEvents(), attachEmployeeManagementEvents(), attachEmployeeEditorEvents()
 - previewEmployeeImport(), applyEmployeeImport(), validateEmployeeImport(), mergeEmployees()
 - previewUnitImport(), applyUnitImport(), validateUnitImport(), mergeUnits()
-- getAssignments(), getStaffingAlerts(), getShiftForDate(), visibleUnits(), activeEmployees()
+- getAssignments(), getStaffingAlerts(), checkPositionStaffing(), getShiftForDate()
+- visibleUnits(), activeEmployees(), currentUserName()

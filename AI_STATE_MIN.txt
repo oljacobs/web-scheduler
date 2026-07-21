@@ -1,33 +1,47 @@
 web-scheduler quick preload (app.js)
 
 STATE keys:
-currentUserId, loginRole, currentRole, isAuthenticated, currentView, currentDate, scheduleStatus,
+currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
+loginRole, currentRole, isAuthenticated, currentView, currentDate, scheduleStatus,
 units[], employees[], trades[], overtimePosts[], notifications[], auditLog[],
 importPreview, unitImportPreview, assignments{date->{unitId->Employee[]}},
 activeSurface, activeAdminTab, employeeFilter{search,shift,status,sort},
 selectedEmployeeId, employeeDraft, persistence{backend,status,hasRemote,isSaving,lastSavedAt,level}
 
 Canonical enums/constants:
+SUPERVISOR_TITLES=["Batt. Chief","Div. Chief","Captain","Lieutenant","MOF"]
+employeeTitleOptions=["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
 employeeRoles=["paramedic","emt","engineer","officer"]
 unitTypes=["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue"]
-employeeTitleOptions includes "Batt Chief"
-views: day|week|month; scheduleStatus: draft|published; shifts: A|B|C
+UNIT_POSITION_REQUIREMENTS: Record<type, {role,label,eligibleTitles[]}[]> — most-restrictive first
+GRAPH_SCOPES=["User.Read","User.ReadBasic.All"]
+views: day|week|month; scheduleStatus: draft|published; shifts: A|B|C|null
 
 Core entities:
-Employee{id,name,shift,title,certs,pin,email,isSupervisor,status}
+Employee{id, entraId?, name, shift(A|B|C|null), title, certs, email, isSupervisor, status}
+  NOTE: pin removed — Entra ID auth only
 Unit{id,name,type,minStaff,requiredCerts,shift,visible}
 Trade{id,status,employeeId,partnerId,date,notes,type,createdBy}
 OvertimePost{id,status,unitId,date,qualification,reportTime,applicants,approvedEmployeeId?}
 
+Auth flow (MSAL):
+initMsal() silent → handleMsalLogin() popup → setAuthFromToken() → syncEmployeeFromEntraProfile()
+handleMsalSignOut() clears state + logoutPopup
+
 Startup/persistence:
-DOMContentLoaded -> hydrateAppState -> initializeControls -> render
-seedDefaultState currently starts EMPTY (no sample seed data)
+DOMContentLoaded -> hydrateAppState -> initMsal -> initializeControls -> render
+seedDefaultState starts EMPTY
 serializableState persists: units, employees, trades, overtimePosts, notifications, auditLog,
 assignments, scheduleStatus, employeeFilter, activeSurface, activeAdminTab
 local: LOCAL_STORAGE_KEY ; remote optional Supabase via REMOTE_STATE_ID
-applyPersistedState runs migrateShiftNames + migratePersistedUnitTypes
+applyPersistedState: migrateShiftNames + migrateEmployeeTitles + migratePersistedUnitTypes
+
+Staffing:
+getStaffingAlerts(date) -> checkPositionStaffing(unit, people, positions) for known types
+Greedy match: most-restrictive positions matched first; unmatched -> "danger" alert
 
 High-use functions:
 render/renderSchedule/renderUnitControls/renderEmployeeRoster/renderEmployeeEditor
+renderPermissionStates (drives auth-signed-in/out UI)
 validateEmployeeImport/mergeEmployees, validateUnitImport/mergeUnits
-getAssignments/getStaffingAlerts/getShiftForDate/visibleUnits/activeEmployees
+getAssignments/getStaffingAlerts/checkPositionStaffing/getShiftForDate/visibleUnits/activeEmployees

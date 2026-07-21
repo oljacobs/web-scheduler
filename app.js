@@ -1,5 +1,9 @@
 const state = {
   currentUserId: null,
+  currentUserDisplayName: null,
+  currentUserTitle: null,
+  currentUserEmail: null,
+  currentUserEntraId: null,
   loginRole: "employee",
   currentRole: "employee",
   isAuthenticated: false,
@@ -50,7 +54,50 @@ const lastNames = [
 
 const employeeRoles = ["paramedic", "emt", "engineer", "officer"];
 const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue"];
-const employeeTitleOptions = ["Firefighter", "FAO", "Lieutenant", "Captain", "Paramedic", "Batt Chief"];
+const employeeTitleOptions = ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "Engineer", "MOF", "FF/EMTP", "FF/EMT"];
+
+// Titles that grant supervisor access in this app
+const SUPERVISOR_TITLES = ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "MOF"];
+
+// Position slot requirements by unit type — most-restrictive slot listed first
+// so the greedy matcher reserves the best candidate for each critical role.
+const UNIT_POSITION_REQUIREMENTS = {
+  Batt: [
+    { role: "BC",  label: "BC Position",        eligibleTitles: ["Batt. Chief", "Captain", "Div. Chief"] },
+    { role: "ICT", label: "ICT Position",        eligibleTitles: ["Engineer", "Lieutenant", "Captain", "MOF"] },
+  ],
+  Ladder: [
+    { role: "Driver",  label: "Driver/Engineer", eligibleTitles: ["Engineer"] },
+    { role: "Officer", label: "Officer Seat",    eligibleTitles: ["Captain", "MOF", "Lieutenant", "Engineer"] },
+    { role: "FF1",     label: "FF 1",            eligibleTitles: ["FF/EMTP", "FF/EMT", "Engineer", "Lieutenant", "Captain", "MOF"] },
+    { role: "FF2",     label: "FF 2",            eligibleTitles: ["FF/EMTP", "FF/EMT", "Engineer"] },
+  ],
+  Medic: [
+    { role: "EMTP", label: "Paramedic",          eligibleTitles: ["FF/EMTP"] },
+    { role: "EMT",  label: "EMT",                eligibleTitles: ["FF/EMT", "FF/EMTP"] },
+  ],
+  MOF: [
+    { role: "MOF",  label: "MOF",                eligibleTitles: ["MOF", "Captain", "Lieutenant"] },
+  ],
+  Engine: [
+    { role: "Driver",  label: "Engineer/Driver", eligibleTitles: ["Engineer", "Captain", "Lieutenant"] },
+    { role: "Officer", label: "Officer",          eligibleTitles: ["Captain", "Lieutenant", "Engineer", "Batt. Chief", "Div. Chief"] },
+  ],
+  Rescue: [
+    { role: "Driver",  label: "Driver/Engineer", eligibleTitles: ["Engineer"] },
+    { role: "Officer", label: "Officer",          eligibleTitles: ["Captain", "Lieutenant", "Engineer"] },
+  ],
+  Tender: [
+    { role: "Driver", label: "Driver",            eligibleTitles: ["Engineer", "Captain", "Lieutenant"] },
+  ],
+  Brush: [
+    { role: "Driver",  label: "Driver",           eligibleTitles: ["Engineer", "FF/EMTP", "FF/EMT"] },
+    { role: "Officer", label: "Officer",          eligibleTitles: ["Captain", "Lieutenant", "Engineer"] },
+  ],
+};
+
+let msalInstance = null;
+const GRAPH_SCOPES = ["User.Read", "User.ReadBasic.All"];
 
 const dom = {};
 
@@ -58,13 +105,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   cacheDom();
   wireEvents();
   await hydrateAppState();
+  await initMsal(); // attempt silent re-login from cached session
   initializeControls();
   render();
 });
 
 function cacheDom() {
   const ids = [
-    "role-select", "user-select", "pin-input", "sign-in-btn", "auth-message", "auth-role-badge", "date-input",
+    "ms-sign-in-btn", "sign-out-btn", "auth-message", "auth-role-badge",
+    "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
+    "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
     "schedule-container", "schedule-title", "schedule-subtitle", "supervisor-save-btn", "trade-owner",
     "trade-partner", "trade-date", "trade-notes", "submit-trade-btn", "open-unit", "open-date",
@@ -97,13 +147,8 @@ function cacheDom() {
 }
 
 function wireEvents() {
-  dom["role-select"].addEventListener("change", () => {
-    state.loginRole = dom["role-select"].value;
-    populateUserSelect();
-    renderAuthBadge();
-  });
-
-  dom["sign-in-btn"].addEventListener("click", handleSignIn);
+  dom["ms-sign-in-btn"].addEventListener("click", handleMsalLogin);
+  dom["sign-out-btn"].addEventListener("click", handleMsalSignOut);
   dom["date-input"].addEventListener("change", () => {
     state.currentDate = dom["date-input"].value;
     render();
@@ -190,7 +235,6 @@ function wireEvents() {
 }
 
 function initializeControls() {
-  dom["role-select"].value = state.loginRole;
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
   dom["employee-search"].value = state.employeeFilter.search;
@@ -200,10 +244,8 @@ function initializeControls() {
   // Restore active tab
   dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
   dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
-  populateUserSelect();
   populateTradeSelects();
   populateOpenShiftSelects();
-  renderAuthBadge();
   renderSurfaceState();
 }
 
@@ -507,23 +549,6 @@ function canAccessAdmin() {
   return state.isAuthenticated && state.currentRole === "supervisor";
 }
 
-function renderAuthBadge() {
-  const badge = dom["auth-role-badge"];
-  const role = state.loginRole === "supervisor" ? "Supervisor access" : "Employee access";
-  badge.textContent = role;
-  badge.className = `badge ${state.loginRole === "supervisor" ? "badge-warning" : "badge-soft"}`;
-}
-
-function populateUserSelect() {
-  const eligibleUsers = activeEmployees().filter((employee) => employee.isSupervisor === (state.loginRole === "supervisor"));
-  dom["user-select"].innerHTML = eligibleUsers
-    .map((employee) => `<option value="${employee.id}">${employee.name} • ${employee.shift} Shift</option>`)
-    .join("");
-  if (!state.currentUserId || !eligibleUsers.find((employee) => employee.id === state.currentUserId)) {
-    state.currentUserId = eligibleUsers[0]?.id || null;
-  }
-  dom["user-select"].value = state.currentUserId || "";
-}
 
 function populateTradeSelects() {
   const employees = activeEmployees().map((employee) => `<option value="${employee.id}">${employee.name} • ${employee.shift}</option>`).join("");
@@ -958,12 +983,9 @@ function renderEmployeeEditor() {
           <input id="employee-edit-email" type="email" value="${escapeHtml(draft.email || "")}" />
         </label>
         <label>
-          PIN
-          <input id="employee-edit-pin" type="text" maxlength="4" inputmode="numeric" value="${escapeHtml(draft.pin || "")}" />
-        </label>
-        <label>
           Shift
           <select id="employee-edit-shift">
+            <option value="" ${!draft.shift ? "selected" : ""}>Unassigned</option>
             ${["A", "B", "C"].map((shiftOption) => `<option value="${shiftOption}" ${draft.shift === shiftOption ? "selected" : ""}>${shiftOption} Shift</option>`).join("")}
           </select>
         </label>
@@ -1025,7 +1047,6 @@ function attachEmployeeManagementEvents() {
       if (state.selectedEmployeeId === employee.id) {
         state.employeeDraft = createEmployeeDraft(employee);
       }
-      populateUserSelect();
       populateTradeSelects();
       populateOpenShiftSelects();
       render();
@@ -1041,8 +1062,7 @@ function attachEmployeeEditorEvents() {
     state.employeeDraft.name = document.getElementById("employee-edit-name").value.trim();
     state.employeeDraft.title = document.getElementById("employee-edit-title").value.trim();
     state.employeeDraft.email = document.getElementById("employee-edit-email").value.trim();
-    state.employeeDraft.pin = document.getElementById("employee-edit-pin").value.trim();
-    state.employeeDraft.shift = document.getElementById("employee-edit-shift").value;
+    state.employeeDraft.shift = document.getElementById("employee-edit-shift").value || null;
     state.employeeDraft.status = document.getElementById("employee-edit-status").value;
     state.employeeDraft.isSupervisor = document.getElementById("employee-edit-supervisor").checked;
     state.employeeDraft.certs = certInputs.filter((input) => input.checked).map((input) => input.value);
@@ -1052,7 +1072,6 @@ function attachEmployeeEditorEvents() {
     "employee-edit-name",
     "employee-edit-title",
     "employee-edit-email",
-    "employee-edit-pin",
     "employee-edit-shift",
     "employee-edit-status",
     "employee-edit-supervisor",
@@ -1060,7 +1079,7 @@ function attachEmployeeEditorEvents() {
     document.getElementById(id)?.addEventListener("input", syncDraft);
     document.getElementById(id)?.addEventListener("change", syncDraft);
   });
-  certInputs.forEach((input) => input.addEventListener("change", syncDraft));
+  certInputs.forEach((i) => i.addEventListener("change", syncDraft));
 
   document.getElementById("save-employee-btn")?.addEventListener("click", saveEmployeeDraft);
   document.getElementById("cancel-employee-btn")?.addEventListener("click", () => {
@@ -1077,8 +1096,7 @@ function createEmployeeDraft(employee) {
     name: normalized.name,
     title: normalized.title,
     email: normalized.email,
-    pin: normalized.pin,
-    shift: normalized.shift,
+    shift: normalized.shift || null,
     status: normalized.status,
     isSupervisor: normalized.isSupervisor,
     certs: [...normalized.certs],
@@ -1093,7 +1111,7 @@ function saveEmployeeDraft() {
     showToast("Employee name is required.", "error");
     return;
   }
-  if (!["A", "B", "C"].includes(state.employeeDraft.shift)) {
+  if (state.employeeDraft.shift && !["A", "B", "C"].includes(state.employeeDraft.shift)) {
     showToast("Employee shift must be A, B, or C.", "error");
     return;
   }
@@ -1110,7 +1128,9 @@ function saveEmployeeDraft() {
   Object.assign(employee, {
     ...state.employeeDraft,
     certs: Array.from(new Set(state.employeeDraft.certs)),
-    isSupervisor: state.employeeDraft.isSupervisor || state.employeeDraft.certs.includes("officer"),
+    isSupervisor: state.employeeDraft.isSupervisor ||
+                  state.employeeDraft.certs.includes("officer") ||
+                  SUPERVISOR_TITLES.some((t) => t.toLowerCase() === (state.employeeDraft.title || "").toLowerCase()),
   });
   if (employee.id === state.currentUserId && employee.status === "archived") {
     employee.status = "active";
@@ -1119,7 +1139,6 @@ function saveEmployeeDraft() {
   state.employeeDraft = createEmployeeDraft(employee);
   addAudit(`${employee.name} updated in employee directory.`, currentUserName());
   createNotification(`${employee.name} profile updated in employee directory.`, "email", currentUserName());
-  populateUserSelect();
   populateTradeSelects();
   populateOpenShiftSelects();
   render();
@@ -1311,6 +1330,24 @@ function renderPermissionStates() {
   // On mobile: show sidebar (login) above main content when signed out, below when signed in
   dom.appShell.classList.toggle("is-authenticated", state.isAuthenticated);
 
+  // Auth panel — toggle signed-in / signed-out views
+  dom["auth-signed-out"].classList.toggle("hidden", state.isAuthenticated);
+  dom["auth-signed-in"].classList.toggle("hidden", !state.isAuthenticated);
+  if (state.isAuthenticated) {
+    const displayName = state.currentUserDisplayName || "User";
+    const title = state.currentUserTitle || "";
+    dom["auth-user-name"].textContent = displayName;
+    dom["auth-user-title"].textContent = title;
+    const initials = displayName.split(" ").filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+    dom["auth-user-initials"].textContent = initials;
+    const isSup = state.currentRole === "supervisor";
+    dom["auth-role-badge"].textContent = isSup ? "Supervisor" : "Employee";
+    dom["auth-role-badge"].className = `badge ${isSup ? "badge-warning" : "badge-soft"}`;
+  } else {
+    dom["auth-role-badge"].textContent = "Department access";
+    dom["auth-role-badge"].className = "badge badge-soft";
+  }
+
   if (supervisorLocked) {
     dom["post-open-btn"].title = "Supervisor sign-in required";
     dom["publish-btn"].title = "Supervisor sign-in required";
@@ -1374,27 +1411,137 @@ function attachCalendarNavEvents() {
   });
 }
 
-function handleSignIn() {
-  const user = employeeById(dom["user-select"].value);
-  if (!user) {
-    dom["auth-message"].textContent = "Select a valid user.";
-    return;
+// ─── Microsoft Entra ID (MSAL) Auth ─────────────────────────────────────────
+
+async function initMsal() {
+  if (!window.msal || !window.APP_CONFIG?.msalConfig) return;
+  try {
+    msalInstance = new msal.PublicClientApplication(window.APP_CONFIG.msalConfig);
+    await msalInstance.initialize();
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      const tokenResponse = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: accounts[0] });
+      await setAuthFromToken(tokenResponse.accessToken, accounts[0]);
+    }
+  } catch (err) {
+    // Silent token failure is expected if no cached session; not an error
+    console.warn("MSAL init:", err.errorCode || err.message);
   }
-  if (dom["pin-input"].value !== user.pin) {
-    dom["auth-message"].textContent = "PIN did not match. Employee PINs cycle through 1111–6666. Supervisor PIN is 9000.";
-    return;
-  }
-  state.isAuthenticated = true;
-  state.currentUserId = user.id;
-  state.currentRole = state.loginRole;
-  dom["auth-message"].textContent = `${user.name} signed in as ${state.currentRole}.`;
-  addAudit(`${user.name} signed in.`, "System");
-  render();
 }
+
+async function handleMsalLogin() {
+  if (!msalInstance) return;
+  dom["auth-message"].textContent = "Opening Microsoft sign-in…";
+  try {
+    const loginResponse = await msalInstance.loginPopup({ scopes: GRAPH_SCOPES });
+    const tokenResponse = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: loginResponse.account });
+    await setAuthFromToken(tokenResponse.accessToken, loginResponse.account);
+    render();
+    persistAppState("User signed in");
+  } catch (err) {
+    if (err.errorCode !== "user_cancelled") {
+      console.error("MSAL login error:", err);
+      dom["auth-message"].textContent = "Sign-in failed — please try again.";
+      showToast("Microsoft sign-in failed. Please try again.", "error");
+    } else {
+      dom["auth-message"].textContent = "Sign-in cancelled.";
+    }
+  }
+}
+
+function handleMsalSignOut() {
+  state.isAuthenticated = false;
+  state.currentUserId = null;
+  state.currentUserDisplayName = null;
+  state.currentUserTitle = null;
+  state.currentUserEmail = null;
+  state.currentUserEntraId = null;
+  state.currentRole = "employee";
+  state.loginRole = "employee";
+  render();
+  if (msalInstance) {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      msalInstance.logoutPopup({ account: accounts[0] }).catch(() => {});
+    }
+  }
+}
+
+async function setAuthFromToken(accessToken, account) {
+  const profile = await fetchGraphProfile(accessToken);
+  const jobTitle = (profile.jobTitle || "").trim();
+  const displayName = (profile.displayName || account.name || "Unknown").trim();
+  const email = (profile.mail || profile.userPrincipalName || account.username || "").trim();
+  const entraId = profile.id || account.localAccountId;
+  const isSupervisor = SUPERVISOR_TITLES.some((t) => t.toLowerCase() === jobTitle.toLowerCase());
+  const employee = syncEmployeeFromEntraProfile({ entraId, name: displayName, email, jobTitle });
+  state.currentUserId = employee.id;
+  state.currentUserDisplayName = displayName;
+  state.currentUserTitle = jobTitle;
+  state.currentUserEmail = email;
+  state.currentUserEntraId = entraId;
+  state.loginRole = isSupervisor ? "supervisor" : "employee";
+  state.currentRole = state.loginRole;
+  state.isAuthenticated = true;
+  addAudit(`${displayName} signed in via Microsoft Entra ID.`, "System");
+}
+
+async function fetchGraphProfile(accessToken) {
+  const res = await fetch(
+    "https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName,jobTitle,department",
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw new Error(`Graph API error ${res.status}`);
+  return res.json();
+}
+
+function syncEmployeeFromEntraProfile({ entraId, name, email, jobTitle }) {
+  // Try to match an existing record by Entra ID or email
+  let emp = state.employees.find(
+    (e) => (e.entraId && e.entraId === entraId) || (e.email && e.email.toLowerCase() === email.toLowerCase())
+  );
+  const isSup = SUPERVISOR_TITLES.some((t) => t.toLowerCase() === (jobTitle || "").toLowerCase());
+  if (emp) {
+    emp.entraId = entraId;
+    emp.name = name;
+    emp.email = email;
+    emp.title = jobTitle || emp.title;
+    emp.isSupervisor = isSup;
+    emp.status = "active";
+  } else {
+    emp = {
+      id: `ENTRA-${entraId.slice(-8).toUpperCase()}`,
+      entraId,
+      name,
+      shift: null,
+      title: jobTitle || "FF/EMT",
+      certs: defaultCertsForTitle(jobTitle),
+      email,
+      isSupervisor: isSup,
+      status: "active",
+    };
+    state.employees.push(emp);
+    addAudit(`${name} added to roster via Entra ID.`, "System");
+  }
+  return emp;
+}
+
+function defaultCertsForTitle(title) {
+  const t = (title || "").toLowerCase();
+  if (t.includes("ff/emtp") || t.includes("paramedic")) return ["paramedic", "emt"];
+  if (t.includes("ff/emt")) return ["emt"];
+  if (t.includes("engineer")) return ["engineer", "emt"];
+  if (t.includes("lieutenant") || t.includes("captain")) return ["officer", "emt"];
+  if (t.includes("batt") || t.includes("chief") || t.includes("div")) return ["officer"];
+  if (t.includes("mof")) return ["officer", "emt"];
+  return ["emt"];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function handlePublish() {
   if (state.currentRole !== "supervisor") {
-    dom["auth-message"].textContent = "Supervisor login is required to publish schedules.";
+    showToast("Supervisor sign-in required to publish schedules.", "error");
     return;
   }
   state.scheduleStatus = "published";
@@ -1407,7 +1554,7 @@ function handlePublish() {
 
 function saveSupervisorEdits() {
   if (state.currentRole !== "supervisor") {
-    dom["auth-message"].textContent = "Supervisor login is required to save staffing changes.";
+    showToast("Supervisor sign-in required to save staffing changes.", "error");
     return;
   }
   addAudit(`Supervisor staffing edits saved for ${formatDate(state.currentDate)}.`, currentUserName());
@@ -1419,7 +1566,7 @@ function saveSupervisorEdits() {
 
 function createTradeRequest() {
   if (!state.isAuthenticated) {
-    dom["auth-message"].textContent = "Employee sign-in is required to submit a trade request.";
+    showToast("Sign-in required to submit a trade request.", "error");
     return;
   }
   const ownerId = dom["trade-owner"].value;
@@ -1446,7 +1593,7 @@ function createTradeRequest() {
 
 function createOpenShift() {
   if (state.currentRole !== "supervisor") {
-    dom["auth-message"].textContent = "Supervisor login is required to post overtime shifts.";
+    showToast("Supervisor sign-in required to post overtime shifts.", "error");
     return;
   }
   const post = {
@@ -1471,7 +1618,7 @@ function createOpenShift() {
 
 function createDailyDigest() {
   if (!state.isAuthenticated) {
-    dom["auth-message"].textContent = "Sign in is required to send the daily digest.";
+    showToast("Sign-in required to send the daily digest.", "error");
     return;
   }
   createNotification(`Daily digest sent for ${formatDate(state.currentDate)} to on-duty personnel.`, "email", "System");
@@ -1529,7 +1676,6 @@ function applyEmployeeImport() {
   mergeEmployees(state.importPreview.validRows);
   state.importPreview = null;
   seedAssignments(true);
-  populateUserSelect();
   populateTradeSelects();
   populateOpenShiftSelects();
   addAudit("Employee CSV import applied.", currentUserName());
@@ -1716,17 +1862,41 @@ function getStaffingAlerts(date) {
     .filter((unit) => unit.shift === getShiftForDate(date))
     .flatMap((unit) => {
       const people = getAssignments(date, unit.id);
+      const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
+      if (positions) {
+        return checkPositionStaffing(unit, people, positions);
+      }
+      // Fallback: generic minStaff + cert check for any unlisted type
       const alerts = [];
       if (people.length < unit.minStaff) {
-        alerts.push({ level: "danger", message: `${unit.name} short ${unit.minStaff - people.length} staffing slot(s).` });
+        alerts.push({ level: "danger", message: `${unit.name} short ${unit.minStaff - people.length} slot(s).` });
       }
-      unit.requiredCerts.forEach((cert) => {
-        if (!people.some((person) => person.certs.includes(cert))) {
+      (unit.requiredCerts || []).forEach((cert) => {
+        if (!people.some((p) => (p.certs || []).includes(cert))) {
           alerts.push({ level: "warning", message: `${unit.name} missing ${cert} coverage.` });
         }
       });
       return alerts;
     });
+}
+
+// Greedy position-fill check: most-restrictive positions are listed first in the
+// UNIT_POSITION_REQUIREMENTS definition so they get their preferred candidates.
+function checkPositionStaffing(unit, people, positions) {
+  const alerts = [];
+  const unmatched = [...people];
+  positions.forEach((pos) => {
+    const idx = unmatched.findIndex((p) => pos.eligibleTitles.includes(p.title));
+    if (idx !== -1) {
+      unmatched.splice(idx, 1);
+    } else {
+      alerts.push({
+        level: "danger",
+        message: `${unit.name} — ${pos.label} unfilled (needs: ${pos.eligibleTitles.join(", ")}).`,
+      });
+    }
+  });
+  return alerts;
 }
 
 function getShiftForDate(date) {
@@ -1778,7 +1948,7 @@ function createAuditEntry(message, actor) {
 }
 
 function currentUserName() {
-  return employeeById(state.currentUserId)?.name || "Supervisor";
+  return state.currentUserDisplayName || employeeById(state.currentUserId)?.name || "System";
 }
 
 function employeeById(id) {
@@ -2127,6 +2297,8 @@ function serializableState() {
 function applyPersistedState(data) {
   // Migrate old AA/BB/CC shift names to A/B/C
   migrateShiftNames(data);
+  // Migrate legacy title values to current D7FR title set
+  migrateEmployeeTitles(data);
 
   if (Array.isArray(data.units)) {
     migratePersistedUnitTypes(data.units);
@@ -2153,6 +2325,28 @@ function applyPersistedState(data) {
   state.selectedEmployeeId = null;
   state.employeeDraft = null;
   seedAssignments(true);
+}
+
+// Migrate legacy title values to current D7FR title strings
+function migrateEmployeeTitles(data) {
+  const map = {
+    Firefighter: "FF/EMT",
+    FAO: "Engineer",
+    Paramedic: "FF/EMTP",
+    "Batt Chief": "Batt. Chief",
+    "Battalion Chief": "Batt. Chief",
+    "Division Chief": "Div. Chief",
+    Officer: "Lieutenant",
+  };
+  if (Array.isArray(data.employees)) {
+    data.employees.forEach((e) => {
+      if (e.title && map[e.title]) e.title = map[e.title];
+      // Also derive isSupervisor from title so it stays in sync after migration
+      if (e.title) {
+        e.isSupervisor = e.isSupervisor || SUPERVISOR_TITLES.some((t) => t.toLowerCase() === e.title.toLowerCase());
+      }
+    });
+  }
 }
 
 // Backward-compatible migration from AA/BB/CC → A/B/C
