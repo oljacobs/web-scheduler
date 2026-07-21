@@ -358,7 +358,10 @@
       </main>
     </div>
 
-    <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+    <!-- MSAL via jsDelivr (primary) with alcdn fallback -->
+    <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"
+      onerror="document.write('<script src=\'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js\'><\/script>')">
+    </script>
     <script src="./config.js"></script>
     <script src="./app.js"></script>
   </body>
