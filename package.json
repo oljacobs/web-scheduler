@@ -1,0 +1,11 @@
+{
+  "name": "d7fr-crew-scheduler",
+  "version": "1.0.0",
+  "description": "D7FR Crew Scheduler — shift planning and staffing management",
+  "scripts": {
+    "start": "npx serve . -l $PORT --no-clipboard"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

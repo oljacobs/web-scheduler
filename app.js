@@ -1414,37 +1414,67 @@ function attachCalendarNavEvents() {
 // ─── Microsoft Entra ID (MSAL) Auth ─────────────────────────────────────────
 
 async function initMsal() {
-  if (!window.msal || !window.APP_CONFIG?.msalConfig) return;
+  if (!window.msal) {
+    console.error("MSAL: library did not load — check network/CSP for alcdn.msauth.net");
+    dom["auth-message"].textContent = "Sign-in unavailable — please refresh the page.";
+    return;
+  }
+  if (!window.APP_CONFIG?.msalConfig) {
+    console.error("MSAL: APP_CONFIG.msalConfig is missing");
+    dom["auth-message"].textContent = "Sign-in unavailable — configuration error.";
+    return;
+  }
   try {
     msalInstance = new msal.PublicClientApplication(window.APP_CONFIG.msalConfig);
     await msalInstance.initialize();
+    // Attempt silent re-login from a cached session
     const accounts = msalInstance.getAllAccounts();
     if (accounts.length > 0) {
-      const tokenResponse = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: accounts[0] });
-      await setAuthFromToken(tokenResponse.accessToken, accounts[0]);
+      try {
+        const tokenResponse = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: accounts[0] });
+        await setAuthFromToken(tokenResponse.accessToken, accounts[0]);
+      } catch (silentErr) {
+        // No cached session — user must sign in manually; not an error
+        console.info("MSAL: no valid cached session, interactive sign-in required.");
+      }
     }
   } catch (err) {
-    // Silent token failure is expected if no cached session; not an error
-    console.warn("MSAL init:", err.errorCode || err.message);
+    console.error("MSAL init failed:", err.errorCode || err.message, err);
+    dom["auth-message"].textContent = "Sign-in unavailable — please refresh the page.";
+    msalInstance = null; // ensure null so button gives feedback below
   }
 }
 
 async function handleMsalLogin() {
-  if (!msalInstance) return;
+  if (!msalInstance) {
+    dom["auth-message"].textContent = "Sign-in unavailable — please refresh the page.";
+    showToast("Microsoft sign-in is not ready. Try refreshing.", "error");
+    return;
+  }
   dom["auth-message"].textContent = "Opening Microsoft sign-in…";
   try {
-    const loginResponse = await msalInstance.loginPopup({ scopes: GRAPH_SCOPES });
-    const tokenResponse = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: loginResponse.account });
+    // Use blank.html as the popup redirect target — avoids re-running the full
+    // app inside the popup, which can cause MSAL to fail silently.
+    const popupRedirectUri = window.location.origin + "/blank.html";
+    const loginResponse = await msalInstance.loginPopup({
+      scopes: GRAPH_SCOPES,
+      redirectUri: popupRedirectUri,
+    });
+    const tokenResponse = await msalInstance.acquireTokenSilent({
+      scopes: GRAPH_SCOPES,
+      account: loginResponse.account,
+      redirectUri: popupRedirectUri,
+    });
     await setAuthFromToken(tokenResponse.accessToken, loginResponse.account);
     render();
     persistAppState("User signed in");
   } catch (err) {
-    if (err.errorCode !== "user_cancelled") {
-      console.error("MSAL login error:", err);
-      dom["auth-message"].textContent = "Sign-in failed — please try again.";
-      showToast("Microsoft sign-in failed. Please try again.", "error");
-    } else {
+    if (err.errorCode === "user_cancelled" || err.message?.includes("user_cancelled")) {
       dom["auth-message"].textContent = "Sign-in cancelled.";
+    } else {
+      console.error("MSAL login error:", err.errorCode || err.message, err);
+      dom["auth-message"].textContent = "Sign-in failed — please try again.";
+      showToast(`Microsoft sign-in failed: ${err.errorCode || err.message}`, "error");
     }
   }
 }

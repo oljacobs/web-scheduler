@@ -27,6 +27,8 @@ OvertimePost{id,status,unitId,date,qualification,reportTime,applicants,approvedE
 Auth flow (MSAL):
 initMsal() silent → handleMsalLogin() popup → setAuthFromToken() → syncEmployeeFromEntraProfile()
 handleMsalSignOut() clears state + logoutPopup
+Popup uses redirectUri = origin + "/blank.html" (blank.html must be registered in Azure as SPA URI)
+initMsal() surfaces errors to dom["auth-message"] instead of failing silently
 
 Startup/persistence:
 DOMContentLoaded -> hydrateAppState -> initMsal -> initializeControls -> render

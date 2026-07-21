@@ -58,14 +58,20 @@ IMPORTANT TOP-LEVEL CONSTANTS
 - GRAPH_SCOPES: ["User.Read","User.ReadBasic.All"]
 
 AUTH FLOW (Entra ID / MSAL)
-- initMsal(): initializes MSAL, attempts silent token from cached session
-- handleMsalLogin(): loginPopup → acquireTokenSilent → setAuthFromToken → render
+- initMsal(): initializes MSAL; surfaces load/config errors to dom["auth-message"] instead of failing silently
+  - silent token acquisition is in a nested try/catch so init errors are not swallowed
+- handleMsalLogin(): loginPopup (redirectUri = origin + "/blank.html") → acquireTokenSilent → setAuthFromToken → render
+  - Uses blank.html as popup redirect target — avoids re-running the full app inside the popup
+  - If msalInstance is null, shows toast + error text instead of silently returning
+  - Error toast includes errorCode for easier diagnosis
 - handleMsalSignOut(): clears state, calls logoutPopup
 - setAuthFromToken(accessToken, account): fetchGraphProfile → syncEmployeeFromEntraProfile → set state
 - fetchGraphProfile(token): GET /v1.0/me?$select=id,displayName,mail,userPrincipalName,jobTitle,department
 - syncEmployeeFromEntraProfile({entraId, name, email, jobTitle}): match by entraId/email; update or create
 - defaultCertsForTitle(title): maps D7FR title → certs[]
 - MSAL config: APP_CONFIG.msalConfig (clientId + authority in config.js)
+- blank.html: dedicated empty page at repo root; MUST be registered in Azure App Registration →
+  Authentication → Single-page application as: https://schedule.d7fr.org/blank.html
 
 SEED / INIT FLOW (current behavior)
 - DOMContentLoaded -> hydrateAppState() -> initMsal() -> initializeControls() -> render()
