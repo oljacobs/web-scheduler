@@ -18,6 +18,7 @@ const state = {
   auditLog: [],
   importPreview: null,
   unitImportPreview: null,
+  rosterImportPreview: null,
   assignments: {},
   activeSurface: "schedule",
   activeAdminTab: "employees",
@@ -126,6 +127,9 @@ function cacheDom() {
     // Unit import
     "unit-import-file", "unit-preview-import-btn", "unit-apply-import-btn", "unit-import-message",
     "unit-import-preview", "download-unit-template-btn",
+    // D7FR roster import
+    "roster-import-file", "roster-preview-btn", "roster-apply-btn",
+    "roster-import-message", "roster-import-preview",
     // Roster filters
     "employee-search", "roster-shift-filter", "employee-status-filter", "roster-sort", "employee-roster", "employee-editor",
     "storage-status",
@@ -181,6 +185,10 @@ function wireEvents() {
   dom["unit-preview-import-btn"].addEventListener("click", previewUnitImport);
   dom["unit-apply-import-btn"].addEventListener("click", applyUnitImport);
   dom["download-unit-template-btn"].addEventListener("click", downloadUnitTemplate);
+
+  // D7FR roster import
+  dom["roster-preview-btn"].addEventListener("click", previewRosterImport);
+  dom["roster-apply-btn"].addEventListener("click", applyRosterImport);
 
   // Roster filters
   dom["employee-search"].addEventListener("input", () => {
@@ -512,6 +520,7 @@ function render() {
   renderAuditLog();
   renderImportPreview();
   renderUnitImportPreview();
+  renderRosterImportPreview();
   renderEmployeeRoster();
   renderEmployeeEditor();
   populateTradeSelects();
@@ -1320,6 +1329,10 @@ function renderPermissionStates() {
   dom["unit-preview-import-btn"].disabled = supervisorLocked;
   dom["unit-apply-import-btn"].disabled = supervisorLocked || !state.unitImportPreview || state.unitImportPreview.errors.length > 0;
   dom["download-unit-template-btn"].disabled = supervisorLocked;
+  // D7FR roster import
+  dom["roster-import-file"].disabled = supervisorLocked;
+  dom["roster-preview-btn"].disabled = supervisorLocked;
+  dom["roster-apply-btn"].disabled = supervisorLocked || !state.rosterImportPreview?.length;
   dom["employee-search"].disabled = supervisorLocked;
   dom["roster-shift-filter"].disabled = supervisorLocked;
   dom["employee-status-filter"].disabled = supervisorLocked;
@@ -1725,6 +1738,221 @@ function applyEmployeeImport() {
   render();
   showToast("Employee import applied successfully.", "success");
   persistAppState("Employee CSV import applied");
+}
+
+// ── D7FR Roster Import (.xlsx) ────────────────────────────────────────────────
+// Parses the department's staff contact spreadsheet directly — no reformatting
+// required. Section headers (A SHIFT / B SHIFT / C SHIFT) set the shift field.
+// Rank prefixes in the name column determine the D7FR title; DSHS cert column
+// resolves Firefighter entries to FF/EMTP or FF/EMT.
+
+const D7FR_RANK_PREFIXES = [
+  "Fire Chief", "Assistant Chief", "Division Chief", "Battalion Chief",
+  "Captain", "Lieutenant", "Engineer", "EVT",
+  "Prob. Paramedic", "Prob. Firefighter", "Firefighter", "Dr.",
+];
+
+function parseD7FRRankFromName(rawName) {
+  const name = (rawName || "").trim();
+  for (const prefix of D7FR_RANK_PREFIXES) {
+    if (name.startsWith(prefix + " ")) {
+      return { rank: prefix, cleanName: name.slice(prefix.length).trim().replace(/\.$/, "").trim() };
+    }
+  }
+  return { rank: null, cleanName: name };
+}
+
+function d7frRankToTitle(rank, dshsCert) {
+  const cert = (dshsCert || "").toString().trim().toUpperCase();
+  const rankMap = {
+    "Fire Chief":       "Batt. Chief",
+    "Assistant Chief":  "Div. Chief",
+    "Division Chief":   "Div. Chief",
+    "Battalion Chief":  "Batt. Chief",
+    "Captain":          "Captain",
+    "Lieutenant":       "Lieutenant",
+    "Engineer":         "Engineer",
+    "EVT":              "Engineer",   // Emergency Vehicle Technician — same apparatus role
+  };
+  if (rankMap[rank]) return rankMap[rank];
+  // Firefighter-rank entries: cert level determines title
+  if (rank === "Firefighter" || rank === "Prob. Firefighter" || rank === "Prob. Paramedic") {
+    return cert === "PARAMEDIC" ? "FF/EMTP" : "FF/EMT";
+  }
+  return null; // Dr., unnamed admin support — no scheduling role, skip
+}
+
+function parseD7FRRosterXlsx(arrayBuffer) {
+  if (!window.XLSX) throw new Error("SheetJS library not loaded — please refresh.");
+  const workbook = window.XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
+  const ws = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  const SECTION_SHIFTS = {
+    "ADMINISTRATION": null,
+    "A SHIFT": "A",
+    "B SHIFT": "B",
+    "C SHIFT": "C",
+    "NEW HIRES": null,
+  };
+
+  let currentShift = null;
+  const employees = [];
+
+  for (const row of rows) {
+    const col0 = (row[0] || "").toString().trim();
+    const col1 = (row[1] || "").toString().trim();
+    const col2 = (row[2] || "").toString().trim();
+    const col3 = (row[3] || "").toString().trim();
+
+    // Section header row
+    if (col0 in SECTION_SHIFTS) { currentShift = SECTION_SHIFTS[col0]; continue; }
+    // Column header rows (Badge Number in col2) or shift aggregate email rows
+    if (col2 === "Badge Number" || /^shift[abc]@/i.test(col1)) continue;
+    // Empty rows or rows without a valid email
+    if (!col0 || !col1 || !col1.includes("@")) continue;
+
+    const { rank, cleanName } = parseD7FRRankFromName(col0);
+    const title = d7frRankToTitle(rank, col3);
+    if (!title) continue; // Skip Dr., unnamed admin support
+
+    employees.push({
+      name:       cleanName,
+      email:      col1.toLowerCase(),
+      badge:      col2,
+      dshsCert:   col3 || "—",
+      title,
+      shift:      currentShift,
+      certs:      defaultCertsForTitle(title),
+      isSupervisor: SUPERVISOR_TITLES.some((t) => t.toLowerCase() === title.toLowerCase()),
+    });
+  }
+  return employees;
+}
+
+async function previewRosterImport() {
+  if (state.currentRole !== "supervisor" || !state.isAuthenticated) {
+    dom["roster-import-message"].textContent = "Supervisor sign-in required.";
+    return;
+  }
+  const file = dom["roster-import-file"].files[0];
+  if (!file) { dom["roster-import-message"].textContent = "Choose an .xlsx file first."; return; }
+  if (!window.XLSX) { dom["roster-import-message"].textContent = "Excel library not loaded — refresh the page."; return; }
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const parsed = parseD7FRRosterXlsx(buffer);
+    if (!parsed.length) { dom["roster-import-message"].textContent = "No valid employee rows found."; return; }
+
+    // Annotate each entry: new add or update to existing record
+    state.rosterImportPreview = parsed.map((emp) => {
+      const existing = state.employees.find(
+        (e) => e.email && e.email.toLowerCase() === emp.email
+      );
+      return {
+        ...emp,
+        _action: existing ? "update" : "add",
+        _existingTitle: existing?.title || null,
+        _existingShift: existing?.shift || null,
+      };
+    });
+
+    const adds    = state.rosterImportPreview.filter((r) => r._action === "add").length;
+    const updates = state.rosterImportPreview.filter((r) => r._action === "update").length;
+    dom["roster-import-message"].textContent =
+      `Preview ready — ${adds} new, ${updates} update(s). Review below then click Apply Roster.`;
+    render();
+    dom["roster-import-preview"].scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    console.error("Roster import error:", err);
+    dom["roster-import-message"].textContent = `Error: ${err.message}`;
+  }
+}
+
+function applyRosterImport() {
+  if (state.currentRole !== "supervisor" || !state.isAuthenticated) {
+    dom["roster-import-message"].textContent = "Supervisor sign-in required.";
+    return;
+  }
+  if (!state.rosterImportPreview?.length) {
+    dom["roster-import-message"].textContent = "Preview the roster before applying.";
+    return;
+  }
+
+  let added = 0, updated = 0;
+  state.rosterImportPreview.forEach((emp) => {
+    const existing = state.employees.find(
+      (e) => e.email && e.email.toLowerCase() === emp.email
+    );
+    if (existing) {
+      // Roster is authoritative — update title, shift, certs, badge
+      existing.name        = emp.name;
+      existing.title       = emp.title;
+      existing.certs       = emp.certs;
+      existing.isSupervisor = emp.isSupervisor;
+      existing.badge       = emp.badge;
+      if (emp.shift) existing.shift = emp.shift; // preserve null for admin/new hires
+      existing.status      = "active";
+      updated++;
+    } else {
+      state.employees.push({
+        id:          `ROSTER-${emp.badge || String(state.employees.length + 1).padStart(3, "0")}`,
+        entraId:     null,
+        name:        emp.name,
+        email:       emp.email,
+        badge:       emp.badge,
+        shift:       emp.shift,
+        title:       emp.title,
+        certs:       emp.certs,
+        isSupervisor: emp.isSupervisor,
+        status:      "active",
+      });
+      added++;
+    }
+  });
+
+  state.rosterImportPreview = null;
+  addAudit(`D7FR roster import applied: ${added} added, ${updated} updated.`, currentUserName());
+  createNotification(`Roster import complete — ${added} added, ${updated} updated.`, "email", currentUserName());
+  dom["roster-import-message"].textContent = `Applied — ${added} new, ${updated} updated.`;
+  dom["roster-import-file"].value = "";
+  render();
+  showToast(`Roster applied: ${added} new, ${updated} updated.`, "success");
+  persistAppState("D7FR roster import applied");
+}
+
+function renderRosterImportPreview() {
+  const container = dom["roster-import-preview"];
+  if (!container) return;
+  if (!state.rosterImportPreview?.length) { container.innerHTML = ""; return; }
+
+  const adds    = state.rosterImportPreview.filter((r) => r._action === "add").length;
+  const updates = state.rosterImportPreview.filter((r) => r._action === "update").length;
+
+  container.innerHTML =
+    `<p class="helper-text" style="margin:0 0 0.5rem">
+       <strong>${adds}</strong> to add &nbsp;·&nbsp; <strong>${updates}</strong> to update
+     </p>` +
+    state.rosterImportPreview.map((r) => {
+      const actionBadge = r._action === "add"
+        ? `<span class="badge" style="background:var(--success-bg,#d1fae5);color:#065f46;flex-shrink:0">+ new</span>`
+        : `<span class="badge badge-soft" style="flex-shrink:0">update</span>`;
+      const titleNote = r._action === "update" && r._existingTitle && r._existingTitle !== r.title
+        ? ` <span class="helper-text">(was ${r._existingTitle})</span>` : "";
+      const shiftNote = r._action === "update" && r.shift && r._existingShift !== r.shift
+        ? ` <span class="helper-text">(was ${r._existingShift || "none"})</span>` : "";
+      return `<div class="stack-item" style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem">
+        ${actionBadge}
+        <div style="flex:1;min-width:0;overflow:hidden">
+          <p style="margin:0;font-weight:600;font-size:0.875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</p>
+          <p style="margin:0;font-size:0.78rem;color:var(--text-secondary)">${r.email}</p>
+        </div>
+        <div style="text-align:right;white-space:nowrap;font-size:0.8rem;flex-shrink:0">
+          <p style="margin:0;font-weight:500">${r.title}${titleNote}</p>
+          <p style="margin:0;color:var(--text-secondary)">Shift ${r.shift || "—"}${shiftNote} · ${r.dshsCert}</p>
+        </div>
+      </div>`;
+    }).join("");
 }
 
 async function previewUnitImport() {

@@ -77,6 +77,21 @@ AUTH FLOW (Entra ID / MSAL)
 - blank.html: dedicated empty page at repo root; MUST be registered in Azure App Registration →
   Authentication → Single-page application as: https://schedule.d7fr.org/blank.html
 
+D7FR ROSTER IMPORT
+- Admin → Imports → "D7FR Roster Import" card accepts the staff_contact.xlsx directly (no reformatting)
+- SheetJS (window.XLSX) loaded from CDN: cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js
+- parseD7FRRosterXlsx(buffer): reads Sheet1; detects section headers (ADMINISTRATION/A SHIFT/B SHIFT/
+  C SHIFT/NEW HIRES) to assign shift; strips rank prefix from name column; maps rank+DSHS cert → D7FR title
+  - Rank map: Fire Chief/Asst Chief→Batt.Chief, Division Chief→Div.Chief, Battalion Chief→Batt.Chief,
+    Captain→Captain, Lieutenant→Lieutenant, Engineer/EVT→Engineer
+  - Firefighter-rank: PARAMEDIC cert→FF/EMTP, BASIC/EMT→FF/EMT
+  - Skips: Dr. (medical director), unnamed admin support (no rank prefix)
+- previewRosterImport(): parses file, annotates rows as "add" or "update" (matched by email)
+- applyRosterImport(): upserts employees; roster data is authoritative for title/shift/certs/badge
+- renderRosterImportPreview(): renders annotated rows in stack-list format
+- state.rosterImportPreview: Employee[] with _action/_existingTitle/_existingShift annotations | null
+  (transient UI state, not persisted to Supabase)
+
 SEED / INIT FLOW (current behavior)
 - DOMContentLoaded -> hydrateAppState() -> initMsal() -> initializeControls() -> render()
 - seedDefaultState() is EMPTY-DATA only (employees=[], units=[], etc.)

@@ -31,6 +31,10 @@ Popup uses redirectUri = origin + "/blank.html" (blank.html must be registered i
 initMsal() surfaces errors to dom["auth-message"] instead of failing silently
 ROSTER IS AUTHORITATIVE: syncEmployeeFromEntraProfile() only updates identity fields (entraId/name/email)
   on existing records; title/certs/shift preserved from roster. Entra ID title only used for new unmatched employees.
+D7FR Roster Import: Admin→Imports→"D7FR Roster Import" accepts staff_contact.xlsx directly.
+  Parses section headers (A/B/C SHIFT) for shift assignment; extracts rank from name prefix;
+  maps rank+DSHS cert → D7FR title. Matched by email. SheetJS CDN required (window.XLSX).
+  state.rosterImportPreview: annotated array | null (transient, not persisted)
 
 Startup/persistence:
 DOMContentLoaded -> hydrateAppState -> initMsal -> initializeControls -> render

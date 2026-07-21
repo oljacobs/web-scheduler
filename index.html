@@ -328,6 +328,28 @@
                       <div id="unit-import-preview" class="stack-list"></div>
                     </section>
                   </div>
+
+                  <section class="workflow-card" style="margin-top:1rem">
+                    <h3>D7FR Roster Import</h3>
+                    <p class="helper-text tab-desc">
+                      Upload the department's staff contact spreadsheet (.xlsx). Employees are matched by
+                      email — title, shift, and certifications are set from the roster and will be applied
+                      automatically when each person signs in with their Microsoft account.
+                    </p>
+                    <div class="workflow-form">
+                      <label>
+                        Excel File (.xlsx)
+                        <input id="roster-import-file" type="file"
+                          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                      </label>
+                      <div class="button-row">
+                        <button id="roster-preview-btn" class="button button-primary">Preview</button>
+                        <button id="roster-apply-btn" class="button button-secondary">Apply Roster</button>
+                      </div>
+                      <p id="roster-import-message" class="helper-text"></p>
+                    </div>
+                    <div id="roster-import-preview" class="stack-list"></div>
+                  </section>
                 </div>
 
                 <div class="tab-pane hidden" data-tab-id="units">
@@ -362,6 +384,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"
       onerror="document.write('<script src=\'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js\'><\/script>')">
     </script>
+    <!-- SheetJS — Excel parsing for D7FR roster import -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="./config.js"></script>
     <script src="./app.js"></script>
   </body>
