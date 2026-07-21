@@ -384,23 +384,23 @@ async function hydrateAppState() {
   let loaded = false;
 
   if (remoteConfigured) {
-    state.persistence.backend = "supabase";
+    state.persistence.backend = usesSchedulerApi() ? "api" : "supabase";
     state.persistence.hasRemote = true;
     try {
       const remoteState = await loadRemoteState();
       if (remoteState) {
         applyPersistedState(remoteState);
         loaded = true;
-        setPersistenceStatus("Connected to Supabase", "ok");
+        setPersistenceStatus(`Connected to ${remoteLabel()}`, "ok");
       } else {
         seedDefaultState();
         await persistAppState("Initial remote seed");
         loaded = true;
-        setPersistenceStatus("Supabase seeded with starter data", "ok");
+        setPersistenceStatus(`${remoteLabel()} seeded with starter data`, "ok");
       }
     } catch (error) {
       console.error("Remote load failed", error);
-      setPersistenceStatus("Supabase unavailable, using browser fallback", "warning");
+      setPersistenceStatus(`${remoteLabel()} unavailable, using browser fallback`, "warning");
     }
   }
 
@@ -417,7 +417,9 @@ async function hydrateAppState() {
   if (!loaded) {
     seedDefaultState();
     saveLocalState();
-    state.persistence.backend = remoteConfigured ? "supabase-fallback" : "local-storage";
+    state.persistence.backend = remoteConfigured
+      ? (usesSchedulerApi() ? "api-fallback" : "supabase-fallback")
+      : "local-storage";
     setPersistenceStatus(remoteConfigured ? "Using browser fallback data" : "Using browser-only data", "warning");
   }
 }
@@ -546,7 +548,7 @@ function renderPersistenceStatus() {
   const el = dom["storage-status"];
   el.textContent = state.persistence.status;
   el.className = "status-pill";
-  if (state.persistence.level === "warning" || state.persistence.backend === "local-storage" || state.persistence.backend === "supabase-fallback") {
+  if (state.persistence.level === "warning" || state.persistence.backend === "local-storage" || state.persistence.backend === "supabase-fallback" || state.persistence.backend === "api-fallback") {
     el.classList.add("is-warning");
   }
   if (state.persistence.level === "danger" || state.persistence.backend === "browser-memory") {
@@ -2475,7 +2477,47 @@ function escapeHtml(value) {
 
 function hasRemotePersistence() {
   const config = window.APP_CONFIG || {};
-  return Boolean(config.supabaseUrl && config.supabaseAnonKey);
+  // The new Django API takes priority when configured; otherwise fall back to
+  // the original Supabase blob. Either one counts as "remote".
+  return usesSchedulerApi() || Boolean(config.supabaseUrl && config.supabaseAnonKey);
+}
+
+// --- Backend selection -------------------------------------------------------
+// When APP_CONFIG.schedulerApiUrl is set, load/save go to the Django REST API
+// (/api/scheduler/state/). When it's blank, everything behaves exactly as before
+// (Supabase). This lets us cut over one environment at a time with zero risk to
+// the live app until the URL is filled in.
+function usesSchedulerApi() {
+  return Boolean((window.APP_CONFIG || {}).schedulerApiUrl);
+}
+
+function schedulerStateUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/state/`;
+}
+
+// Human label for the status pill so it reads correctly for whichever backend.
+function remoteLabel() {
+  return usesSchedulerApi() ? "server" : "Supabase";
+}
+
+// Try to attach a Microsoft token so the Django API can verify the caller.
+// If we can't get one (not signed in, or the API scope isn't set up yet), we
+// send no token -- which still works while the API is in DEBUG dev-open mode.
+async function schedulerApiHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const scopes = (window.APP_CONFIG || {}).schedulerApiScopes;
+  try {
+    if (msalInstance && Array.isArray(scopes) && scopes.length) {
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length) {
+        const res = await msalInstance.acquireTokenSilent({ scopes, account: accounts[0] });
+        if (res && res.accessToken) headers.Authorization = `Bearer ${res.accessToken}`;
+      }
+    }
+  } catch (error) {
+    console.warn("Could not acquire scheduler API token; sending request without one.", error);
+  }
+  return headers;
 }
 
 function remoteBaseUrl() {
@@ -2483,6 +2525,11 @@ function remoteBaseUrl() {
 }
 
 async function loadRemoteState() {
+  if (usesSchedulerApi()) {
+    const response = await fetch(schedulerStateUrl(), { headers: await schedulerApiHeaders() });
+    if (!response.ok) throw new Error(`API load failed with status ${response.status}`);
+    return await response.json(); // already the full state object
+  }
   const response = await fetch(`${remoteBaseUrl()}?id=eq.${encodeURIComponent(REMOTE_STATE_ID)}&select=state`, {
     headers: remoteHeaders(),
   });
@@ -2497,8 +2544,8 @@ async function persistAppState(reason) {
     saveLocalState();
     if (hasRemotePersistence()) {
       await saveRemoteState();
-      state.persistence.backend = "supabase";
-      setPersistenceStatus(`Saved to Supabase${reason ? ` • ${reason}` : ""}`, "ok");
+      state.persistence.backend = usesSchedulerApi() ? "api" : "supabase";
+      setPersistenceStatus(`Saved to ${remoteLabel()}${reason ? ` • ${reason}` : ""}`, "ok");
     } else {
       state.persistence.backend = "local-storage";
       setPersistenceStatus(`Saved in browser${reason ? ` • ${reason}` : ""}`, "warning");
@@ -2506,7 +2553,9 @@ async function persistAppState(reason) {
   } catch (error) {
     console.error("Persist failed", error);
     saveLocalState();
-    state.persistence.backend = hasRemotePersistence() ? "supabase-fallback" : "local-storage";
+    state.persistence.backend = hasRemotePersistence()
+      ? (usesSchedulerApi() ? "api-fallback" : "supabase-fallback")
+      : "local-storage";
     setPersistenceStatus("Saved in browser fallback only", "warning");
   } finally {
     state.persistence.isSaving = false;
@@ -2516,6 +2565,15 @@ async function persistAppState(reason) {
 }
 
 async function saveRemoteState() {
+  if (usesSchedulerApi()) {
+    const response = await fetch(schedulerStateUrl(), {
+      method: "PUT",
+      headers: await schedulerApiHeaders(),
+      body: JSON.stringify(serializableState()),
+    });
+    if (!response.ok) throw new Error(`API save failed with status ${response.status}`);
+    return;
+  }
   const response = await fetch(remoteBaseUrl(), {
     method: "POST",
     headers: {
