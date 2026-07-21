@@ -346,6 +346,13 @@ textarea:disabled {
   color: var(--text);
 }
 
+/* Cross-app nav link to the Apparatus Checklist app; styled like a button. */
+.cross-app-link {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+}
+
 .icon-button {
   width: 44px;
   height: 44px;
