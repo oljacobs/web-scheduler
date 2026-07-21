@@ -1846,23 +1846,39 @@ async function previewRosterImport() {
     const parsed = parseD7FRRosterXlsx(buffer);
     if (!parsed.length) { dom["roster-import-message"].textContent = "No valid employee rows found."; return; }
 
-    // Annotate each entry: new add or update to existing record
+    // Annotate each entry. Three outcomes, matched by email (case-insensitive):
+    //  - "add"       : not in the roster and not seen earlier in this file -> new record
+    //  - "update"    : already in the roster -> refresh fields, never a 2nd record
+    //  - "duplicate" : the same email appears more than once in THIS file -> skipped
+    const seenEmails = new Set();
     state.rosterImportPreview = parsed.map((emp) => {
+      const email = (emp.email || "").toLowerCase();
       const existing = state.employees.find(
-        (e) => e.email && e.email.toLowerCase() === emp.email
+        (e) => e.email && e.email.toLowerCase() === email
       );
+      const inFileDuplicate = email && seenEmails.has(email);
+      if (email) seenEmails.add(email);
+      let action = "add";
+      if (inFileDuplicate) action = "duplicate";
+      else if (existing) action = "update";
       return {
         ...emp,
-        _action: existing ? "update" : "add",
+        _action: action,
         _existingTitle: existing?.title || null,
         _existingShift: existing?.shift || null,
+        _dupReason: inFileDuplicate
+          ? "listed more than once in this file"
+          : (existing ? "already in roster" : null),
       };
     });
 
-    const adds    = state.rosterImportPreview.filter((r) => r._action === "add").length;
-    const updates = state.rosterImportPreview.filter((r) => r._action === "update").length;
+    const adds       = state.rosterImportPreview.filter((r) => r._action === "add").length;
+    const updates    = state.rosterImportPreview.filter((r) => r._action === "update").length;
+    const duplicates = state.rosterImportPreview.filter((r) => r._action === "duplicate").length;
     dom["roster-import-message"].textContent =
-      `Preview ready — ${adds} new, ${updates} update(s). Review below then click Apply Roster.`;
+      `Preview ready — ${adds} new, ${updates} update(s)` +
+      (duplicates ? `, ${duplicates} duplicate(s) skipped` : "") +
+      `. Review below then click Apply Roster.`;
     render();
     dom["roster-import-preview"].scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
@@ -1881,13 +1897,22 @@ function applyRosterImport() {
     return;
   }
 
-  let added = 0, updated = 0;
+  let added = 0, updated = 0, skipped = 0;
+  const processedEmails = new Set();  // guard: never touch the same email twice in one apply
   state.rosterImportPreview.forEach((emp) => {
+    const email = (emp.email || "").toLowerCase();
+    // Skip in-file duplicates, and any email we've already handled this run.
+    if (emp._action === "duplicate" || (email && processedEmails.has(email))) {
+      skipped++;
+      return;
+    }
+    if (email) processedEmails.add(email);
+
     const existing = state.employees.find(
-      (e) => e.email && e.email.toLowerCase() === emp.email
+      (e) => e.email && e.email.toLowerCase() === email
     );
     if (existing) {
-      // Roster is authoritative — update title, shift, certs, badge
+      // Roster is authoritative — update title, shift, certs, badge. Never a 2nd record.
       existing.name        = emp.name;
       existing.title       = emp.title;
       existing.certs       = emp.certs;
@@ -1914,9 +1939,10 @@ function applyRosterImport() {
   });
 
   state.rosterImportPreview = null;
-  addAudit(`D7FR roster import applied: ${added} added, ${updated} updated.`, currentUserName());
-  createNotification(`Roster import complete — ${added} added, ${updated} updated.`, "email", currentUserName());
-  dom["roster-import-message"].textContent = `Applied — ${added} new, ${updated} updated.`;
+  const skipNote = skipped ? `, ${skipped} duplicate(s) skipped` : "";
+  addAudit(`D7FR roster import applied: ${added} added, ${updated} updated${skipNote}.`, currentUserName());
+  createNotification(`Roster import complete — ${added} added, ${updated} updated${skipNote}.`, "email", currentUserName());
+  dom["roster-import-message"].textContent = `Applied — ${added} new, ${updated} updated${skipNote}.`;
   dom["roster-import-file"].value = "";
   render();
   showToast(`Roster applied: ${added} new, ${updated} updated.`, "success");
@@ -1928,26 +1954,32 @@ function renderRosterImportPreview() {
   if (!container) return;
   if (!state.rosterImportPreview?.length) { container.innerHTML = ""; return; }
 
-  const adds    = state.rosterImportPreview.filter((r) => r._action === "add").length;
-  const updates = state.rosterImportPreview.filter((r) => r._action === "update").length;
+  const adds       = state.rosterImportPreview.filter((r) => r._action === "add").length;
+  const updates    = state.rosterImportPreview.filter((r) => r._action === "update").length;
+  const duplicates = state.rosterImportPreview.filter((r) => r._action === "duplicate").length;
 
   container.innerHTML =
     `<p class="helper-text" style="margin:0 0 0.5rem">
-       <strong>${adds}</strong> to add &nbsp;·&nbsp; <strong>${updates}</strong> to update
-     </p>` +
+       <strong>${adds}</strong> to add &nbsp;·&nbsp; <strong>${updates}</strong> to update` +
+       (duplicates ? ` &nbsp;·&nbsp; <strong>${duplicates}</strong> duplicate(s) skipped` : "") +
+     `</p>` +
     state.rosterImportPreview.map((r) => {
       const actionBadge = r._action === "add"
         ? `<span class="badge" style="background:var(--success-bg,#d1fae5);color:#065f46;flex-shrink:0">+ new</span>`
+        : r._action === "duplicate"
+        ? `<span class="badge" style="background:var(--warning-bg,#fef3c7);color:#92400e;flex-shrink:0">duplicate</span>`
         : `<span class="badge badge-soft" style="flex-shrink:0">update</span>`;
+      const dupNote = r._dupReason
+        ? ` <span class="helper-text">(${r._dupReason})</span>` : "";
       const titleNote = r._action === "update" && r._existingTitle && r._existingTitle !== r.title
         ? ` <span class="helper-text">(was ${r._existingTitle})</span>` : "";
       const shiftNote = r._action === "update" && r.shift && r._existingShift !== r.shift
         ? ` <span class="helper-text">(was ${r._existingShift || "none"})</span>` : "";
-      return `<div class="stack-item" style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem">
+      return `<div class="stack-item" style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem${r._action === "duplicate" ? ";opacity:0.65" : ""}">
         ${actionBadge}
         <div style="flex:1;min-width:0;overflow:hidden">
           <p style="margin:0;font-weight:600;font-size:0.875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</p>
-          <p style="margin:0;font-size:0.78rem;color:var(--text-secondary)">${r.email}</p>
+          <p style="margin:0;font-size:0.78rem;color:var(--text-secondary)">${r.email}${dupNote}</p>
         </div>
         <div style="text-align:right;white-space:nowrap;font-size:0.8rem;flex-shrink:0">
           <p style="margin:0;font-weight:500">${r.title}${titleNote}</p>
