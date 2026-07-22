@@ -8,7 +8,7 @@ const state = {
   currentRole: "employee",
   isAuthenticated: false,
   currentView: "day",
-  currentDate: new Date().toISOString().slice(0, 10),
+  currentDate: todayIso(),
   scheduleStatus: "draft",
   units: [],
   employees: [],
@@ -2324,7 +2324,26 @@ function unitById(id) {
 // ─── Date Utilities ───────────────────────────────────────────────────────────
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  // The department's "shift day" runs 0800 to 0800 (America/Chicago), so this
+  // returns the OPERATIONAL shift day, not the raw calendar date:
+  //   - computed in Central time, never UTC (UTC made it read as "tomorrow" in
+  //     the evening), and
+  //   - before 08:00 it rolls back to the previous calendar date, because the
+  //     crew that came on the previous morning is still on duty until 0800.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const val = (t) => parts.find((p) => p.type === t).value;
+  const centralDate = `${val("year")}-${val("month")}-${val("day")}`;
+  const centralHour = parseInt(val("hour"), 10) % 24; // %24 guards a midnight "24"
+  if (centralHour >= 8) return centralDate;
+  // Before 0800 -> previous shift day. Do the -1 in pure UTC (noon anchor) so
+  // it can't be knocked off-by-one by the viewer's own timezone.
+  const d = new Date(`${centralDate}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function addDays(dateString, amount) {
