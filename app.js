@@ -2344,9 +2344,15 @@ function seatNeedLabel(pos) {
 // Every employee id assigned to ANY unit on a date -- used to keep someone from
 // appearing in another unit's pick list once they're on the schedule that day.
 function assignedEmployeeIdsForDate(date) {
+  // Only count assignments to units that still EXIST, so leftover/orphaned
+  // assignments to deleted apparatus can never make someone read as booked.
   const ids = new Set();
+  const existingUnitIds = new Set(state.units.map((u) => u.id));
   const byUnit = state.assignments?.[date] || {};
-  Object.values(byUnit).forEach((people) => (people || []).forEach((p) => p && ids.add(p.id)));
+  Object.entries(byUnit).forEach(([unitId, people]) => {
+    if (!existingUnitIds.has(unitId)) return;
+    (people || []).forEach((p) => p && ids.add(p.id));
+  });
   return ids;
 }
 
