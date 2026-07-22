@@ -538,6 +538,52 @@ textarea:disabled {
   gap: 10px;
 }
 
+/* --- Per-seat staffing rows --- */
+.seat-list {
+  display: grid;
+  gap: 8px;
+}
+
+.seat-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 34%) 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(77, 163, 255, 0.06);
+}
+
+.seat-row.seat-optional {
+  background: rgba(141, 175, 214, 0.05);
+}
+
+.seat-label {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.seat-person {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.seat-person small {
+  color: var(--muted);
+}
+
+.seat-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.seat-row .assignment-select {
+  width: 100%;
+}
+
 .person-row {
   padding: 12px;
   border-radius: 14px;

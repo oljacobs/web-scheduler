@@ -60,42 +60,57 @@ const employeeTitleOptions = ["Batt. Chief", "Div. Chief", "Captain", "Lieutenan
 // Titles that grant supervisor access in this app
 const SUPERVISOR_TITLES = ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "MOF"];
 
-// Position slot requirements by unit type — most-restrictive slot listed first
-// so the greedy matcher reserves the best candidate for each critical role.
+// Seat requirements by unit type. Each seat needs a CAPABILITY (cap), not a raw
+// rank — a person qualifies if their capabilities (rank-derived certs + any
+// ride-up grants) include it. cap: null = any qualified rider. Most-restrictive
+// seats are listed first so the greedy matcher reserves the best candidate.
+//   Capabilities: "officer", "engineer", "paramedic", "emt".
+//   cap can be an array to accept any one of several (e.g. Batt ICT).
+//   required: false = optional rider seat (doesn't count toward minimum staffing).
 const UNIT_POSITION_REQUIREMENTS = {
   Batt: [
-    { role: "BC",  label: "BC Position",        eligibleTitles: ["Batt. Chief", "Captain", "Div. Chief"] },
-    { role: "ICT", label: "ICT Position",        eligibleTitles: ["Engineer", "Lieutenant", "Captain", "MOF"] },
+    { role: "BC",  label: "BC Position",  cap: "officer" },
+    { role: "ICT", label: "ICT Position", cap: ["officer", "engineer"] },
   ],
   Ladder: [
-    { role: "Driver",  label: "Driver/Engineer", eligibleTitles: ["Engineer"] },
-    { role: "Officer", label: "Officer Seat",    eligibleTitles: ["Captain", "MOF", "Lieutenant", "Engineer"] },
-    { role: "FF1",     label: "FF 1",            eligibleTitles: ["FF/EMTP", "FF/EMT", "Engineer", "Lieutenant", "Captain", "MOF"] },
-    { role: "FF2",     label: "FF 2",            eligibleTitles: ["FF/EMTP", "FF/EMT", "Engineer"] },
+    { role: "Driver",  label: "Driver/Engineer", cap: "engineer" },
+    { role: "Officer", label: "Officer Seat",    cap: "officer" },
+    { role: "FF1",     label: "FF 1",            cap: null },
+    { role: "FF2",     label: "FF 2",            cap: null },
   ],
   Medic: [
-    { role: "EMTP", label: "Paramedic",          eligibleTitles: ["FF/EMTP"] },
-    { role: "EMT",  label: "EMT",                eligibleTitles: ["FF/EMT", "FF/EMTP"] },
+    { role: "EMTP", label: "Paramedic", cap: "paramedic" },  // license-only, no ride-up
+    { role: "EMT",  label: "EMT",       cap: "emt" },
   ],
   MOF: [
-    { role: "MOF",  label: "MOF",                eligibleTitles: ["MOF", "Captain", "Lieutenant"] },
+    { role: "MOF", label: "MOF", cap: "officer" },
   ],
+  // Engine: 2 required seats (Officer + Engineer), then up to 3 optional riders
+  // of any rank -- minimum 2 filled, staff up to 5.
   Engine: [
-    { role: "Driver",  label: "Engineer/Driver", eligibleTitles: ["Engineer", "Captain", "Lieutenant"] },
-    { role: "Officer", label: "Officer",          eligibleTitles: ["Captain", "Lieutenant", "Engineer", "Batt. Chief", "Div. Chief"] },
+    { role: "Officer",  label: "Officer",       cap: "officer" },
+    { role: "Engineer", label: "Engineer",      cap: "engineer" },
+    { role: "FF1",      label: "Firefighter 1", cap: null, required: false },
+    { role: "FF2",      label: "Firefighter 2", cap: null, required: false },
+    { role: "FF3",      label: "Firefighter 3", cap: null, required: false },
   ],
   Rescue: [
-    { role: "Driver",  label: "Driver/Engineer", eligibleTitles: ["Engineer"] },
-    { role: "Officer", label: "Officer",          eligibleTitles: ["Captain", "Lieutenant", "Engineer"] },
+    { role: "Driver",  label: "Driver/Engineer", cap: "engineer" },
+    { role: "Officer", label: "Officer",          cap: "officer" },
   ],
   Tender: [
-    { role: "Driver", label: "Driver",            eligibleTitles: ["Engineer", "Captain", "Lieutenant"] },
+    { role: "Driver", label: "Driver", cap: "engineer" },
   ],
   Brush: [
-    { role: "Driver",  label: "Driver",           eligibleTitles: ["Engineer", "FF/EMTP", "FF/EMT"] },
-    { role: "Officer", label: "Officer",          eligibleTitles: ["Captain", "Lieutenant", "Engineer"] },
+    { role: "Driver",  label: "Driver",  cap: null },       // any firefighter may drive brush
+    { role: "Officer", label: "Officer", cap: "officer" },
   ],
 };
+
+// Readable names for capabilities, used in staffing-alert messages.
+const CAPABILITY_LABELS = { officer: "officer", engineer: "driver/engineer", paramedic: "paramedic", emt: "EMT" };
+// Which capabilities can be granted as ride-up (medical licenses cannot).
+const RIDE_UP_CAPABILITIES = ["officer", "engineer"];
 
 let msalInstance = null;
 const GRAPH_SCOPES = ["User.Read", "User.ReadBasic.All"];
@@ -784,67 +799,82 @@ function renderMonthCalendar(dates) {
 function renderUnitCard(unit, date, activeShift) {
   const people = getAssignments(date, unit.id);
   const isActive = unit.shift === activeShift;
-  const certCoverage = unit.requiredCerts.every((cert) => people.some((person) => person.certs.includes(cert)));
-  const staffingOk = people.length >= unit.minStaff;
-  const statusClass = !isActive ? "badge-soft" : staffingOk && certCoverage ? "badge-success" : "badge-danger";
-  const statusLabel = !isActive ? "Off rotation" : staffingOk && certCoverage ? "Staffed" : "Needs attention";
+  const isSupervisor = state.currentRole === "supervisor";
+  const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
 
-  // Show employees from the same shift as the unit; supervisors can also see off-shift options
-  const eligibleEmployees = state.currentRole === "supervisor"
-    ? activeEmployees()
-    : activeEmployees().filter((employee) => employee.shift === unit.shift);
+  // --- Unlisted unit type: keep the simple single-dropdown + list behavior. ---
+  if (!positions) {
+    const booked = assignedEmployeeIdsForDate(date);
+    const base = isSupervisor ? activeEmployees() : activeEmployees().filter((e) => e.shift === unit.shift);
+    const options = base
+      .filter((e) => !booked.has(e.id))
+      .map((e) => `<option value="${e.id}">${escapeHtml(e.name)} (${e.shift || "?"})</option>`)
+      .join("");
+    const staffingOk = people.length >= (unit.minStaff || 0);
+    const cls = !isActive ? "badge-soft" : staffingOk ? "badge-success" : "badge-danger";
+    const lbl = !isActive ? "Off rotation" : staffingOk ? "Staffed" : "Needs attention";
+    const rows = people.map((p) => seatRowHtml({ label: p.title || "Crew", cap: null }, p, unit, date, isSupervisor, false, p.title || "Crew")).join("");
+    return `
+    <section class="unit-card">
+      <div class="unit-card-header">
+        <div><h3>${escapeHtml(unit.name)}</h3><div class="unit-meta"><span>${unit.type || "Unit"}</span><span>${people.length}/${unit.minStaff || 0}</span></div></div>
+        <span class="badge ${cls}">${lbl}</span>
+      </div>
+      <div class="seat-list">${rows || `<div class="empty-state">No assignment on this date.</div>`}
+        ${isSupervisor ? `<div class="seat-row seat-optional"><span class="seat-label">Add personnel</span>
+          <select class="assignment-select" data-date="${date}" data-unit="${unit.id}"><option value="">— choose —</option>${options}</select></div>` : ""}
+      </div>
+    </section>`;
+  }
 
-  const options = eligibleEmployees
-    .map((employee) => `<option value="${employee.id}">${employee.name} (${employee.shift})</option>`)
-    .join("");
+  // --- Seat-based units (Engine, Ladder, Medic, ...) ---
+  const { seats, extra } = assignPeopleToSeats(unit.type, people);
+  const requiredSeats = seats.filter((s) => seatIsRequired(s.pos));
+  const optionalSeats = seats.filter((s) => !seatIsRequired(s.pos));
+  const requiredFilled = requiredSeats.filter((s) => s.person).length;
+  const requiredCount = requiredSeats.length;
+  const optionalFilled = optionalSeats.filter((s) => s.person).length;
+  const fullyStaffed = requiredFilled >= requiredCount;
 
+  const statusClass = !isActive ? "badge-soft" : fullyStaffed ? "badge-success" : "badge-danger";
+  const statusLabel = !isActive ? "Off rotation" : fullyStaffed ? "Staffed" : "Needs attention";
+
+  // Required seats always render (person or dropdown). Filled optional seats
+  // render; then one "additional" dropdown while optional capacity remains.
+  let rowsHtml = "";
+  seats.forEach((s) => {
+    if (seatIsRequired(s.pos) || s.person) {
+      rowsHtml += seatRowHtml(s.pos, s.person, unit, date, isSupervisor, seatIsRequired(s.pos));
+    }
+  });
+  const optionalLeft = optionalSeats.length - optionalFilled;
+  if (isSupervisor && optionalLeft > 0) {
+    rowsHtml += seatRowHtml(
+      { label: "Additional personnel", cap: null }, null, unit, date, isSupervisor, false,
+      `Additional personnel (optional, ${optionalLeft} left)`,
+    );
+  }
+  // Safety net: anyone assigned who didn't fit a seat still shows (removable).
+  extra.forEach((p) => {
+    rowsHtml += seatRowHtml({ label: "Extra", cap: null }, p, unit, date, isSupervisor, false, "Extra rider");
+  });
+
+  const totalSeats = positions.length;
   return `
     <section class="unit-card">
       <div class="unit-card-header">
         <div>
-          <h3>${unit.name}</h3>
+          <h3>${escapeHtml(unit.name)}</h3>
           <div class="unit-meta">
             <span>${unit.type}</span>
-            <span>${unit.minStaff} required</span>
-            <span>${unit.requiredCerts.join(", ")}</span>
+            <span>${requiredFilled}/${requiredCount} required</span>
+            <span>up to ${totalSeats}</span>
           </div>
         </div>
         <span class="badge ${statusClass}">${statusLabel}</span>
       </div>
-      <div class="person-list">
-        ${
-          people.length
-            ? people
-                .map(
-                  (person) => `
-              <div class="person-row">
-                <div>
-                  <strong>${person.name}</strong>
-                  <small>${person.title} • ${person.shift} Shift</small>
-                </div>
-                <div class="pill-group">
-                  ${person.certs.map((cert) => `<span class="pill">${cert}</span>`).join("")}
-                  ${
-                    state.currentRole === "supervisor"
-                      ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}">Remove</button>`
-                      : ""
-                  }
-                </div>
-              </div>
-            `,
-                )
-                .join("")
-            : `<div class="empty-state">No assignment on this date. Supervisors can add personnel below.</div>`
-        }
-      </div>
-      <div class="workflow-form ${state.currentRole !== "supervisor" ? "hidden" : ""}">
-        <label>
-          Add Personnel
-          <select data-date="${date}" data-unit="${unit.id}" class="assignment-select">
-            <option value="">Choose employee…</option>
-            ${options}
-          </select>
-        </label>
+      <div class="seat-list">
+        ${rowsHtml || `<div class="empty-state">No positions defined for this unit.</div>`}
       </div>
     </section>
   `;
@@ -1051,6 +1081,18 @@ function renderEmployeeEditor() {
           `).join("")}
         </div>
       </div>
+      <div class="editor-section">
+        <strong>Ride-up (acting) qualifications</strong>
+        <p class="helper-text" style="margin:0 0 6px">Cleared to act above rank in these roles. Medical (paramedic/EMT) is license-only and not listed here.</p>
+        <div class="checkbox-grid">
+          ${RIDE_UP_CAPABILITIES.map((cap) => `
+            <label class="check-tile">
+              <input type="checkbox" class="employee-rideup-toggle" value="${cap}" ${(draft.rideUp || []).includes(cap) ? "checked" : ""} />
+              <span>Acting ${cap === "engineer" ? "Driver/Engineer" : capitalize(cap)}</span>
+            </label>
+          `).join("")}
+        </div>
+      </div>
       <label class="check-tile">
         <input id="employee-edit-supervisor" type="checkbox" ${draft.isSupervisor ? "checked" : ""} />
         <span>Supervisor access</span>
@@ -1100,6 +1142,7 @@ function attachEmployeeManagementEvents() {
 
 function attachEmployeeEditorEvents() {
   const certInputs = [...document.querySelectorAll(".employee-cert-toggle")];
+  const rideUpInputs = [...document.querySelectorAll(".employee-rideup-toggle")];
   const syncDraft = () => {
     if (!state.employeeDraft) return;
     state.employeeDraft.name = document.getElementById("employee-edit-name").value.trim();
@@ -1109,6 +1152,7 @@ function attachEmployeeEditorEvents() {
     state.employeeDraft.status = document.getElementById("employee-edit-status").value;
     state.employeeDraft.isSupervisor = document.getElementById("employee-edit-supervisor").checked;
     state.employeeDraft.certs = certInputs.filter((input) => input.checked).map((input) => input.value);
+    state.employeeDraft.rideUp = rideUpInputs.filter((input) => input.checked).map((input) => input.value);
   };
 
   [
@@ -1123,6 +1167,7 @@ function attachEmployeeEditorEvents() {
     document.getElementById(id)?.addEventListener("change", syncDraft);
   });
   certInputs.forEach((i) => i.addEventListener("change", syncDraft));
+  rideUpInputs.forEach((i) => i.addEventListener("change", syncDraft));
 
   document.getElementById("save-employee-btn")?.addEventListener("click", saveEmployeeDraft);
   document.getElementById("cancel-employee-btn")?.addEventListener("click", () => {
@@ -1143,6 +1188,7 @@ function createEmployeeDraft(employee) {
     status: normalized.status,
     isSupervisor: normalized.isSupervisor,
     certs: [...normalized.certs],
+    rideUp: [...(normalized.rideUp || [])],
   };
 }
 
@@ -1171,6 +1217,7 @@ function saveEmployeeDraft() {
   Object.assign(employee, {
     ...state.employeeDraft,
     certs: Array.from(new Set(state.employeeDraft.certs)),
+    rideUp: Array.from(new Set((state.employeeDraft.rideUp || []).filter((c) => RIDE_UP_CAPABILITIES.includes(c)))),
     isSupervisor: state.employeeDraft.isSupervisor ||
                   state.employeeDraft.certs.includes("officer") ||
                   SUPERVISOR_TITLES.some((t) => t.toLowerCase() === (state.employeeDraft.title || "").toLowerCase()),
@@ -1824,6 +1871,17 @@ function d7frRankToTitle(rank, dshsCert) {
   return null; // Dr., unnamed admin support — no scheduling role, skip
 }
 
+// Parse an optional roster "Ride-up / Acting" cell into capability tokens.
+// Free text like "Officer", "Driver", or "Acting Officer; Engineer" all work.
+function parseRideUpTokens(text) {
+  if (!text) return [];
+  const t = text.toLowerCase();
+  const out = [];
+  if (t.includes("officer")) out.push("officer");
+  if (t.includes("driver") || t.includes("engineer")) out.push("engineer");
+  return Array.from(new Set(out));
+}
+
 function parseD7FRRosterXlsx(arrayBuffer) {
   if (!window.XLSX) throw new Error("SheetJS library not loaded — please refresh.");
   const workbook = window.XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
@@ -1846,6 +1904,7 @@ function parseD7FRRosterXlsx(arrayBuffer) {
     const col1 = (row[1] || "").toString().trim();
     const col2 = (row[2] || "").toString().trim();
     const col3 = (row[3] || "").toString().trim();
+    const col4 = (row[4] || "").toString().trim(); // optional Ride-up / Acting column
 
     // Section header row
     if (col0 in SECTION_SHIFTS) { currentShift = SECTION_SHIFTS[col0]; continue; }
@@ -1866,6 +1925,7 @@ function parseD7FRRosterXlsx(arrayBuffer) {
       title,
       shift:      currentShift,
       certs:      defaultCertsForTitle(title),
+      rideUp:     parseRideUpTokens(col4), // [] when the column is absent/blank
       isSupervisor: SUPERVISOR_TITLES.some((t) => t.toLowerCase() === title.toLowerCase()),
     });
   }
@@ -1959,6 +2019,10 @@ function applyRosterImport() {
       existing.isSupervisor = emp.isSupervisor;
       existing.badge       = emp.badge;
       if (emp.shift) existing.shift = emp.shift; // preserve null for admin/new hires
+      // Ride-up: only overwrite when the roster actually supplied one, so
+      // in-app grants aren't wiped by a roster that has no ride-up column.
+      if (emp.rideUp && emp.rideUp.length) existing.rideUp = emp.rideUp;
+      else if (!Array.isArray(existing.rideUp)) existing.rideUp = [];
       existing.status      = "active";
       updated++;
     } else {
@@ -1971,6 +2035,7 @@ function applyRosterImport() {
         shift:       emp.shift,
         title:       emp.title,
         certs:       emp.certs,
+        rideUp:      emp.rideUp || [],
         isSupervisor: emp.isSupervisor,
         status:      "active",
       });
@@ -2228,17 +2293,113 @@ function checkPositionStaffing(unit, people, positions) {
   const alerts = [];
   const unmatched = [...people];
   positions.forEach((pos) => {
-    const idx = unmatched.findIndex((p) => pos.eligibleTitles.includes(p.title));
+    const idx = unmatched.findIndex((p) => seatAccepts(pos, resolvePerson(p)));
     if (idx !== -1) {
       unmatched.splice(idx, 1);
-    } else {
+    } else if (seatIsRequired(pos)) {
+      // Only required seats raise a staffing alert; optional rider seats don't.
+      const need = seatNeedLabel(pos);
       alerts.push({
         level: "danger",
-        message: `${unit.name} — ${pos.label} unfilled (needs: ${pos.eligibleTitles.join(", ")}).`,
+        message: `${unit.name} — ${pos.label} unfilled${need ? ` (needs: ${need})` : ""}.`,
       });
     }
   });
   return alerts;
+}
+
+// ─── Per-seat staffing helpers ────────────────────────────────────────────────
+function seatIsRequired(pos) { return pos.required !== false; }
+function seatAllowsAny(pos) { const c = pos.cap; return !c || (Array.isArray(c) && c.length === 0); }
+
+// A person's full capability set = rank-derived certs PLUS ride-up grants.
+// This is what makes "acting" work: an Engineer marked ride-up "officer" gains
+// the officer capability without changing their permanent rank.
+function personCapabilities(emp) {
+  if (!emp) return [];
+  return [...(emp.certs || []), ...(emp.rideUp || [])];
+}
+
+// Resolve an assignment snapshot back to the live roster record so capability
+// checks use current certs/ride-up, not whatever was stored when they were added.
+function resolvePerson(p) {
+  return (p && employeeById(p.id)) || p;
+}
+
+// Does a person qualify for a seat? Any-cap seats accept anyone; otherwise the
+// person must hold at least one of the seat's required capabilities.
+function seatAccepts(pos, emp) {
+  if (seatAllowsAny(pos)) return true;
+  const need = Array.isArray(pos.cap) ? pos.cap : [pos.cap];
+  const caps = personCapabilities(emp);
+  return need.some((c) => caps.includes(c));
+}
+
+function seatNeedLabel(pos) {
+  if (seatAllowsAny(pos)) return "";
+  const need = Array.isArray(pos.cap) ? pos.cap : [pos.cap];
+  return need.map((c) => CAPABILITY_LABELS[c] || c).join(" or ");
+}
+
+// Every employee id assigned to ANY unit on a date -- used to keep someone from
+// appearing in another unit's pick list once they're on the schedule that day.
+function assignedEmployeeIdsForDate(date) {
+  const ids = new Set();
+  const byUnit = state.assignments?.[date] || {};
+  Object.values(byUnit).forEach((people) => (people || []).forEach((p) => p && ids.add(p.id)));
+  return ids;
+}
+
+// Greedily seat a unit's assigned people. Specific/required seats are listed
+// first, so they claim their eligible people before the any-rank rider seats.
+// Returns { seats: [{ pos, person|null }], extra: [leftover people] }.
+function assignPeopleToSeats(unitType, people) {
+  const positions = UNIT_POSITION_REQUIREMENTS[unitType];
+  if (!positions) return { seats: [], extra: [...people] };
+  const pool = [...people];
+  const seats = positions.map((pos) => {
+    const idx = pool.findIndex((p) => seatAccepts(pos, resolvePerson(p)));
+    const person = idx !== -1 ? pool.splice(idx, 1)[0] : null;
+    return { pos, person };
+  });
+  return { seats, extra: pool };
+}
+
+// Options for one seat's dropdown: active, rank-eligible for the seat, and NOT
+// already assigned anywhere that day (no double-booking). Non-supervisors are
+// scoped to the unit's shift (supervisors may cross-staff for overtime).
+function seatDropdownOptions(pos, unit, date) {
+  const booked = assignedEmployeeIdsForDate(date);
+  const base = state.currentRole === "supervisor"
+    ? activeEmployees()
+    : activeEmployees().filter((e) => e.shift === unit.shift);
+  return base
+    .filter((e) => !booked.has(e.id))
+    .filter((e) => seatAccepts(pos, e))
+    .map((e) => {
+      const acting = !seatAllowsAny(pos) && !(e.certs || []).some((c) => (Array.isArray(pos.cap) ? pos.cap : [pos.cap]).includes(c));
+      return `<option value="${e.id}">${escapeHtml(e.name)} — ${escapeHtml(e.title || "—")}${acting ? " (acting)" : ""} (${e.shift || "?"})</option>`;
+    })
+    .join("");
+}
+
+// One seat row: shows the assigned person (with Remove) or a pick dropdown.
+function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverride) {
+  const label = labelOverride || `${pos.label}${required ? "" : " (optional)"}`;
+  let control;
+  if (person) {
+    control = `<div class="seat-person">
+        <span><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"} shift</small></span>
+        ${isSupervisor ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
+      </div>`;
+  } else if (isSupervisor) {
+    control = `<select class="assignment-select" data-date="${date}" data-unit="${unit.id}">
+        <option value="">— choose —</option>${seatDropdownOptions(pos, unit, date)}
+      </select>`;
+  } else {
+    control = `<span class="seat-empty">${required ? "Unfilled" : "—"}</span>`;
+  }
+  return `<div class="seat-row ${required ? "" : "seat-optional"}"><span class="seat-label">${escapeHtml(label)}</span>${control}</div>`;
 }
 
 function getShiftForDate(date) {
@@ -2313,6 +2474,7 @@ function archivedEmployees() {
 function normalizeEmployeeRecord(employee) {
   if (!employee) return null;
   employee.certs = Array.isArray(employee.certs) ? employee.certs : [];
+  employee.rideUp = Array.isArray(employee.rideUp) ? employee.rideUp : [];
   employee.status = employee.status === "archived" ? "archived" : "active";
   return employee;
 }
