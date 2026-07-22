@@ -1,11 +1,22 @@
 # D7FR Crew Scheduler Trial
 
-This is a lightweight static prototype for a fire department scheduling app. It is designed to run free during trial testing and can be deployed to a subdomain such as `schedule.d7fr.org`.
+A vanilla-JS SPA (no build step) for fire department scheduling, deployed static to Vercel at `schedule.d7fr.org`.
 
-It now supports two persistence modes:
+## Current architecture (as of 2026-07 — updated)
 
-- Browser fallback with `localStorage`
-- Shared remote persistence through Supabase using a single JSON state record
+- **Auth:** Microsoft Entra ID (MSAL.js) — the old PIN login is gone.
+- **Backend:** the app now reads/writes a **Django REST API** on Railway
+  (`checklist.d7fr.org/api/scheduler/`), which stores data in real Postgres tables.
+  It sends the user's Entra token as a Bearer credential. Set via
+  `APP_CONFIG.schedulerApiUrl` + `schedulerApiScopes` in `config.js`.
+  **Supabase is legacy fallback only** (used only if `schedulerApiUrl` is blank).
+- The Django backend lives in the sibling `fdchecklist` repo (`scheduler/` app).
+  See that repo's `SCHEDULER_BACKEND.md` and `PROJECT_STATE.md` for the full picture.
+- **AI context:** `AI_STATE_MIN.txt` (compact, current) and `AI_STATE_SUMMARY.txt`.
+  Update them when `app.js` changes state shapes/enums/flow (pre-commit hook enforces this).
+
+Persistence still falls back to `localStorage` when offline. Legacy notes below
+describe the original trial (PIN login, Supabase blob) and are kept for history.
 
 ## Included In This Trial
 

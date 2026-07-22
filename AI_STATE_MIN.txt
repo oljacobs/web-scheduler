@@ -1,5 +1,9 @@
 web-scheduler quick preload (app.js)
 
+BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
+APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
+fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
+
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
 loginRole, currentRole, isAuthenticated, currentView, currentDate, scheduleStatus,
@@ -7,49 +11,62 @@ units[], employees[], trades[], overtimePosts[], notifications[], auditLog[],
 importPreview, unitImportPreview, assignments{date->{unitId->Employee[]}},
 activeSurface, activeAdminTab, employeeFilter{search,shift,status,sort},
 selectedEmployeeId, employeeDraft, persistence{backend,status,hasRemote,isSaving,lastSavedAt,level}
+  persistence.backend now includes "api"/"api-fallback" (Django) besides supabase/local
 
 Canonical enums/constants:
 SUPERVISOR_TITLES=["Batt. Chief","Div. Chief","Captain","Lieutenant","MOF"]
 employeeTitleOptions=["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
-employeeRoles=["paramedic","emt","engineer","officer"]
+employeeRoles=["paramedic","emt","engineer","officer"]   (these are CAPABILITIES / certs)
+RIDE_UP_CAPABILITIES=["officer","engineer"]   (medical is license-only, not ride-up-able)
 unitTypes=["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue"]
-UNIT_POSITION_REQUIREMENTS: Record<type, {role,label,eligibleTitles[]}[]> — most-restrictive first
-GRAPH_SCOPES=["User.Read","User.ReadBasic.All"]
+UNIT_POSITION_REQUIREMENTS: Record<type, {role,label,cap,required?}[]>  (CAPABILITY-based now)
+  cap = required capability ("officer"|"engineer"|"paramedic"|"emt"), array = any-of, null = any rank
+  required:false = optional rider seat (doesn't count toward minimum staffing)
+  Engine = Officer(officer)+Engineer(engineer) required + FF1..3(null, optional)  -> min 2, up to 5
+GRAPH_SCOPES=["User.Read","User.ReadBasic.All"]; APP_CONFIG.schedulerApiScopes=["api://<clientId>/access_as_user"]
 views: day|week|month; scheduleStatus: draft|published; shifts: A|B|C|null
 
 Core entities:
-Employee{id, entraId?, name, shift(A|B|C|null), title, certs, email, isSupervisor, status}
-  NOTE: pin removed — Entra ID auth only
-Unit{id,name,type,minStaff,requiredCerts,shift,visible}
+Employee{id, entraId?, name, shift(A|B|C|null), title, certs[], rideUp[], email, isSupervisor, status}
+  certs = rank-derived capabilities; rideUp = acting quals ABOVE rank (subset of RIDE_UP_CAPABILITIES),
+  stored separately so roster re-import never wipes it. pin removed (Entra auth only).
+Unit{id,name,type,minStaff,requiredCerts,shift,visible}   (unit.shift is currently FIXED per unit — see fdchecklist PROJECT_STATE "shift-per-unit model is wrong")
 Trade{id,status,employeeId,partnerId,date,notes,type,createdBy}
 OvertimePost{id,status,unitId,date,qualification,reportTime,applicants,approvedEmployeeId?}
 
+Capabilities / seats:
+personCapabilities(emp)=[...certs, ...rideUp]; seatAccepts(pos,emp) checks pos.cap vs caps (null=any)
+resolvePerson(p)=live employee by id (assignment snapshots resolved to current record)
+assignPeopleToSeats(unitType,people) greedy-fills seats (specific/required first) -> {seats,extra}
+seatDropdownOptions(pos,unit,date): active, seat-eligible, NOT assignedEmployeeIdsForDate(date) (no double-booking)
+  assignedEmployeeIdsForDate only counts assignments to EXISTING units (orphaned/deleted-unit ones ignored)
+
 Auth flow (MSAL):
-initMsal() silent → handleMsalLogin() popup → setAuthFromToken() → syncEmployeeFromEntraProfile()
-handleMsalSignOut() clears state + logoutPopup
-Popup uses redirectUri = origin + "/blank.html" (blank.html must be registered in Azure as SPA URI)
-initMsal() surfaces errors to dom["auth-message"] instead of failing silently
-ROSTER IS AUTHORITATIVE: syncEmployeeFromEntraProfile() only updates identity fields (entraId/name/email)
-  on existing records; title/certs/shift preserved from roster. Entra ID title only used for new unmatched employees.
-D7FR Roster Import: Admin→Imports→"D7FR Roster Import" accepts staff_contact.xlsx directly.
-  Parses section headers (A/B/C SHIFT) for shift assignment; extracts rank from name prefix;
-  maps rank+DSHS cert → D7FR title. Matched by email. SheetJS CDN required (window.XLSX).
-  state.rosterImportPreview: annotated array | null (transient, not persisted)
+initMsal() silent (accts) -> loadRemoteStateAfterAuth() -> setAuthFromToken()
+handleMsalLogin() popup -> loadRemoteStateAfterAuth() -> setAuthFromToken() -> render (NO save in API mode)
+  API data needs a token, so it loads AFTER sign-in; hydrateAppState starts EMPTY in API mode and NEVER
+  saves at startup (prevents empty state overwriting the server). Supabase mode unchanged.
+setAuthFromToken -> syncEmployeeFromEntraProfile (ROSTER AUTHORITATIVE: only identity fields on existing recs)
+Popup redirectUri = origin + "/blank.html" (registered in Azure as SPA URI)
+D7FR Roster Import: Admin->Imports, accepts staff_contact.xlsx directly; matched by email; flags/skips
+  DUPLICATES (in-file + already-in-roster); reads optional col5 "Ride-up" (Officer/Driver) via parseRideUpTokens.
 
 Startup/persistence:
 DOMContentLoaded -> hydrateAppState -> initMsal -> initializeControls -> render
-seedDefaultState starts EMPTY
-serializableState persists: units, employees, trades, overtimePosts, notifications, auditLog,
-assignments, scheduleStatus, employeeFilter, activeSurface, activeAdminTab
-local: LOCAL_STORAGE_KEY ; remote optional Supabase via REMOTE_STATE_ID
-applyPersistedState: migrateShiftNames + migrateEmployeeTitles + migratePersistedUnitTypes
+serializableState persists: units, employees(incl certs+rideUp), trades, overtimePosts, notifications,
+  auditLog, assignments, scheduleStatus, employeeFilter, activeSurface, activeAdminTab
+loadRemoteState/saveRemoteState branch on usesSchedulerApi(): GET/PUT /api/scheduler/state/ (Bearer token)
+  vs Supabase REST. applyPersistedState: migrateShiftNames + migrateEmployeeTitles + migratePersistedUnitTypes
+
+Dates (America/Chicago, NEVER UTC):
+todayIso() = current Central date, rolled back to previous day before 08:00 (0800-0800 shift day)
+addDays/formatDate etc. anchor at noon to avoid tz date-shift
 
 Staffing:
-getStaffingAlerts(date) -> checkPositionStaffing(unit, people, positions) for known types
-Greedy match: most-restrictive positions matched first; unmatched -> "danger" alert
+getStaffingAlerts(date) -> checkPositionStaffing(unit,people,positions): greedy, capability-based;
+  only REQUIRED seats raise "danger" alerts (optional rider seats don't)
 
 High-use functions:
-render/renderSchedule/renderUnitControls/renderEmployeeRoster/renderEmployeeEditor
-renderPermissionStates (drives auth-signed-in/out UI)
-validateEmployeeImport/mergeEmployees, validateUnitImport/mergeUnits
-getAssignments/getStaffingAlerts/checkPositionStaffing/getShiftForDate/visibleUnits/activeEmployees
+render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
+loadRemoteStateAfterAuth, seatAccepts/assignPeopleToSeats/seatDropdownOptions/assignedEmployeeIdsForDate
+getAssignments/getShiftForDate/visibleUnits/activeEmployees/previewRosterImport/applyRosterImport

@@ -1,5 +1,25 @@
 web-scheduler app quick context (app.js)
 
+=== MAJOR UPDATE (2026-07 session) — AI_STATE_MIN.txt is fully current; read it too ===
+- BACKEND: persistence is now the Django API (checklist.d7fr.org/api/scheduler/state/, Bearer
+  Entra token) when APP_CONFIG.schedulerApiUrl is set (IT IS in prod). Supabase = legacy fallback.
+  Cutover is LIVE. See fdchecklist repo SCHEDULER_BACKEND.md + PROJECT_STATE.md.
+- AUTH-GATED LOAD: API data needs a signed-in token, so it loads AFTER auth via
+  loadRemoteStateAfterAuth() (called in initMsal silent path AND handleMsalLogin, BEFORE
+  setAuthFromToken). hydrateAppState starts EMPTY in API mode and never saves at startup, so an
+  empty pre-auth state can't overwrite the server. NO persist on sign-in in API mode.
+- SEATS ARE CAPABILITY-BASED: UNIT_POSITION_REQUIREMENTS entries are {role,label,cap,required?}
+  (cap = "officer"|"engineer"|"paramedic"|"emt", array=any-of, null=any). Eligibility via
+  personCapabilities(emp)=certs+rideUp. Per-seat dropdowns (renderUnitCard), no double-booking
+  (assignedEmployeeIdsForDate, existing units only). Engine=Officer+Engineer required +3 optional riders.
+- RIDE-UP: Employee.rideUp[] = acting quals above rank (officer/engineer only; medical license-only),
+  set in employee editor toggles + optional roster col5; stored separately from certs.
+- DATES: todayIso() = America/Chicago (never UTC), rolls the shift day at 0800.
+- DATA: roster cleaned to 71 real employees; demo apparatus being removed (keep 14 real 115/116)
+  via fdchecklist `clean_scheduler_data`. Fixed-shift-per-unit model still needs rethinking.
+=== end update ===
+
+
 PRIMARY STATE OBJECT (`state`)
 - currentUserId: string|null             — employee.id of signed-in user
 - currentUserDisplayName: string|null    — from Entra ID displayName
@@ -36,8 +56,10 @@ PRIMARY STATE OBJECT (`state`)
 
 COMMON ENTITY SHAPES
 - Employee:
-  { id, entraId?, name, shift (A|B|C|null), title, certs[], email, isSupervisor, status }
+  { id, entraId?, name, shift (A|B|C|null), title, certs[], rideUp[], email, isSupervisor, status }
   NOTE: `pin` removed — auth is now Entra ID only
+  certs[] = rank-derived capabilities; rideUp[] = acting quals above rank (subset of
+  ["officer","engineer"]), stored separately so roster re-import never wipes it
 - Unit:
   { id, name, type, minStaff, requiredCerts[], shift, visible }
 - Trade:
@@ -48,9 +70,12 @@ COMMON ENTITY SHAPES
 IMPORTANT TOP-LEVEL CONSTANTS
 - baseDate, ROTATION_BASE_DATE, rotationPattern, LOCAL_STORAGE_KEY, REMOTE_STATE_ID
 - SUPERVISOR_TITLES: ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "MOF"]
-- UNIT_POSITION_REQUIREMENTS: Record<unitType, {role, label, eligibleTitles[]}[]>
+- UNIT_POSITION_REQUIREMENTS: Record<unitType, {role, label, cap, required?}[]>  (CAPABILITY-based)
   Types: Batt, Ladder, Medic, MOF, Engine, Rescue, Tender, Brush
-  Positions listed most-restrictive-first for greedy matching in checkPositionStaffing()
+  cap = required capability ("officer"|"engineer"|"paramedic"|"emt"); array = any-of; null = any rank
+  required:false = optional rider seat. Engine = Officer+Engineer required + FF1..3 optional (min 2, up to 5)
+  Positions listed most-restrictive-first for greedy matching in assignPeopleToSeats()/checkPositionStaffing()
+  eligibility: seatAccepts(pos, emp) via personCapabilities(emp) = [...certs, ...rideUp]
 - employeeRoles: ["paramedic","emt","engineer","officer"]
 - unitTypes: ["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue"]
 - employeeTitleOptions: ["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
