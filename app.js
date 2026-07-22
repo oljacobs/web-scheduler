@@ -380,11 +380,25 @@ function seedWorkflowData() {
 }
 
 async function hydrateAppState() {
+  // The Django API requires a signed-in user's token, so its data can only be
+  // loaded AFTER sign-in (see loadRemoteStateAfterAuth, called from the MSAL
+  // flow). At startup in API mode we therefore start from an EMPTY state and
+  // show a sign-in prompt -- we deliberately do NOT load stale browser data
+  // (which could later be saved over the server) and never write at startup.
+  if (usesSchedulerApi()) {
+    seedDefaultState();
+    state.persistence.backend = "api";
+    state.persistence.hasRemote = true;
+    setPersistenceStatus("Sign in to load the schedule", "warning");
+    return;
+  }
+
+  // --- Supabase mode (unchanged: anon key lets us load at startup) ---
   const remoteConfigured = hasRemotePersistence();
   let loaded = false;
 
   if (remoteConfigured) {
-    state.persistence.backend = usesSchedulerApi() ? "api" : "supabase";
+    state.persistence.backend = "supabase";
     state.persistence.hasRemote = true;
     try {
       const remoteState = await loadRemoteState();
@@ -417,10 +431,28 @@ async function hydrateAppState() {
   if (!loaded) {
     seedDefaultState();
     saveLocalState();
-    state.persistence.backend = remoteConfigured
-      ? (usesSchedulerApi() ? "api-fallback" : "supabase-fallback")
-      : "local-storage";
+    state.persistence.backend = remoteConfigured ? "supabase-fallback" : "local-storage";
     setPersistenceStatus(remoteConfigured ? "Using browser fallback data" : "Using browser-only data", "warning");
+  }
+}
+
+// Load the real schedule from the Django API once we have an authenticated
+// account. Called right BEFORE setAuthFromToken so the identity sync runs
+// against the real roster. Safe: on failure it leaves state as-is and never
+// writes, so it can't overwrite the server with empty data.
+async function loadRemoteStateAfterAuth() {
+  if (!usesSchedulerApi()) return;
+  try {
+    const remoteState = await loadRemoteState();   // carries the bearer token now
+    if (remoteState) {
+      applyPersistedState(remoteState);
+      state.persistence.backend = "api";
+      state.persistence.hasRemote = true;
+      setPersistenceStatus("Connected to server", "ok");
+    }
+  } catch (error) {
+    console.error("Post-sign-in load failed", error);
+    setPersistenceStatus("Server unavailable — try refreshing", "warning");
   }
 }
 
@@ -1447,6 +1479,9 @@ async function initMsal() {
     if (accounts.length > 0) {
       try {
         const tokenResponse = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: accounts[0] });
+        // Pull the real schedule from the API before syncing identity, so the
+        // signed-in user is matched against the actual roster.
+        await loadRemoteStateAfterAuth();
         await setAuthFromToken(tokenResponse.accessToken, accounts[0]);
       } catch (silentErr) {
         // No cached session — user must sign in manually; not an error
@@ -1480,9 +1515,14 @@ async function handleMsalLogin() {
       account: loginResponse.account,
       redirectUri: popupRedirectUri,
     });
+    // Load the real schedule from the API before syncing identity against it.
+    await loadRemoteStateAfterAuth();
     await setAuthFromToken(tokenResponse.accessToken, loginResponse.account);
     render();
-    persistAppState("User signed in");
+    // Supabase mode persists the identity link on sign-in. In API mode we must
+    // NOT save here -- the server roster is authoritative and a save before any
+    // real edit could overwrite it. Edits will persist normally afterwards.
+    if (!usesSchedulerApi()) persistAppState("User signed in");
   } catch (err) {
     if (err.errorCode === "user_cancelled" || err.message?.includes("user_cancelled")) {
       dom["auth-message"].textContent = "Sign-in cancelled.";
