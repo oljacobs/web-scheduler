@@ -54,6 +54,10 @@ const lastNames = [
 ];
 
 const employeeRoles = ["paramedic", "emt", "engineer", "officer"];
+// Medical LICENSES are held by the person, not granted by rank. The roster
+// spreadsheet only knows rank, so a re-import must never strip a license that
+// was granted in-app (e.g. an Engineer who is also a paramedic).
+const LICENSE_CAPABILITIES = ["paramedic", "emt"];
 const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue"];
 const employeeTitleOptions = ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "Engineer", "MOF", "FF/EMTP", "FF/EMT"];
 
@@ -312,7 +316,7 @@ function seedAssignments(preserveExisting = false) {
       if (preserveExisting && Array.isArray(dayUnits[unit.id])) {
         return;
       }
-      const eligible = state.employees.filter((employee) => employee.shift === unit.shift);
+      const eligible = state.employees.filter((employee) => employee.shift === shift);
       const assigned = [];
       const targetCount = unit.minStaff + ((index + offset) % 4 === 0 ? -1 : 0);
 
@@ -327,11 +331,7 @@ function seedAssignments(preserveExisting = false) {
         }
       });
 
-      if (unit.shift !== shift) {
-        dayUnits[unit.id] = [];
-      } else {
-        dayUnits[unit.id] = assigned;
-      }
+      dayUnits[unit.id] = unitRunsOn(unit, date) ? assigned : [];
     });
 
     state.assignments[date] = dayUnits;
@@ -690,7 +690,7 @@ function renderSchedule() {
 function renderTimelineCard(date) {
   const shift = getShiftForDate(date);
   const alerts = getStaffingAlerts(date);
-  const unitsMarkup = visibleUnits()
+  const unitsMarkup = unitsForDate(date)
     .map((unit) => renderUnitCard(unit, date, shift))
     .join("");
 
@@ -724,7 +724,7 @@ function renderWeekCalendar(dates) {
     const dayName = new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(new Date(`${date}T12:00:00`));
     const dayNum = new Date(`${date}T12:00:00`).getDate();
 
-    const activeUnits = visibleUnits().filter((u) => u.shift === shift);
+    const activeUnits = unitsForDate(date);
     const unitRows = activeUnits
       .map((unit) => {
         const people = getAssignments(date, unit.id);
@@ -798,14 +798,15 @@ function renderMonthCalendar(dates) {
 
 function renderUnitCard(unit, date, activeShift) {
   const people = getAssignments(date, unit.id);
-  const isActive = unit.shift === activeShift;
+  // The truck is in service on any date it's shown; the platoon on duty staffs it.
+  const isActive = unitRunsOn(unit, date);
   const isSupervisor = state.currentRole === "supervisor";
   const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
 
   // --- Unlisted unit type: keep the simple single-dropdown + list behavior. ---
   if (!positions) {
     const booked = assignedEmployeeIdsForDate(date);
-    const base = isSupervisor ? activeEmployees() : activeEmployees().filter((e) => e.shift === unit.shift);
+    const base = eligibleEmployeesForDate(date);
     const options = base
       .filter((e) => !booked.has(e.id))
       .map((e) => `<option value="${e.id}">${escapeHtml(e.name)} (${e.shift || "?"})</option>`)
@@ -893,7 +894,7 @@ function renderUnitControls() {
           <strong>${unit.name}</strong>
           ${
             supervisorLocked
-              ? `<p class="helper-text">${unit.type} • ${unit.shift} shift</p>`
+              ? `<p class="helper-text">${unit.type} • ${unit.onDemand ? "on demand" : "runs daily"}</p>`
               : `<select class="unit-type-select" data-unit-type="${unit.id}" title="Edit unit type">
                   ${unitTypes.map((t) => `<option value="${t}" ${t === unit.type ? "selected" : ""}>${t}</option>`).join("")}
                 </select>`
@@ -2015,7 +2016,11 @@ function applyRosterImport() {
       // Roster is authoritative — update title, shift, certs, badge. Never a 2nd record.
       existing.name        = emp.name;
       existing.title       = emp.title;
-      existing.certs       = emp.certs;
+      // Roster is authoritative for RANK-derived certs (officer/engineer), but
+      // medical licenses are person-held — merge them forward so an in-app
+      // paramedic grant survives every roster re-import.
+      const heldLicenses = (existing.certs || []).filter((c) => LICENSE_CAPABILITIES.includes(c));
+      existing.certs       = Array.from(new Set([...emp.certs, ...heldLicenses]));
       existing.isSupervisor = emp.isSupervisor;
       existing.badge       = emp.badge;
       if (emp.shift) existing.shift = emp.shift; // preserve null for admin/new hires
@@ -2265,8 +2270,7 @@ function getAssignments(date, unitId) {
 }
 
 function getStaffingAlerts(date) {
-  return visibleUnits()
-    .filter((unit) => unit.shift === getShiftForDate(date))
+  return unitsForDate(date)
     .flatMap((unit) => {
       const people = getAssignments(date, unit.id);
       const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
@@ -2376,9 +2380,7 @@ function assignPeopleToSeats(unitType, people) {
 // scoped to the unit's shift (supervisors may cross-staff for overtime).
 function seatDropdownOptions(pos, unit, date) {
   const booked = assignedEmployeeIdsForDate(date);
-  const base = state.currentRole === "supervisor"
-    ? activeEmployees()
-    : activeEmployees().filter((e) => e.shift === unit.shift);
+  const base = eligibleEmployeesForDate(date);
   return base
     .filter((e) => !booked.has(e.id))
     .filter((e) => seatAccepts(pos, e))
@@ -2416,6 +2418,30 @@ function getShiftForDate(date) {
 
 function visibleUnits() {
   return state.units.filter((unit) => unit.visible);
+}
+
+// An apparatus is a physical truck: it does NOT belong to a platoon. Whichever
+// platoon (A/B/C) is on duty that date staffs it. Front-line units therefore run
+// EVERY shift day. On-demand units (Brush, Tender, reserve) only run on dates a
+// supervisor has explicitly activated them.
+function unitRunsOn(unit, date) {
+  if (!unit) return false;
+  if (!unit.onDemand) return true;
+  return Array.isArray(unit.activeDates) && unit.activeDates.includes(date);
+}
+
+// The units in service on a given date (replaces the old `unit.shift === shift`).
+function unitsForDate(date) {
+  return visibleUnits().filter((unit) => unitRunsOn(unit, date));
+}
+
+// Who is eligible to ride on a given date = the platoon on duty that date.
+// Supervisors may cross-staff (overtime), so they see everyone.
+function eligibleEmployeesForDate(date) {
+  const onDuty = getShiftForDate(date);
+  return state.currentRole === "supervisor"
+    ? activeEmployees()
+    : activeEmployees().filter((e) => e.shift === onDuty);
 }
 
 function visibleUnitsAll() {
@@ -2645,7 +2671,10 @@ function validateUnitImport(rows) {
       type: normalizedType,
       minStaff: Number(row.minstaff),
       requiredCerts,
-      shift: (row.shift || "").toUpperCase(),
+      // Apparatus have no platoon. Optional "onDemand" column marks a unit that
+      // only runs on dates a supervisor activates (Brush, Tender, reserve).
+      onDemand: parseBoolean(row.ondemand),
+      activeDates: [],
       visible: parseBoolean(row.visible),
     };
     if (!normalized.id || !normalized.name) { errors.push({ message: `Row ${line}: missing id or name.` }); return; }
@@ -2656,7 +2685,6 @@ function validateUnitImport(rows) {
       return;
     }
     if (!Number.isFinite(normalized.minStaff) || normalized.minStaff < 1) { errors.push({ message: `Row ${line}: minStaff must be a positive number.` }); return; }
-    if (!["A", "B", "C"].includes(normalized.shift)) { errors.push({ message: `Row ${line}: shift must be A, B, or C.` }); return; }
     const invalidCerts = requiredCerts.filter((cert) => !employeeRoles.includes(cert));
     if (invalidCerts.length) { errors.push({ message: `Row ${line}: invalid required certs: ${invalidCerts.join(", ")}.` }); return; }
     validRows.push(normalized);
@@ -2884,6 +2912,9 @@ function applyPersistedState(data) {
   migrateShiftNames(data);
   // Migrate legacy title values to current D7FR title set
   migrateEmployeeTitles(data);
+  // Drop the fixed per-unit platoon; trucks run daily and are staffed by the
+  // platoon on duty. See unitRunsOn()/unitsForDate().
+  migrateUnitShiftModel(data);
 
   if (Array.isArray(data.units)) {
     migratePersistedUnitTypes(data.units);
@@ -2946,6 +2977,19 @@ function migrateShiftNames(data) {
   if (Array.isArray(data.units)) {
     data.units.forEach((u) => { if (shiftMap[u.shift]) u.shift = shiftMap[u.shift]; });
   }
+}
+
+// Units used to carry a FIXED platoon (E116=B, E115=C…), which meant a truck
+// only appeared on 1 day in 3. Real apparatus run every shift day and are
+// staffed by whichever platoon is on duty. This drops that field and gives every
+// unit an explicit run rule instead.
+function migrateUnitShiftModel(data) {
+  if (!Array.isArray(data.units)) return;
+  data.units.forEach((u) => {
+    if (typeof u.onDemand !== "boolean") u.onDemand = false;
+    if (!Array.isArray(u.activeDates)) u.activeDates = [];
+    delete u.shift;
+  });
 }
 
 function setPersistenceStatus(message, level) {
