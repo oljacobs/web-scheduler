@@ -158,6 +158,7 @@ function cacheDom() {
     // Staffing templates
     "template-unit", "template-shift", "template-seats",
     "template-push-days", "template-push-btn", "template-push-summary",
+    "export-audit-btn",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -213,6 +214,7 @@ function wireEvents() {
 
   attachShellChromeEvents();
   attachTemplateEvents();
+  dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
 
   // D7FR roster import
   dom["roster-preview-btn"].addEventListener("click", previewRosterImport);
@@ -1034,6 +1036,38 @@ function applyTemplatePush(days = TEMPLATE_PUSH_DEFAULT_DAYS) {
   render();
   persistAppState("Staffing templates pushed");
   showToast(`Pushed staffing across ${plan.dates} dates.`, "success");
+}
+
+// Pulls the COMPLETE audit history from the server, not the 250-row display
+// window the SPA carries. Runs through fetch rather than a plain link because
+// the endpoint needs a bearer token.
+async function exportAuditLog() {
+  const btn = dom["export-audit-btn"];
+  if (!usesSchedulerApi()) {
+    showToast("Audit export needs the server connection.", "error");
+    return;
+  }
+  const original = btn ? btn.textContent : "";
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = "Preparing…"; }
+    const url = `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/audit/export.csv`;
+    const response = await fetch(url, { headers: await schedulerApiHeaders() });
+    if (!response.ok) throw new Error(`Export failed with status ${response.status}`);
+    const blob = await response.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `d7fr-audit-${todayIso()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    showToast("Audit log exported.", "success");
+  } catch (error) {
+    console.error("Audit export failed", error);
+    showToast("Audit export failed — check the connection and try again.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
 }
 
 // ─── App shell chrome: sidebar collapse + right tool drawer ──────────────────
