@@ -157,6 +157,10 @@ previewTemplatePush(days) is a DRY RUN -> {created,replaced,skippedManual,noTemp
 Default horizon TEMPLATE_PUSH_DEFAULT_DAYS=180. Activating an on-demand unit PROMPTS to fill
   from that platoon's template (never silent).
 Admin -> Templates tab: template-unit/template-shift/template-seats/template-push-*.
+renderTemplateEditor() OWNS the seat-select binding (calls attachTemplateSeatEvents at its end).
+  It replaces template-seats innerHTML, which destroys the old listeners — the unit and platoon
+  dropdowns previously re-rendered WITHOUT re-binding, so the seat selects were inert after any
+  platoon change and nothing could be saved. Never bind from a caller: that double-fires.
 A push only covers units ON DUTY that date, so reserve (onDemand) units are never written by a
   push — their crews apply via the "Fill from template?" prompt on activation. When a push finds
   nothing, applyTemplatePush names WHICH case it is (no seats set / reserve-only / all manual)

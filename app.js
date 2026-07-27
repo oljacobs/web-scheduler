@@ -603,8 +603,7 @@ function render() {
   renderSaveIndicator();
   renderReservePanel();
   renderDrawerBadge();
-  renderTemplateEditor();
-  attachTemplateSeatEvents();
+  renderTemplateEditor();   // binds its own seat events
 }
 
 // Passive reassurance in place of the old "Save Supervisor Edits" button.
@@ -848,7 +847,7 @@ function renderTemplateEditor() {
   const positions = UNIT_POSITION_REQUIREMENTS[unit?.type];
   if (!unit || !positions) {
     seatsEl.innerHTML = `<div class="empty-state">No seat layout defined for this unit type.</div>`;
-    return;
+    return;   // no selects rendered, nothing to bind
   }
 
   const tpl = templateFor(selectedUnit, shift);
@@ -879,6 +878,12 @@ function renderTemplateEditor() {
     dom["template-push-summary"].textContent =
       `${unit.name} · ${shift} shift — ${filled} of ${positions.length} seats set.`;
   }
+
+  // Setting innerHTML above DESTROYED the previous selects and their listeners.
+  // Re-binding here — rather than in the callers — is the whole point: the unit
+  // and platoon dropdowns used to re-render without re-binding, which left the
+  // seat selects completely inert the moment you switched platoon.
+  attachTemplateSeatEvents();
 }
 
 function attachTemplateEvents() {
@@ -909,8 +914,7 @@ function attachTemplateSeatEvents() {
         `Staffing template updated: ${unitById(state.templateUnitId)?.name} ${state.templateShift} shift.`,
         currentUserName()
       );
-      renderTemplateEditor();
-      attachTemplateSeatEvents();
+      renderTemplateEditor();   // re-renders AND re-binds
       persistAppState("Staffing template updated");
     });
   });
