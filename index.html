@@ -18,9 +18,6 @@
         <div>
           <p class="eyebrow">District 7 Fire Rescue</p>
           <h1>D7FR Crew Scheduler</h1>
-          <p class="lede">
-            Shift planning, trade approvals, and staffing coverage for District 7 Fire Rescue.
-          </p>
         </div>
 
         <section class="panel auth-panel">
@@ -69,30 +66,28 @@
           </div>
         </section>
 
-        <section class="hero-card">
-          <div>
-            <p class="eyebrow">District 7 Fire Rescue</p>
-            <h2>Crew Scheduling &amp; Staffing Management</h2>
+        <!-- Operational top bar. Replaced the old hero card and the "Workspace"
+             explainer panel: everything here is an action, not a description. -->
+        <div class="app-topbar">
+          <button id="sidebar-toggle" class="icon-button topbar-menu" aria-label="Account menu" aria-expanded="false">☰</button>
+          <span class="topbar-brand">D7FR Crew Scheduler</span>
+          <div class="topbar-surfaces">
+            <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
+            <button id="surface-admin-btn" class="view-button">Admin</button>
           </div>
-          <div class="hero-actions">
-            <div id="storage-status" class="status-pill">Loading data source…</div>
-            <button id="print-btn" class="button button-secondary">Print / Save PDF</button>
-            <button id="notify-btn" class="button button-secondary">Send Daily Email Digest</button>
+          <div class="topbar-actions">
+            <button id="drawer-toggle" class="button button-secondary button-small" aria-controls="tool-drawer" aria-expanded="false">
+              Tools<span id="drawer-badge" class="drawer-badge hidden">0</span>
+            </button>
+            <button id="print-btn" class="icon-button" title="Print / Save PDF" aria-label="Print or save PDF">&#9113;</button>
+            <button id="notify-btn" class="icon-button" title="Send daily email digest" aria-label="Send daily email digest">&#9993;</button>
           </div>
-        </section>
+        </div>
 
-        <section class="surface-switch panel">
-          <div class="surface-switch-row">
-            <div>
-              <h2>Workspace</h2>
-              <p class="helper-text">Keep scheduling focused on operations and use the admin area for roster and unit management.</p>
-            </div>
-            <div class="surface-switch-buttons">
-              <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
-              <button id="surface-admin-btn" class="view-button">Admin</button>
-            </div>
-          </div>
-        </section>
+        <!-- Save state is SILENT when healthy and loud when not. A permanent
+             green "connected" pill just trains people to ignore this row, and an
+             unsaved schedule change is the one thing that must never be missed. -->
+        <div id="storage-status" class="save-banner hidden" role="status" aria-live="polite"></div>
 
         <section id="schedule-surface" class="surface-view">
           <section class="toolbar panel">
@@ -131,115 +126,15 @@
             </div>
           </section>
 
-          <section class="content-grid">
-            <div class="primary-column">
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2 id="schedule-title">Schedule View</h2>
-                    <p id="schedule-subtitle" class="helper-text">Crew assignments by unit and day</p>
-                  </div>
-                  <button id="supervisor-save-btn" class="button button-secondary">Save Supervisor Edits</button>
-                </div>
-                <div class="schedule-container" id="schedule-container"></div>
-              </section>
-
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Trades And Overtime</h2>
-                    <p class="helper-text">
-                      Employees can request trades and volunteer for open shifts. Supervisors control final approval.
-                    </p>
-                  </div>
-                </div>
-
-                <div class="workflow-grid">
-                  <article class="workflow-card">
-                    <h3>Submit Trade</h3>
-                    <div class="workflow-form">
-                      <label>
-                        Your Shift
-                        <select id="trade-owner"></select>
-                      </label>
-                      <label>
-                        Swap With
-                        <select id="trade-partner"></select>
-                      </label>
-                      <label>
-                        Trade Date
-                        <input id="trade-date" type="date" />
-                      </label>
-                      <label>
-                        Notes
-                        <textarea id="trade-notes" rows="3" placeholder="Reason, truck preference, extra context"></textarea>
-                      </label>
-                    </div>
-                    <button id="submit-trade-btn" class="button button-primary">Create Trade Request</button>
-                  </article>
-
-                  <article class="workflow-card">
-                    <h3>Post Open Shift</h3>
-                    <div class="workflow-form">
-                      <label>
-                        Unit
-                        <select id="open-unit"></select>
-                      </label>
-                      <label>
-                        Open Shift Date
-                        <input id="open-date" type="date" />
-                      </label>
-                      <label>
-                        Qualification Needed
-                        <select id="open-qualification">
-                          <option value="paramedic">Paramedic</option>
-                          <option value="emt">EMT</option>
-                          <option value="engineer">Engineer</option>
-                          <option value="officer">Officer</option>
-                        </select>
-                      </label>
-                      <label>
-                        Report Time
-                        <input id="open-report-time" type="time" value="06:30" />
-                      </label>
-                    </div>
-                    <button id="post-open-btn" class="button button-primary">Post Overtime Opportunity</button>
-                  </article>
-                </div>
-              </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2 id="schedule-title">Schedule View</h2>
+                <p id="schedule-subtitle" class="helper-text">Crew assignments by unit and day</p>
+              </div>
+              <button id="supervisor-save-btn" class="button button-secondary">Save Supervisor Edits</button>
             </div>
-
-            <div class="secondary-column">
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Notifications</h2>
-                    <p class="helper-text">Email and alert history.</p>
-                  </div>
-                </div>
-                <div id="notification-center" class="stack-list"></div>
-              </section>
-
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Approval Queue</h2>
-                    <p class="helper-text">Supervisor actions and employee status tracking.</p>
-                  </div>
-                </div>
-                <div id="approval-queue" class="stack-list"></div>
-              </section>
-
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Audit Log</h2>
-                    <p class="helper-text">Every publish, trade, and staffing change is recorded.</p>
-                  </div>
-                </div>
-                <div id="audit-log" class="stack-list"></div>
-              </section>
-            </div>
+            <div class="schedule-container" id="schedule-container"></div>
           </section>
         </section>
 
@@ -382,6 +277,129 @@
           </section>
         </section>
       </main>
+
+      <!-- Tool drawer: everything that is not the schedule itself. Slides over
+           from the right so the board keeps full width, and goes full-screen on
+           phones. Panel ids are unchanged, so all existing render code still
+           targets the same elements. -->
+      <div id="drawer-scrim" class="drawer-scrim hidden"></div>
+      <aside id="tool-drawer" class="tool-drawer" aria-hidden="true">
+        <div class="drawer-head">
+          <div class="drawer-tabs">
+            <button class="drawer-tab is-active" data-drawer-tab="reserve">Reserve</button>
+            <button class="drawer-tab" data-drawer-tab="trades">Trades / OT</button>
+            <button class="drawer-tab" data-drawer-tab="queue">Queue</button>
+            <button class="drawer-tab" data-drawer-tab="activity">Activity</button>
+          </div>
+          <button id="drawer-close" class="icon-button" aria-label="Close tools">&times;</button>
+        </div>
+
+        <div class="drawer-body">
+          <div class="drawer-pane" data-drawer-pane="reserve">
+            <div id="reserve-panel"></div>
+          </div>
+
+          <div class="drawer-pane hidden" data-drawer-pane="trades">
+            <section class="panel">
+            <div class="panel-heading">
+            <div>
+            <h2>Trades And Overtime</h2>
+            <p class="helper-text">
+            Employees can request trades and volunteer for open shifts. Supervisors control final approval.
+            </p>
+            </div>
+            </div>
+
+            <div class="workflow-grid">
+            <article class="workflow-card">
+            <h3>Submit Trade</h3>
+            <div class="workflow-form">
+            <label>
+            Your Shift
+            <select id="trade-owner"></select>
+            </label>
+            <label>
+            Swap With
+            <select id="trade-partner"></select>
+            </label>
+            <label>
+            Trade Date
+            <input id="trade-date" type="date" />
+            </label>
+            <label>
+            Notes
+            <textarea id="trade-notes" rows="3" placeholder="Reason, truck preference, extra context"></textarea>
+            </label>
+            </div>
+            <button id="submit-trade-btn" class="button button-primary">Create Trade Request</button>
+            </article>
+
+            <article class="workflow-card">
+            <h3>Post Open Shift</h3>
+            <div class="workflow-form">
+            <label>
+            Unit
+            <select id="open-unit"></select>
+            </label>
+            <label>
+            Open Shift Date
+            <input id="open-date" type="date" />
+            </label>
+            <label>
+            Qualification Needed
+            <select id="open-qualification">
+            <option value="paramedic">Paramedic</option>
+            <option value="emt">EMT</option>
+            <option value="engineer">Engineer</option>
+            <option value="officer">Officer</option>
+            </select>
+            </label>
+            <label>
+            Report Time
+            <input id="open-report-time" type="time" value="06:30" />
+            </label>
+            </div>
+            <button id="post-open-btn" class="button button-primary">Post Overtime Opportunity</button>
+            </article>
+            </div>
+            </section>
+          </div>
+
+          <div class="drawer-pane hidden" data-drawer-pane="queue">
+            <section class="panel">
+            <div class="panel-heading">
+            <div>
+            <h2>Approval Queue</h2>
+            <p class="helper-text">Supervisor actions and employee status tracking.</p>
+            </div>
+            </div>
+            <div id="approval-queue" class="stack-list"></div>
+            </section>
+          </div>
+
+          <div class="drawer-pane hidden" data-drawer-pane="activity">
+            <section class="panel">
+            <div class="panel-heading">
+            <div>
+            <h2>Notifications</h2>
+            <p class="helper-text">Email and alert history.</p>
+            </div>
+            </div>
+            <div id="notification-center" class="stack-list"></div>
+            </section>
+
+            <section class="panel">
+            <div class="panel-heading">
+            <div>
+            <h2>Audit Log</h2>
+            <p class="helper-text">Every publish, trade, and staffing change is recorded.</p>
+            </div>
+            </div>
+            <div id="audit-log" class="stack-list"></div>
+            </section>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <!-- MSAL via jsDelivr (primary) with alcdn fallback -->

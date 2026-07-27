@@ -152,6 +152,9 @@ function cacheDom() {
     // Roster filters
     "employee-search", "roster-shift-filter", "employee-status-filter", "roster-sort", "employee-roster", "employee-editor",
     "storage-status",
+    // Shell chrome: top bar, collapsible sidebar, right-hand tool drawer
+    "sidebar-toggle", "drawer-toggle", "drawer-close", "drawer-scrim",
+    "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
   ids.forEach((id) => {
@@ -204,6 +207,8 @@ function wireEvents() {
   dom["unit-preview-import-btn"].addEventListener("click", previewUnitImport);
   dom["unit-apply-import-btn"].addEventListener("click", applyUnitImport);
   dom["download-unit-template-btn"].addEventListener("click", downloadUnitTemplate);
+
+  attachShellChromeEvents();
 
   // D7FR roster import
   dom["roster-preview-btn"].addEventListener("click", previewRosterImport);
@@ -582,6 +587,20 @@ function render() {
   populateOpenShiftSelects();
   renderPermissionStates();
   renderPersistenceStatus();
+  renderReservePanel();
+  renderDrawerBadge();
+}
+
+// Badge = work actually waiting on a supervisor: pending trades + open overtime
+// posts with nobody approved. Zero means the drawer can be safely ignored.
+function renderDrawerBadge() {
+  const el = dom["drawer-badge"];
+  if (!el) return;
+  const pendingTrades = (state.trades || []).filter((t) => t.status === "pending").length;
+  const openPosts = (state.overtimePosts || []).filter((p) => p.status === "open" && !p.approvedEmployeeId).length;
+  const total = pendingTrades + openPosts;
+  el.textContent = String(total);
+  el.classList.toggle("hidden", total === 0);
 }
 
 function renderSurfaceState() {
@@ -597,16 +616,29 @@ function renderSurfaceState() {
   dom["admin-surface"].classList.toggle("hidden", state.activeSurface !== "admin");
 }
 
+// Save state is shown ONLY when something is wrong. A permanent "connected"
+// pill is banner blindness waiting to happen, and the one message that must cut
+// through is "your change did not save."
 function renderPersistenceStatus() {
   const el = dom["storage-status"];
-  el.textContent = state.persistence.status;
-  el.className = "status-pill";
-  if (state.persistence.level === "warning" || state.persistence.backend === "local-storage" || state.persistence.backend === "supabase-fallback" || state.persistence.backend === "api-fallback") {
-    el.classList.add("is-warning");
+  if (!el) return;
+  const p = state.persistence;
+  const degraded =
+    p.backend === "local-storage" || p.backend === "supabase-fallback" ||
+    p.backend === "api-fallback" || p.backend === "browser-memory";
+  const isDanger = p.level === "danger" || p.backend === "browser-memory";
+  const isWarning = p.level === "warning" || degraded;
+
+  el.className = "save-banner";
+  if (!isDanger && !isWarning) {
+    el.classList.add("hidden");
+    el.textContent = "";
+    return;
   }
-  if (state.persistence.level === "danger" || state.persistence.backend === "browser-memory") {
-    el.classList.add("is-danger");
-  }
+  el.classList.add(isDanger ? "is-danger" : "is-warning");
+  el.textContent = isDanger
+    ? `Changes are NOT being saved to the server. ${p.status}`
+    : `Working from a backup data source — changes may not reach the server. ${p.status}`;
 }
 
 function canAccessAdmin() {
@@ -690,18 +722,81 @@ function renderSchedule() {
 
   attachUnitMoveEvents();
   attachCalendarNavEvents();
-  attachUnitServiceEvents();
+  attachUnitServiceEvents(dom["schedule-container"]);
 }
 
-// In/out of service controls for on-demand apparatus (day view only).
-function attachUnitServiceEvents() {
-  [...document.querySelectorAll("[data-activate-unit]")].forEach((btn) => {
+// ─── App shell chrome: sidebar collapse + right tool drawer ──────────────────
+
+// One scrim serves both overlays; it stays up while EITHER is open so closing
+// one never leaves the other floating over an un-dimmed page.
+function syncScrim() {
+  const anyOpen =
+    document.body.classList.contains("drawer-open") ||
+    document.body.classList.contains("sidebar-open");
+  dom["drawer-scrim"]?.classList.toggle("hidden", !anyOpen);
+}
+
+function setDrawerOpen(open) {
+  const drawer = dom["tool-drawer"];
+  if (!drawer) return;
+  drawer.classList.toggle("is-open", open);
+  drawer.setAttribute("aria-hidden", open ? "false" : "true");
+  dom["drawer-toggle"]?.setAttribute("aria-expanded", open ? "true" : "false");
+  document.body.classList.toggle("drawer-open", open);
+  syncScrim();
+}
+
+function setSidebarOpen(open) {
+  document.body.classList.toggle("sidebar-open", open);
+  dom["sidebar-toggle"]?.setAttribute("aria-expanded", open ? "true" : "false");
+  syncScrim();
+}
+
+function selectDrawerTab(name) {
+  [...document.querySelectorAll("[data-drawer-tab]")].forEach((btn) =>
+    btn.classList.toggle("is-active", btn.dataset.drawerTab === name)
+  );
+  [...document.querySelectorAll("[data-drawer-pane]")].forEach((pane) =>
+    pane.classList.toggle("hidden", pane.dataset.drawerPane !== name)
+  );
+}
+
+function attachShellChromeEvents() {
+  dom["drawer-toggle"]?.addEventListener("click", () =>
+    setDrawerOpen(!dom["tool-drawer"].classList.contains("is-open"))
+  );
+  dom["drawer-close"]?.addEventListener("click", () => setDrawerOpen(false));
+  dom["drawer-scrim"]?.addEventListener("click", () => {
+    setDrawerOpen(false);
+    setSidebarOpen(false);
+  });
+  dom["sidebar-toggle"]?.addEventListener("click", () =>
+    setSidebarOpen(!document.body.classList.contains("sidebar-open"))
+  );
+  [...document.querySelectorAll("[data-drawer-tab]")].forEach((btn) => {
+    btn.addEventListener("click", () => selectDrawerTab(btn.dataset.drawerTab));
+  });
+  // Escape closes whichever overlay is open — expected on both desktop and tablet.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    setDrawerOpen(false);
+    setSidebarOpen(false);
+  });
+}
+
+// In/out of service controls for on-demand apparatus.
+// SCOPED to a root element on purpose: the schedule and the drawer are rendered
+// by separate passes, and an unscoped querySelectorAll would bind the schedule's
+// buttons a second time on the drawer pass — firing deactivate twice per click.
+function attachUnitServiceEvents(root) {
+  const scope = root || document;
+  [...scope.querySelectorAll("[data-activate-unit]")].forEach((btn) => {
     btn.addEventListener("click", () => {
       if (state.currentRole !== "supervisor") return;
       activateUnitForDate(btn.dataset.activateUnit, btn.dataset.activateDate);
     });
   });
-  [...document.querySelectorAll("[data-deactivate-unit]")].forEach((btn) => {
+  [...scope.querySelectorAll("[data-deactivate-unit]")].forEach((btn) => {
     btn.addEventListener("click", () => {
       if (state.currentRole !== "supervisor") return;
       deactivateUnitForDate(btn.dataset.deactivateUnit, btn.dataset.deactivateDate);
@@ -730,7 +825,6 @@ function renderTimelineCard(date) {
         </div>
       </div>
       <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
-      ${renderReserveTray(date)}
     </article>
   `;
 }
@@ -738,10 +832,23 @@ function renderTimelineCard(date) {
 // Supervisor-only tray of on-demand apparatus not currently in service for this
 // date (reserve engines, surge medics, brush/tender). Hidden entirely when there
 // are none, so it never clutters a normal day.
+// Renders into the tool drawer's Reserve tab (not inline under the schedule),
+// so the board keeps full width. Day-view date is the one being acted on.
+function renderReservePanel() {
+  const el = dom["reserve-panel"];
+  if (!el) return;
+  el.innerHTML = renderReserveTray(state.currentDate);
+  attachUnitServiceEvents(el);
+}
+
 function renderReserveTray(date) {
-  if (state.currentRole !== "supervisor") return "";
+  if (state.currentRole !== "supervisor") {
+    return '<div class="empty-state">Supervisor sign-in required to place units in service.</div>';
+  }
   const available = inactiveOnDemandUnits(date);
-  if (!available.length) return "";
+  if (!available.length) {
+    return '<div class="empty-state">Every reserve unit is already in service for this date.</div>';
+  }
   const rows = available
     .map(
       (unit) => `

@@ -84,6 +84,19 @@ activateUnitForDate/deactivateUnitForDate write unit.activeDates; deactivate KEE
 seedAssignments() is DEMO-ONLY and hard-disabled when usesSchedulerApi() — it fabricated
   180 days of capability-unchecked staffing that then persisted to Railway.
 
+UI shell (index.html):
+.app-topbar = surface switch (Schedule|Admin) + Tools drawer button + print/digest icons.
+  Replaced the old hero-card and "Workspace" explainer panels (both deleted).
+#storage-status is now .save-banner: HIDDEN when healthy, warning/danger only. Never green.
+#tool-drawer = right slide-over, tabs reserve|trades|queue|activity (data-drawer-tab /
+  data-drawer-pane). Holds Trades+OT, Approval Queue, Notifications, Audit, Reserve panel.
+  Panel ids UNCHANGED, so existing render fns still target them.
+setDrawerOpen/setSidebarOpen/syncScrim/selectDrawerTab/attachShellChromeEvents; Esc closes both.
+Sidebar goes off-canvas below 1180px ONLY when .app-shell.is-authenticated (signed-out keeps
+  the login visible). Drawer is full-width under 700px.
+attachUnitServiceEvents(root) is SCOPED — schedule and drawer render separately; unscoped
+  binding double-fires deactivate.
+
 High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
 loadRemoteStateAfterAuth, seatAccepts/assignPeopleToSeats/seatDropdownOptions/assignedEmployeeIdsForDate
