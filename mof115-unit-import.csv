@@ -1,0 +1,2 @@
+id,name,type,minStaff,requiredCerts,onDemand,visible
+MOF115,"MOF 115",MOF,1,"officer",false,true

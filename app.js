@@ -304,6 +304,12 @@ function seedEmployees() {
 }
 
 function seedAssignments(preserveExisting = false) {
+  // DEMO SCAFFOLDING ONLY. This invents 180 days of staffing by picking whoever
+  // is on the matching platoon — it does NOT check seat capabilities. Running it
+  // against the live department would fabricate assignments that look real and
+  // then get persisted to Railway on the next save. Hard-off whenever the
+  // Django API is the backend.
+  if (usesSchedulerApi()) return;
   const existingAssignments = preserveExisting ? state.assignments || {} : {};
   state.assignments = existingAssignments;
   // Seed 180 days of assignments
@@ -2171,9 +2177,11 @@ function downloadUnitTemplate() {
   downloadCsv(
     "d7fr-units-template.csv",
     [
-      "id,name,type,minStaff,requiredCerts,shift,visible",
-      'E5,"Engine 5",Engine,4,"paramedic",A,true',
-      'M5,"Medic 5",Medic,2,"paramedic",B,false',
+      // No "shift" column: apparatus are staffed by the platoon on duty that
+      // date. onDemand=true means the unit only runs on dates it's activated.
+      "id,name,type,minStaff,requiredCerts,onDemand,visible",
+      'E5,"Engine 5",Engine,4,"paramedic",false,true',
+      'B5,"Brush 5",Brush,2,"emt",true,true',
     ].join("\n"),
   );
 }
