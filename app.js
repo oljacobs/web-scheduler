@@ -11,6 +11,7 @@ const state = {
   currentDate: todayIso(),
   scheduleStatus: "draft",
   units: [],
+  staffingTemplates: [],
   employees: [],
   trades: [],
   overtimePosts: [],
@@ -154,6 +155,9 @@ function cacheDom() {
     "storage-status",
     // Shell chrome: top bar, collapsible sidebar, right-hand tool drawer
     "sidebar-toggle", "drawer-toggle", "drawer-close", "drawer-scrim",
+    // Staffing templates
+    "template-unit", "template-shift", "template-seats",
+    "template-push-days", "template-push-btn", "template-push-summary",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -208,6 +212,7 @@ function wireEvents() {
   dom["download-unit-template-btn"].addEventListener("click", downloadUnitTemplate);
 
   attachShellChromeEvents();
+  attachTemplateEvents();
 
   // D7FR roster import
   dom["roster-preview-btn"].addEventListener("click", previewRosterImport);
@@ -596,6 +601,8 @@ function render() {
   renderSaveIndicator();
   renderReservePanel();
   renderDrawerBadge();
+  renderTemplateEditor();
+  attachTemplateSeatEvents();
 }
 
 // Passive reassurance in place of the old "Save Supervisor Edits" button.
@@ -797,6 +804,209 @@ function renderSchedule() {
   attachUnitMoveEvents();
   attachCalendarNavEvents();
   attachUnitServiceEvents(dom["schedule-container"]);
+}
+
+// ─── Staffing templates ──────────────────────────────────────────────────────
+// A template is a STANDING CREW for one unit on one platoon: E115's A-shift crew
+// differs from its B-shift crew. A "push" turns templates into real assignments
+// for every date that platoon is on duty.
+//
+// Assignments are GENERATED, never derived at read time. That means the schedule
+// you see is the schedule that is stored, editing a template never silently
+// rewrites history, and PTO is just a normal edit to one date.
+
+const TEMPLATE_PUSH_DEFAULT_DAYS = 180;   // ~6 months
+
+function renderTemplateEditor() {
+  const unitSelect = dom["template-unit"];
+  const seatsEl = dom["template-seats"];
+  if (!unitSelect || !seatsEl) return;
+
+  // Every unit is templatable, including reserves — pre-building a reserve crew
+  // is exactly how a long-term front-line outage gets staffed.
+  const units = visibleUnitsAll();
+  const selectedUnit = state.templateUnitId && units.some((u) => u.id === state.templateUnitId)
+    ? state.templateUnitId
+    : units[0]?.id || "";
+  state.templateUnitId = selectedUnit;
+  const shift = state.templateShift || "A";
+  state.templateShift = shift;
+
+  unitSelect.innerHTML = units
+    .map((u) => `<option value="${u.id}" ${u.id === selectedUnit ? "selected" : ""}>
+      ${escapeHtml(u.name)}${u.onDemand ? " (reserve)" : ""}</option>`)
+    .join("");
+  if (dom["template-shift"]) dom["template-shift"].value = shift;
+
+  const unit = unitById(selectedUnit);
+  const positions = UNIT_POSITION_REQUIREMENTS[unit?.type];
+  if (!unit || !positions) {
+    seatsEl.innerHTML = `<div class="empty-state">No seat layout defined for this unit type.</div>`;
+    return;
+  }
+
+  const tpl = templateFor(selectedUnit, shift);
+  // Only people on THIS platoon — a standing crew is by definition the platoon's
+  // own people. Overtime and cross-staffing stay one-off edits on the board.
+  const pool = activeEmployees().filter((e) => e.shift === shift);
+
+  seatsEl.innerHTML = positions
+    .map((pos) => {
+      const current = tpl?.seats?.[pos.role] || "";
+      const eligible = pool.filter((e) => seatAccepts(pos, e));
+      const options = eligible
+        .map((e) => `<option value="${e.id}" ${e.id === current ? "selected" : ""}>
+          ${escapeHtml(e.name)} — ${escapeHtml(e.title || "—")}</option>`)
+        .join("");
+      const need = seatNeedLabel(pos);
+      return `<div class="seat-row ${seatIsRequired(pos) ? "" : "seat-optional"}">
+        <span class="seat-label">${escapeHtml(pos.label)}${need ? ` <em>(${escapeHtml(need)})</em>` : ""}</span>
+        <select class="template-seat-select" data-role="${escapeHtml(pos.role)}">
+          <option value="">— none —</option>${options}
+        </select>
+      </div>`;
+    })
+    .join("");
+
+  const filled = positions.filter((pos) => tpl?.seats?.[pos.role]).length;
+  if (dom["template-push-summary"]) {
+    dom["template-push-summary"].textContent =
+      `${unit.name} · ${shift} shift — ${filled} of ${positions.length} seats set.`;
+  }
+}
+
+function attachTemplateEvents() {
+  dom["template-unit"]?.addEventListener("change", (e) => {
+    state.templateUnitId = e.target.value;
+    renderTemplateEditor();
+  });
+  dom["template-shift"]?.addEventListener("change", (e) => {
+    state.templateShift = e.target.value;
+    renderTemplateEditor();
+  });
+  dom["template-push-btn"]?.addEventListener("click", () => {
+    const days = Math.min(365, Math.max(1, Number(dom["template-push-days"]?.value) || TEMPLATE_PUSH_DEFAULT_DAYS));
+    applyTemplatePush(days);
+  });
+}
+
+// Delegated: the seat selects are re-rendered on every change.
+function attachTemplateSeatEvents() {
+  [...(dom["template-seats"]?.querySelectorAll(".template-seat-select") || [])].forEach((select) => {
+    select.addEventListener("change", () => {
+      if (state.currentRole !== "supervisor") {
+        showToast("Supervisor sign-in required to edit templates.", "error");
+        return;
+      }
+      upsertTemplateSeat(state.templateUnitId, state.templateShift, select.dataset.role, select.value);
+      addAudit(
+        `Staffing template updated: ${unitById(state.templateUnitId)?.name} ${state.templateShift} shift.`,
+        currentUserName()
+      );
+      renderTemplateEditor();
+      attachTemplateSeatEvents();
+      persistAppState("Staffing template updated");
+    });
+  });
+}
+
+// Provenance lives on each stored assignment row. "manual" always wins: a push
+// may overwrite what a push wrote, never what a person placed.
+function markManual(people) {
+  return (people || []).map((p) => ({ ...p, _src: "manual" }));
+}
+
+function isTemplateGenerated(people) {
+  return (people || []).length > 0 && people.every((p) => p && p._src === "template");
+}
+
+function templateFor(unitId, shift) {
+  return (state.staffingTemplates || []).find((t) => t.unitId === unitId && t.shift === shift) || null;
+}
+
+function upsertTemplateSeat(unitId, shift, role, employeeId) {
+  if (!Array.isArray(state.staffingTemplates)) state.staffingTemplates = [];
+  let tpl = templateFor(unitId, shift);
+  if (!tpl) {
+    tpl = { unitId, shift, seats: {} };
+    state.staffingTemplates.push(tpl);
+  }
+  if (employeeId) tpl.seats[role] = employeeId;
+  else delete tpl.seats[role];
+}
+
+// Build the crew a template implies for one date. Archived or deleted people are
+// DROPPED rather than seated, so the seat reads as an open gap and raises a normal
+// staffing alert instead of looking covered by someone who no longer works here.
+function crewFromTemplate(unitId, date) {
+  const tpl = templateFor(unitId, getShiftForDate(date));
+  if (!tpl) return [];
+  const positions = UNIT_POSITION_REQUIREMENTS[unitById(unitId)?.type] || [];
+  const crew = [];
+  positions.forEach((pos) => {
+    const empId = tpl.seats?.[pos.role];
+    if (!empId) return;
+    const emp = employeeById(empId);
+    if (!emp || emp.status === "archived") return;
+    if (crew.some((p) => p.id === emp.id)) return;
+    crew.push({ ...emp, _src: "template" });
+  });
+  return crew;
+}
+
+// Dry run. Returns exactly what a push WOULD do, so the confirm dialog can state
+// it in plain numbers before anything is written.
+function previewTemplatePush(days = TEMPLATE_PUSH_DEFAULT_DAYS) {
+  const result = { created: 0, replaced: 0, skippedManual: 0, noTemplate: 0, dates: 0, unitDays: [] };
+  for (let offset = 0; offset < days; offset += 1) {
+    const date = addDays(todayIso(), offset);
+    let touched = false;
+    unitsForDate(date).forEach((unit) => {
+      const crew = crewFromTemplate(unit.id, date);
+      if (!crew.length) { result.noTemplate += 1; return; }
+      const existing = getAssignments(date, unit.id);
+      if (existing.length && !isTemplateGenerated(existing)) { result.skippedManual += 1; return; }
+      if (existing.length) result.replaced += 1; else result.created += 1;
+      result.unitDays.push({ date, unitId: unit.id, crew });
+      touched = true;
+    });
+    if (touched) result.dates += 1;
+  }
+  return result;
+}
+
+function applyTemplatePush(days = TEMPLATE_PUSH_DEFAULT_DAYS) {
+  if (state.currentRole !== "supervisor") {
+    showToast("Supervisor sign-in required to push staffing.", "error");
+    return;
+  }
+  const plan = previewTemplatePush(days);
+  if (!plan.unitDays.length) {
+    showToast("Nothing to push — no templates match the units on duty.", "error");
+    return;
+  }
+  const ok = window.confirm(
+    `Push standing crews for the next ${days} days?\n\n` +
+    `• ${plan.created} unit-days will be filled\n` +
+    `• ${plan.replaced} previously pushed unit-days will be refreshed\n` +
+    `• ${plan.skippedManual} will be SKIPPED (edited by hand — never overwritten)\n` +
+    `• ${plan.noTemplate} have no template for the platoon on duty\n\n` +
+    `Spans ${plan.dates} dates. PTO and swaps you have already entered are safe.`
+  );
+  if (!ok) return;
+
+  plan.unitDays.forEach(({ date, unitId, crew }) => {
+    if (!state.assignments[date]) state.assignments[date] = {};
+    state.assignments[date][unitId] = crew;
+  });
+  // ONE audit entry, not one per assignment — a 1,200-row log entry is unreadable.
+  addAudit(
+    `Staffing templates pushed for ${days} days: ${plan.created} filled, ${plan.replaced} refreshed, ${plan.skippedManual} manual skipped.`,
+    currentUserName()
+  );
+  render();
+  persistAppState("Staffing templates pushed");
+  showToast(`Pushed staffing across ${plan.dates} dates.`, "success");
 }
 
 // ─── App shell chrome: sidebar collapse + right tool drawer ──────────────────
@@ -1724,7 +1934,9 @@ function attachUnitMoveEvents() {
         return;
       }
       if (!state.assignments[date]) state.assignments[date] = {};
-      state.assignments[date][unitId] = [...existingAssignments, employee];
+      // A human touched this unit-day: stamp EVERY row on it manual so a future
+      // template push skips the whole crew, not just the seat that changed.
+      state.assignments[date][unitId] = markManual([...existingAssignments, employee]);
       addAudit(`${employee.name} added to ${unitById(unitId)?.name} on ${formatDate(date)}.`, currentUserName());
       createNotification(`${employee.name} assigned to ${unitById(unitId)?.name} for ${formatDate(date)}.`, "email", currentUserName());
       render();
@@ -1738,7 +1950,9 @@ function attachUnitMoveEvents() {
       const unitId = button.dataset.removeUnit;
       const employeeId = button.dataset.removeAssignment;
       if (!state.assignments[date]) return;
-      state.assignments[date][unitId] = getAssignments(date, unitId).filter((person) => person.id !== employeeId);
+      state.assignments[date][unitId] = markManual(
+        getAssignments(date, unitId).filter((person) => person.id !== employeeId)
+      );
       addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId)?.name} on ${formatDate(date)}.`, currentUserName());
       createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId)?.name} for ${formatDate(date)}.`, "email", currentUserName());
       render();
@@ -2598,6 +2812,9 @@ function resolvePerson(p) {
 // Does a person qualify for a seat? Any-cap seats accept anyone; otherwise the
 // person must hold at least one of the seat's required capabilities.
 function seatAccepts(pos, emp) {
+  // An archived person never satisfies a seat. Their pushed future assignments
+  // therefore read as open gaps and raise alerts instead of looking covered.
+  if (!emp || emp.status === "archived") return false;
   if (seatAllowsAny(pos)) return true;
   const need = Array.isArray(pos.cap) ? pos.cap : [pos.cap];
   const caps = personCapabilities(emp);
@@ -2725,6 +2942,18 @@ function activateUnitForDate(unitId, date) {
   if (unit.activeDates.includes(date)) return;
   unit.activeDates = [...unit.activeDates, date].sort();
   addAudit(`${unit.name} placed in service for ${formatDate(date)}.`, currentUserName());
+  // Offer the standing crew. This is the long-term-outage workflow: activating a
+  // reserve rig for 21 shifts should not mean building 21 crews by hand.
+  const shift = getShiftForDate(date);
+  const crew = crewFromTemplate(unitId, date);
+  if (crew.length && !getAssignments(date, unitId).length) {
+    const names = crew.map((p) => p.name).join(", ");
+    if (window.confirm(`Fill ${unit.name} from its ${shift}-shift template?\n\n${names}`)) {
+      if (!state.assignments[date]) state.assignments[date] = {};
+      state.assignments[date][unitId] = crew;
+      addAudit(`${unit.name} staffed from ${shift}-shift template for ${formatDate(date)}.`, currentUserName());
+    }
+  }
   render();
   persistAppState(`${unit.name} in service`);
   showToast(`${unit.name} is in service for ${formatDate(date)}.`, "success");
@@ -3215,6 +3444,7 @@ function loadLocalState() {
 function serializableState() {
   return {
     units: state.units,
+    staffingTemplates: state.staffingTemplates,
     employees: state.employees,
     trades: state.trades,
     overtimePosts: state.overtimePosts,
@@ -3243,6 +3473,7 @@ function applyPersistedState(data) {
   } else {
     state.units = defaultUnits();
   }
+  state.staffingTemplates = Array.isArray(data.staffingTemplates) ? data.staffingTemplates : [];
   state.employees = Array.isArray(data.employees) ? data.employees : [];
   state.trades = Array.isArray(data.trades) ? data.trades : [];
   state.overtimePosts = Array.isArray(data.overtimePosts) ? data.overtimePosts : [];

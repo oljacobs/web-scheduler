@@ -118,6 +118,21 @@ publish-btn is button-primary only while scheduleStatus==="draft", else secondar
   suppressed the browser default. Don't remove outline without a replacement ring.
 Week/month coverage is NOT colour-only: .cal-warn/.cal-ok prepend ⚠/✓ to the seat count.
 
+Staffing templates (per-platoon standing crews):
+state.staffingTemplates=[{unitId,shift:"A|B|C",seats:{roleKey:employeeId}}]  (roles = pos.role
+  from UNIT_POSITION_REQUIREMENTS). Django: StaffingTemplate(unit,shift,seats) unique(unit,shift),
+  migration 0005; round-trips through /state/ as "staffingTemplates" (upsert + prune like units).
+PROVENANCE: each stored assignment person carries _src "template"|"manual"; Django
+  Assignment.source persists it. markManual() stamps the WHOLE unit-day on any human edit.
+  isTemplateGenerated(people) = non-empty AND every row template -> only those may be overwritten.
+crewFromTemplate(unitId,date) drops archived/missing people so the seat reads as an OPEN GAP.
+  seatAccepts() also returns false for archived — that is what makes departed staff visible.
+previewTemplatePush(days) is a DRY RUN -> {created,replaced,skippedManual,noTemplate,dates};
+  applyTemplatePush(days) confirms with those numbers, writes, and logs ONE audit entry.
+Default horizon TEMPLATE_PUSH_DEFAULT_DAYS=180. Activating an on-demand unit PROMPTS to fill
+  from that platoon's template (never silent).
+Admin -> Templates tab: template-unit/template-shift/template-seats/template-push-*.
+
 High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
 loadRemoteStateAfterAuth, seatAccepts/assignPeopleToSeats/seatDropdownOptions/assignedEmployeeIdsForDate

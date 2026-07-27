@@ -149,6 +149,7 @@
                   <button class="tab-button is-active" data-tab="employees">Employees</button>
                   <button class="tab-button" data-tab="imports">Imports</button>
                   <button class="tab-button" data-tab="units">Units</button>
+                  <button class="tab-button" data-tab="templates">Templates</button>
                 </div>
 
                 <div class="tab-pane" data-tab-id="employees">
@@ -262,6 +263,44 @@
                     </div>
                   </div>
                   <div id="unit-toggle-list" class="toggle-list"></div>
+                </div>
+
+                <div class="tab-pane hidden" data-tab-id="templates">
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Staffing Templates</h2>
+                      <p class="helper-text">
+                        A standing crew per unit, per platoon. Pushing writes real assignments for
+                        every date that platoon is on duty — PTO and swaps stay normal single-day edits.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="template-controls">
+                    <label>
+                      Unit
+                      <select id="template-unit"></select>
+                    </label>
+                    <label>
+                      Platoon
+                      <select id="template-shift">
+                        <option value="A">A Shift</option>
+                        <option value="B">B Shift</option>
+                        <option value="C">C Shift</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div id="template-seats" class="template-seats"></div>
+
+                  <div class="template-push">
+                    <label>
+                      Push ahead (days)
+                      <input id="template-push-days" type="number" min="1" max="365" value="180" />
+                    </label>
+                    <button id="template-push-btn" class="button button-primary">Preview &amp; push staffing</button>
+                  </div>
+                  <p id="template-push-summary" class="helper-text"></p>
                 </div>
               </section>
             </div>
