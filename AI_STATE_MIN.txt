@@ -110,6 +110,14 @@ persistence.lastSavedAt is set ONLY after a confirmed server write (inside the t
   finally). In the finally it stamped a time even on failure, so #save-indicator read
   "Saved 3:42 PM" while nothing had reached the server.
 
+AUDIT LOG — two bugs, both fixed, do not reintroduce:
+1) AuditEntrySerializer exposed the DB pk as "id" while _write_state deduped on source_id, so
+   every round trip re-created the ENTIRE log. 118,874 rows from a few dozen real actions.
+   The serializer now maps id -> source_id, and _write_state refuses entries with no id.
+2) Sign-in was audited on every silent token refresh (122/day). Removed. See the AUDIT POLICY
+   comment above addAudit(): log schedule-affecting changes, never authentication or navigation.
+Full history export: GET /api/scheduler/audit/export.csv (auth required) + Activity tab button.
+
 PAYLOAD SIZE IS A CORRECTNESS ISSUE, NOT AN OPTIMISATION:
 auditLog + notifications are append-only and grew to 18 MB with ZERO assignments. At that size
   the PUT died before Django answered (browser reported it as a CORS error, not a 413/502) AND

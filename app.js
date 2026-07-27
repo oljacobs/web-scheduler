@@ -2144,7 +2144,6 @@ async function setAuthFromToken(accessToken, account) {
   state.loginRole = employee.isSupervisor ? "supervisor" : "employee";
   state.currentRole = state.loginRole;
   state.isAuthenticated = true;
-  addAudit(`${displayName} signed in via Microsoft Entra ID.`, "System");
 }
 
 async function fetchGraphProfile(accessToken) {
@@ -3077,6 +3076,18 @@ function createNotification(message, channel, createdBy) {
   return entry;
 }
 
+// AUDIT POLICY — log things that CHANGE THE SCHEDULE or someone's obligations.
+// This is the record a chief reads to answer "who moved this crew, and when",
+// so signal matters more than completeness.
+//
+//   LOG:        assignments added/removed, units in/out of service, unit
+//               visibility, publishes, trades, overtime awards, roster and
+//               credential changes, template pushes.
+//   DON'T LOG:  sign-ins (they fired on every silent token refresh — 122 in one
+//               day), tab and workspace switches, anything purely about what one
+//               person is looking at.
+//
+// Authentication events belong in an auth log, not the scheduling record.
 function addAudit(message, actor) {
   state.auditLog.push(createAuditEntry(message, actor));
   // Trim in memory too, or a long session rebuilds the same problem.
