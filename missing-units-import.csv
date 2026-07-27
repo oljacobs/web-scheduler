@@ -1,0 +1,4 @@
+id,name,type,minStaff,requiredCerts,onDemand,visible
+T116,"Tender 116",Tender,1,"engineer",false,true
+E116B,"Engine 116B",Engine,2,"officer",true,true
+M115C,"Medic 115C",Medic,2,"paramedic",true,true

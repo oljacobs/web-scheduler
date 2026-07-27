@@ -690,6 +690,23 @@ function renderSchedule() {
 
   attachUnitMoveEvents();
   attachCalendarNavEvents();
+  attachUnitServiceEvents();
+}
+
+// In/out of service controls for on-demand apparatus (day view only).
+function attachUnitServiceEvents() {
+  [...document.querySelectorAll("[data-activate-unit]")].forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.currentRole !== "supervisor") return;
+      activateUnitForDate(btn.dataset.activateUnit, btn.dataset.activateDate);
+    });
+  });
+  [...document.querySelectorAll("[data-deactivate-unit]")].forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.currentRole !== "supervisor") return;
+      deactivateUnitForDate(btn.dataset.deactivateUnit, btn.dataset.deactivateDate);
+    });
+  });
 }
 
 // Day view: full timeline card with unit details
@@ -713,8 +730,45 @@ function renderTimelineCard(date) {
         </div>
       </div>
       <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
+      ${renderReserveTray(date)}
     </article>
   `;
+}
+
+// Supervisor-only tray of on-demand apparatus not currently in service for this
+// date (reserve engines, surge medics, brush/tender). Hidden entirely when there
+// are none, so it never clutters a normal day.
+function renderReserveTray(date) {
+  if (state.currentRole !== "supervisor") return "";
+  const available = inactiveOnDemandUnits(date);
+  if (!available.length) return "";
+  const rows = available
+    .map(
+      (unit) => `
+      <div class="toggle-item">
+        <div>
+          <strong>${escapeHtml(unit.name)}</strong>
+          <p class="helper-text">${escapeHtml(unit.type || "Unit")} • out of service</p>
+        </div>
+        <button class="button button-secondary button-small" data-activate-unit="${unit.id}" data-activate-date="${date}">
+          Put in service
+        </button>
+      </div>`
+    )
+    .join("");
+  return `
+    <div class="reserve-tray">
+      <h4>Reserve / on-demand apparatus</h4>
+      <p class="helper-text">Not staffed unless placed in service. Applies to ${formatDate(date)} only.</p>
+      ${rows}
+    </div>
+  `;
+}
+
+// "Out of service" control shown on an in-service on-demand unit's card.
+function unitServiceControlHtml(unit, date) {
+  if (!unit.onDemand || state.currentRole !== "supervisor") return "";
+  return `<button class="button button-secondary button-small" data-deactivate-unit="${unit.id}" data-deactivate-date="${date}">Out of service</button>`;
 }
 
 // Week view: compact 7-column calendar grid
@@ -825,7 +879,10 @@ function renderUnitCard(unit, date, activeShift) {
     <section class="unit-card">
       <div class="unit-card-header">
         <div><h3>${escapeHtml(unit.name)}</h3><div class="unit-meta"><span>${unit.type || "Unit"}</span><span>${people.length}/${unit.minStaff || 0}</span></div></div>
-        <span class="badge ${cls}">${lbl}</span>
+        <div class="unit-card-actions">
+          <span class="badge ${cls}">${lbl}</span>
+          ${unitServiceControlHtml(unit, date)}
+        </div>
       </div>
       <div class="seat-list">${rows || `<div class="empty-state">No assignment on this date.</div>`}
         ${isSupervisor ? `<div class="seat-row seat-optional"><span class="seat-label">Add personnel</span>
@@ -878,7 +935,10 @@ function renderUnitCard(unit, date, activeShift) {
             <span>up to ${totalSeats}</span>
           </div>
         </div>
-        <span class="badge ${statusClass}">${statusLabel}</span>
+        <div class="unit-card-actions">
+          <span class="badge ${statusClass}">${statusLabel}</span>
+          ${unitServiceControlHtml(unit, date)}
+        </div>
       </div>
       <div class="seat-list">
         ${rowsHtml || `<div class="empty-state">No positions defined for this unit.</div>`}
@@ -2441,6 +2501,47 @@ function unitRunsOn(unit, date) {
 // The units in service on a given date (replaces the old `unit.shift === shift`).
 function unitsForDate(date) {
   return visibleUnits().filter((unit) => unitRunsOn(unit, date));
+}
+
+// On-demand units NOT in service on this date. These are hidden from the normal
+// schedule (they aren't running), so supervisors need a separate tray to put one
+// in service — otherwise there's no way to ever activate them.
+function inactiveOnDemandUnits(date) {
+  return visibleUnits().filter((unit) => unit.onDemand && !unitRunsOn(unit, date));
+}
+
+// Put an on-demand unit in service for a single date.
+function activateUnitForDate(unitId, date) {
+  const unit = unitById(unitId);
+  if (!unit || !unit.onDemand) return;
+  if (!Array.isArray(unit.activeDates)) unit.activeDates = [];
+  if (unit.activeDates.includes(date)) return;
+  unit.activeDates = [...unit.activeDates, date].sort();
+  addAudit(`${unit.name} placed in service for ${formatDate(date)}.`, currentUserName());
+  render();
+  persistAppState(`${unit.name} in service`);
+  showToast(`${unit.name} is in service for ${formatDate(date)}.`, "success");
+}
+
+// Take an on-demand unit out of service for a single date. Assignments are left
+// intact rather than deleted, so putting it back in service restores the crew —
+// and so a misclick can never silently destroy a day's staffing.
+function deactivateUnitForDate(unitId, date) {
+  const unit = unitById(unitId);
+  if (!unit || !unit.onDemand) return;
+  const assigned = getAssignments(date, unitId).length;
+  if (assigned > 0) {
+    const ok = window.confirm(
+      `${unit.name} has ${assigned} ${assigned === 1 ? "person" : "people"} assigned on ${formatDate(date)}.\n\n` +
+      `Take it out of service? The crew is kept and will reappear if you put it back in service.`
+    );
+    if (!ok) return;
+  }
+  unit.activeDates = (unit.activeDates || []).filter((d) => d !== date);
+  addAudit(`${unit.name} taken out of service for ${formatDate(date)}.`, currentUserName());
+  render();
+  persistAppState(`${unit.name} out of service`);
+  showToast(`${unit.name} is out of service for ${formatDate(date)}.`, "success");
 }
 
 // Who is eligible to ride on a given date = the platoon on duty that date.
