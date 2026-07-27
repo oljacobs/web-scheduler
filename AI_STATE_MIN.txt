@@ -97,6 +97,15 @@ Sidebar goes off-canvas below 1180px ONLY when .app-shell.is-authenticated (sign
 attachUnitServiceEvents(root) is SCOPED — schedule and drawer render separately; unscoped
   binding double-fires deactivate.
 
+Colour encodes MEANING, never decoration:
+--type-* (Engine/Ladder/Medic/Batt/MOF/Tender/Brush/Rescue) accent each unit card via
+  [data-apparatus] -> --unit-accent (left spine, h3 colour, 4.5% wash). NOTE: the attribute is
+  data-apparatus, NOT data-unit-type — that one is already taken by the admin type <select>.
+--cap-* colour .pill-cap[data-cap] (officer/engineer/paramedic/emt) wherever certs render.
+getStaffingAlerts still returns ONE ALERT PER EMPTY SEAT (summary/week/month counts rely on it).
+groupAlertsByUnit() collapses them for display -> "Batt 115 | 2 open seats", danger before
+  warning, then most seats; top 6 + "+N more". Needs list goes in the title attr, not the chip.
+
 High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
 loadRemoteStateAfterAuth, seatAccepts/assignPeopleToSeats/seatDropdownOptions/assignedEmployeeIdsForDate

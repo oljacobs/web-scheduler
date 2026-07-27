@@ -1638,3 +1638,162 @@ textarea:disabled {
     display: none !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Colour system — apparatus type accents, capability colours, louder alerts.
+   The palette stays inside the existing dark theme: colour is used to encode
+   MEANING (what kind of rig, what qualification, how urgent), never decoration.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --type-engine: #ff6f5e;
+  --type-ladder: #ffb547;
+  --type-medic: #57d695;
+  --type-batt: #c79bff;
+  --type-mof: #4da3ff;
+  --type-tender: #4fd0d8;
+  --type-brush: #9ed363;
+  --type-rescue: #ff8fb1;
+
+  --cap-officer: #ffb547;
+  --cap-engineer: #4da3ff;
+  --cap-paramedic: #57d695;
+  --cap-emt: #4fd0d8;
+}
+
+/* Each unit card gets a coloured spine + tinted heading in its type's colour,
+   so a crew can find their rig on a dense board without reading every name. */
+.unit-card {
+  position: relative;
+  overflow: hidden;
+  border-left: 3px solid var(--unit-accent, rgba(141, 175, 214, 0.25));
+}
+
+.unit-card[data-apparatus="Engine"] { --unit-accent: var(--type-engine); }
+.unit-card[data-apparatus="Ladder"] { --unit-accent: var(--type-ladder); }
+.unit-card[data-apparatus="Medic"]  { --unit-accent: var(--type-medic); }
+.unit-card[data-apparatus="Batt"]   { --unit-accent: var(--type-batt); }
+.unit-card[data-apparatus="MOF"]    { --unit-accent: var(--type-mof); }
+.unit-card[data-apparatus="Tender"] { --unit-accent: var(--type-tender); }
+.unit-card[data-apparatus="Brush"]  { --unit-accent: var(--type-brush); }
+.unit-card[data-apparatus="Rescue"] { --unit-accent: var(--type-rescue); }
+
+.unit-card h3 {
+  color: var(--unit-accent, var(--text));
+}
+
+/* Faint wash of the type colour so cards read as a group without shouting. */
+.unit-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--unit-accent, transparent);
+  opacity: 0.045;
+  pointer-events: none;
+}
+
+.unit-card > * {
+  position: relative;
+}
+
+/* The apparatus-type chip in the card meta row. */
+.unit-card .unit-meta span:first-child {
+  color: var(--unit-accent, var(--muted));
+  font-weight: 700;
+}
+
+/* Capability pills — one colour per qualification, used everywhere a cert shows. */
+.pill-cap {
+  border: 1px solid currentColor;
+  background: transparent;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.pill-cap[data-cap="officer"]   { color: var(--cap-officer); }
+.pill-cap[data-cap="engineer"]  { color: var(--cap-engineer); }
+.pill-cap[data-cap="paramedic"] { color: var(--cap-paramedic); }
+.pill-cap[data-cap="emt"]       { color: var(--cap-emt); }
+
+/* ── Alerts ─────────────────────────────────────────────────────────────────
+   Previously these sat in the same slate as every other chip and disappeared.
+   Danger now reads as red at a glance, with the open-seat count leading. */
+.alert-strip {
+  justify-content: start;
+}
+
+.alert-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.alert-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.alert-unit {
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.alert-detail {
+  color: inherit;
+  opacity: 0.75;
+  font-size: 0.85rem;
+}
+
+.alert-chip.is-danger {
+  background: rgba(255, 111, 125, 0.16);
+  border: 1px solid var(--danger);
+  color: #ffd4d8;
+  box-shadow: 0 0 0 1px rgba(255, 111, 125, 0.18), 0 6px 18px rgba(255, 111, 125, 0.14);
+}
+
+.alert-chip.is-danger .alert-count {
+  background: var(--danger);
+  color: #2a0710;
+}
+
+.alert-chip.is-warning {
+  background: rgba(255, 209, 102, 0.14);
+  border: 1px solid var(--warning);
+  color: #ffe7ae;
+}
+
+.alert-chip.is-warning .alert-count {
+  background: var(--warning);
+  color: #2b2100;
+}
+
+.alert-chip.is-clear {
+  background: rgba(87, 214, 149, 0.12);
+  border: 1px solid rgba(87, 214, 149, 0.4);
+  color: #c9f6dc;
+  padding: 8px 14px;
+}
+
+.alert-chip.is-more {
+  background: rgba(141, 175, 214, 0.12);
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  padding: 8px 14px;
+}
+
+/* Respect reduced-motion / high-contrast users: keep the colour, drop the glow. */
+@media (prefers-reduced-motion: reduce) {
+  .alert-chip.is-danger {
+    box-shadow: none;
+  }
+}

@@ -693,15 +693,51 @@ function renderSummary() {
   `;
 }
 
+// One chip PER UNIT ("Batt 115 — 2 open seats"), not per empty seat. A full
+// unit used to produce four near-identical chips and push everything else off
+// the strip; grouping keeps the whole day readable at a glance.
+function groupAlertsByUnit(alerts) {
+  const byUnit = new Map();
+  alerts.forEach((a) => {
+    const key = a.unitId || a.unitName || a.message;
+    if (!byUnit.has(key)) {
+      byUnit.set(key, { unitName: a.unitName || "", level: a.level, count: 0, needs: [] });
+    }
+    const entry = byUnit.get(key);
+    entry.count += 1;
+    if (a.level === "danger") entry.level = "danger";   // danger outranks warning
+    if (a.need && !entry.needs.includes(a.need)) entry.needs.push(a.need);
+  });
+  // Worst first, then most seats open — the units a chief needs to act on.
+  return [...byUnit.values()].sort((a, b) => {
+    if (a.level !== b.level) return a.level === "danger" ? -1 : 1;
+    return b.count - a.count;
+  });
+}
+
 function renderAlerts() {
-  const alerts = getStaffingAlerts(state.currentDate).slice(0, 4);
-  if (!alerts.length) {
-    dom["alert-strip"].innerHTML = `<div class="alert-chip">No staffing alerts for ${formatDate(state.currentDate)}</div>`;
+  const groups = groupAlertsByUnit(getStaffingAlerts(state.currentDate));
+  if (!groups.length) {
+    dom["alert-strip"].innerHTML =
+      `<div class="alert-chip is-clear">All units staffed — ${formatDate(state.currentDate)}</div>`;
     return;
   }
-  dom["alert-strip"].innerHTML = alerts
-    .map((alert) => `<div class="alert-chip">${alert.message}</div>`)
-    .join("");
+  const shown = groups.slice(0, 6);
+  const hidden = groups.length - shown.length;
+  dom["alert-strip"].innerHTML =
+    shown
+      .map((g) => {
+        const seats = `${g.count} open seat${g.count === 1 ? "" : "s"}`;
+        // Full detail on hover; the chip itself stays short.
+        const title = g.needs.length ? `Needs: ${g.needs.join(", ")}` : seats;
+        return `<div class="alert-chip is-${g.level}" title="${escapeHtml(title)}">
+          <span class="alert-count">${g.count}</span>
+          <span class="alert-unit">${escapeHtml(g.unitName)}</span>
+          <span class="alert-detail">${seats}</span>
+        </div>`;
+      })
+      .join("") +
+    (hidden > 0 ? `<div class="alert-chip is-more">+${hidden} more</div>` : "");
 }
 
 // ─── Schedule Views ───────────────────────────────────────────────────────────
@@ -983,7 +1019,7 @@ function renderUnitCard(unit, date, activeShift) {
     const lbl = !isActive ? "Off rotation" : staffingOk ? "Staffed" : "Needs attention";
     const rows = people.map((p) => seatRowHtml({ label: p.title || "Crew", cap: null }, p, unit, date, isSupervisor, false, p.title || "Crew")).join("");
     return `
-    <section class="unit-card">
+    <section class="unit-card" data-apparatus="${escapeHtml(unit.type || "")}">
       <div class="unit-card-header">
         <div><h3>${escapeHtml(unit.name)}</h3><div class="unit-meta"><span>${unit.type || "Unit"}</span><span>${people.length}/${unit.minStaff || 0}</span></div></div>
         <div class="unit-card-actions">
@@ -1032,7 +1068,7 @@ function renderUnitCard(unit, date, activeShift) {
 
   const totalSeats = positions.length;
   return `
-    <section class="unit-card">
+    <section class="unit-card" data-apparatus="${escapeHtml(unit.type || "")}">
       <div class="unit-card-header">
         <div>
           <h3>${escapeHtml(unit.name)}</h3>
@@ -1172,7 +1208,7 @@ function renderEmployeeRoster() {
           <div class="roster-row-meta">
             <div class="roster-status">
               <div class="pill-group">
-                ${emp.certs.map((c) => `<span class="pill">${c}</span>`).join("")}
+                ${emp.certs.map((c) => `<span class="pill pill-cap" data-cap="${escapeHtml(c)}">${CAPABILITY_LABELS[c] || c}</span>`).join("")}
               </div>
               ${dutyBadge}
             </div>
@@ -2455,11 +2491,18 @@ function getStaffingAlerts(date) {
       // Fallback: generic minStaff + cert check for any unlisted type
       const alerts = [];
       if (people.length < unit.minStaff) {
-        alerts.push({ level: "danger", message: `${unit.name} short ${unit.minStaff - people.length} slot(s).` });
+        alerts.push({
+          level: "danger", unitId: unit.id, unitName: unit.name, need: "",
+          message: `${unit.name} short ${unit.minStaff - people.length} slot(s).`,
+        });
       }
       (unit.requiredCerts || []).forEach((cert) => {
         if (!people.some((p) => (p.certs || []).includes(cert))) {
-          alerts.push({ level: "warning", message: `${unit.name} missing ${cert} coverage.` });
+          alerts.push({
+            level: "warning", unitId: unit.id, unitName: unit.name,
+            need: CAPABILITY_LABELS[cert] || cert,
+            message: `${unit.name} missing ${cert} coverage.`,
+          });
         }
       });
       return alerts;
@@ -2480,6 +2523,9 @@ function checkPositionStaffing(unit, people, positions) {
       const need = seatNeedLabel(pos);
       alerts.push({
         level: "danger",
+        unitId: unit.id,
+        unitName: unit.name,
+        need,
         message: `${unit.name} — ${pos.label} unfilled${need ? ` (needs: ${need})` : ""}.`,
       });
     }
