@@ -22,20 +22,42 @@ describe the original trial (PIN login, Supabase blob) and are kept for history.
 
 - Daily, weekly, and monthly schedule views
 - 48/96 `AA/BB/CC` rotation logic
-- Unit staffing rules and medic coverage alerts
+- Capability-based seat staffing (rank-derived certs + per-person ride-up grants)
+- Front-line vs reserve apparatus: 8 units run daily in a fixed board order,
+  the rest are on-demand and placed in service per date from the Tools drawer
+- Per-platoon **staffing templates** with a preview-and-push out to 6 months;
+  hand-edited days are never overwritten
 - Unit visibility toggles for reserve or out-of-service apparatus
 - Supervisor staffing edits from phone or laptop
-- Employee PIN sign-in flow
 - CSV import for employees and units with preview and validation
 - Separate admin workspace for employees, imports, and units
 - Employee archive / restore workflow with credential editing
 - Shift trade requests with supervisor approval or denial
 - Open overtime shifts with first-come approval flow
 - Draft vs published schedule state
-- Notification center with email-first workflow and SMS-ready placeholder
-- Audit log
+- Notification center — **display only, no email is actually sent** (see Known gaps)
+- Audit log, with full-history CSV export
 - Print and PDF-friendly output
 - Shared persistence through Supabase when configured
+
+## Known gaps (read before a department pilot)
+
+- **Email is not implemented.** There is no `EMAIL_BACKEND`, no `send_mail`, and no
+  SMTP config anywhere in either repo. `createNotification()` only appends a row to
+  an in-app list labelled "Email notification". Messages such as *"Eligible off-duty
+  employees notified by email"* are literally untrue — nobody is notified. This is a
+  feature to build, not a bug to test.
+- **Trades require a partner.** `createTradeRequest()` rejects a request with no
+  partner (`if (!ownerId || !partnerId || ownerId === partnerId) return;`) and does
+  so with a bare `return` — no message, the form just silently does nothing. There is
+  no way to give away a day and bank the time for later payback.
+- **Open shift posts fabricate applicants.** `createOpenShift()` seeds the first three
+  available off-duty employees as applicants who never applied. Demo behaviour left in
+  a production path; in an overtime context it shows people as volunteering when they
+  did not.
+- The whole-state `PUT /api/scheduler/state/` saves the entire application on every
+  change. It is now guarded (capped history, prune guard) but not redesigned; targeted
+  writes are the real fix.
 
 ## Files
 
@@ -115,9 +137,13 @@ Example cert format:
 - `name`
 - `type`
 - `minStaff`
-- `requiredCerts`
-- `shift`
+- `requiredCerts` (vestigial for typed units — alerts come from the seat layout)
+- `onDemand` (`true` = reserve, only runs on dates it is placed in service)
+- `sortOrder` (board order; front-line units are 1-8, reserves default to 100)
 - `visible`
+
+There is no `shift` column — apparatus have no platoon. Whichever platoon (A/B/C)
+is on duty for a date staffs whatever is running that day.
 
 Example required cert format:
 
