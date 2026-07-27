@@ -3405,6 +3405,10 @@ async function persistAppState(reason) {
     if (hasRemotePersistence()) {
       await saveRemoteState();
       state.persistence.backend = usesSchedulerApi() ? "api" : "supabase";
+      // Stamped ONLY on a confirmed server write. Previously this lived in the
+      // finally block, so a failed save still showed "Saved 3:42 PM" — the
+      // indicator reassured people at exactly the moment it should have alarmed them.
+      state.persistence.lastSavedAt = new Date().toISOString();
       setPersistenceStatus(`Saved to ${remoteLabel()}${reason ? ` • ${reason}` : ""}`, "ok");
     } else {
       state.persistence.backend = "local-storage";

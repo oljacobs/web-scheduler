@@ -106,6 +106,10 @@ getStaffingAlerts still returns ONE ALERT PER EMPTY SEAT (summary/week/month cou
 groupAlertsByUnit() collapses them for display -> "Batt 115 | 2 open seats", danger before
   warning, then most seats; top 6 + "+N more". Needs list goes in the title attr, not the chip.
 
+persistence.lastSavedAt is set ONLY after a confirmed server write (inside the try, not the
+  finally). In the finally it stamped a time even on failure, so #save-indicator read
+  "Saved 3:42 PM" while nothing had reached the server.
+
 Pre-pilot UX rules (don't undo these):
 NO save button. Every edit auto-persists (persistAppState, ~27 call sites). #save-indicator is
   PASSIVE ("Saved 2:14 PM" / "Saving…") via renderSaveIndicator(). saveSupervisorEdits() was a
