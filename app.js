@@ -982,7 +982,30 @@ function applyTemplatePush(days = TEMPLATE_PUSH_DEFAULT_DAYS) {
   }
   const plan = previewTemplatePush(days);
   if (!plan.unitDays.length) {
-    showToast("Nothing to push — no templates match the units on duty.", "error");
+    // Say WHY. "Nothing to push" with no reason is a dead end, and the most
+    // common cause — templates that only cover reserve units — is expected
+    // behaviour rather than a mistake.
+    const templates = state.staffingTemplates || [];
+    const withSeats = templates.filter((t) => Object.values(t.seats || {}).some(Boolean));
+    let reason;
+    if (!withSeats.length) {
+      reason = "No templates have any seats filled yet. Set a crew above first.";
+    } else {
+      const frontLine = withSeats.filter((t) => !unitById(t.unitId)?.onDemand);
+      if (!frontLine.length) {
+        const names = [...new Set(withSeats.map((t) => unitById(t.unitId)?.name).filter(Boolean))];
+        reason =
+          `Templates exist only for reserve units (${names.join(", ")}). Reserve units are ` +
+          `not on duty on any date, so a push has nothing to write — their crews are applied ` +
+          `when you put the unit in service for a date.`;
+      } else {
+        reason =
+          `Templates exist for ${frontLine.length} front-line unit/platoon combination` +
+          `${frontLine.length === 1 ? "" : "s"}, but every matching date already has ` +
+          `hand-edited staffing, which a push never overwrites.`;
+      }
+    }
+    window.alert(`Nothing to push.\n\n${reason}`);
     return;
   }
   const ok = window.confirm(

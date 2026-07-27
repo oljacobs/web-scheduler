@@ -132,6 +132,14 @@ previewTemplatePush(days) is a DRY RUN -> {created,replaced,skippedManual,noTemp
 Default horizon TEMPLATE_PUSH_DEFAULT_DAYS=180. Activating an on-demand unit PROMPTS to fill
   from that platoon's template (never silent).
 Admin -> Templates tab: template-unit/template-shift/template-seats/template-push-*.
+A push only covers units ON DUTY that date, so reserve (onDemand) units are never written by a
+  push — their crews apply via the "Fill from template?" prompt on activation. When a push finds
+  nothing, applyTemplatePush names WHICH case it is (no seats set / reserve-only / all manual)
+  instead of a bare "nothing to push".
+BACKEND PRUNE GUARD (scheduler/views.py _write_state): a Unit/Employee missing from the payload
+  is deleted ONLY if it has no assignments; otherwise it is hidden/archived. Assignments are
+  rebuilt only for units present in the payload. Deleting cascades to Assignment, and a stale
+  browser tab wiped MOF115 twice before this existed — do not "simplify" it back.
 
 High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
