@@ -110,6 +110,16 @@ persistence.lastSavedAt is set ONLY after a confirmed server write (inside the t
   finally). In the finally it stamped a time even on failure, so #save-indicator read
   "Saved 3:42 PM" while nothing had reached the server.
 
+PAYLOAD SIZE IS A CORRECTNESS ISSUE, NOT AN OPTIMISATION:
+auditLog + notifications are append-only and grew to 18 MB with ZERO assignments. At that size
+  the PUT died before Django answered (browser reported it as a CORS error, not a 413/502) AND
+  localStorage threw QuotaExceededError inside persistAppState's catch — so nothing saved by any
+  route, silently, for hours. HISTORY_KEEP=250 caps both in serializableState() and addAudit();
+  server caps the GET at AUDIT_HISTORY_LIMIT=250 (_serialize_state). Full history stays in the
+  AuditEntry table / /api/scheduler/audit/. NEVER send unbounded collections through /state/.
+saveLocalState() swallows quota errors — it is a best-effort backup and must never break the
+  remote save path.
+
 Pre-pilot UX rules (don't undo these):
 NO save button. Every edit auto-persists (persistAppState, ~27 call sites). #save-indicator is
   PASSIVE ("Saved 2:14 PM" / "Saving…") via renderSaveIndicator(). saveSupervisorEdits() was a

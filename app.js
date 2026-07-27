@@ -817,6 +817,10 @@ function renderSchedule() {
 
 const TEMPLATE_PUSH_DEFAULT_DAYS = 180;   // ~6 months
 
+// How many audit/notification rows the BROWSER carries. Full history lives on
+// the server; this is only the display window.
+const HISTORY_KEEP = 250;
+
 function renderTemplateEditor() {
   const unitSelect = dom["template-unit"];
   const seatsEl = dom["template-seats"];
@@ -3041,6 +3045,10 @@ function createNotification(message, channel, createdBy) {
 
 function addAudit(message, actor) {
   state.auditLog.push(createAuditEntry(message, actor));
+  // Trim in memory too, or a long session rebuilds the same problem.
+  if (state.auditLog.length > HISTORY_KEEP * 2) {
+    state.auditLog = state.auditLog.slice(-HISTORY_KEEP);
+  }
 }
 
 function createAuditEntry(message, actor) {
@@ -3458,7 +3466,15 @@ function remoteHeaders() {
 }
 
 function saveLocalState() {
-  window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serializableState()));
+  // Best-effort only. A quota error here previously threw out of persistAppState
+  // AND out of its catch block (which called this again), so one oversized state
+  // took down the entire save path instead of just the local backup.
+  try {
+    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serializableState()));
+  } catch (error) {
+    console.warn("Local backup skipped (state too large for browser storage)", error);
+    try { window.localStorage.removeItem(LOCAL_STORAGE_KEY); } catch (_) { /* nothing more to do */ }
+  }
 }
 
 function loadLocalState() {
@@ -3475,8 +3491,14 @@ function serializableState() {
     employees: state.employees,
     trades: state.trades,
     overtimePosts: state.overtimePosts,
-    notifications: state.notifications,
-    auditLog: state.auditLog,
+    // CAPPED. These two are append-only and grow forever: every seat change,
+    // toggle and publish adds a row. Uncapped they reached 18 MB, which blew
+    // both the localStorage quota AND the request size — so NOTHING could save,
+    // by any route, and the browser reported it as a CORS error.
+    // The server keeps full history (audit entries are never pruned there); the
+    // SPA only needs a recent window to display.
+    notifications: (state.notifications || []).slice(-HISTORY_KEEP),
+    auditLog: (state.auditLog || []).slice(-HISTORY_KEEP),
     assignments: state.assignments,
     scheduleStatus: state.scheduleStatus,
     employeeFilter: state.employeeFilter,
