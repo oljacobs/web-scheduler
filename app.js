@@ -2239,9 +2239,9 @@ function downloadUnitTemplate() {
     [
       // No "shift" column: apparatus are staffed by the platoon on duty that
       // date. onDemand=true means the unit only runs on dates it's activated.
-      "id,name,type,minStaff,requiredCerts,onDemand,visible",
-      'E5,"Engine 5",Engine,4,"paramedic",false,true',
-      'B5,"Brush 5",Brush,2,"emt",true,true',
+      "id,name,type,minStaff,requiredCerts,onDemand,sortOrder,visible",
+      'E5,"Engine 5",Engine,4,"paramedic",false,9,true',
+      'B5,"Brush 5",Brush,2,"emt",true,100,true',
     ].join("\n"),
   );
 }
@@ -2498,16 +2498,26 @@ function unitRunsOn(unit, date) {
   return Array.isArray(unit.activeDates) && unit.activeDates.includes(date);
 }
 
+// Board order: explicit sortOrder first (front-line units are 1..8 in the order
+// crews read the board), then name as a stable tiebreak for everything sharing
+// the default. Never rely on array order — it comes from the API.
+function byBoardOrder(a, b) {
+  const ao = Number.isFinite(a.sortOrder) ? a.sortOrder : 100;
+  const bo = Number.isFinite(b.sortOrder) ? b.sortOrder : 100;
+  if (ao !== bo) return ao - bo;
+  return String(a.name || "").localeCompare(String(b.name || ""));
+}
+
 // The units in service on a given date (replaces the old `unit.shift === shift`).
 function unitsForDate(date) {
-  return visibleUnits().filter((unit) => unitRunsOn(unit, date));
+  return visibleUnits().filter((unit) => unitRunsOn(unit, date)).sort(byBoardOrder);
 }
 
 // On-demand units NOT in service on this date. These are hidden from the normal
 // schedule (they aren't running), so supervisors need a separate tray to put one
 // in service — otherwise there's no way to ever activate them.
 function inactiveOnDemandUnits(date) {
-  return visibleUnits().filter((unit) => unit.onDemand && !unitRunsOn(unit, date));
+  return visibleUnits().filter((unit) => unit.onDemand && !unitRunsOn(unit, date)).sort(byBoardOrder);
 }
 
 // Put an on-demand unit in service for a single date.
@@ -2554,7 +2564,9 @@ function eligibleEmployeesForDate(date) {
 }
 
 function visibleUnitsAll() {
-  return state.units;
+  // Sorted COPY — never sort state.units in place, or the admin list and the
+  // board can disagree with what gets persisted.
+  return [...state.units].sort(byBoardOrder);
 }
 
 function availableEmployeesForOpenShift(date) {
@@ -2784,6 +2796,9 @@ function validateUnitImport(rows) {
       // only runs on dates a supervisor activates (Brush, Tender, reserve).
       onDemand: parseBoolean(row.ondemand),
       activeDates: [],
+      // Blank/invalid sortOrder falls to 100, which sorts after the front-line
+      // units and then alphabetically among the reserves.
+      sortOrder: Number.isFinite(Number(row.sortorder)) && row.sortorder !== "" ? Number(row.sortorder) : 100,
       visible: parseBoolean(row.visible),
     };
     if (!normalized.id || !normalized.name) { errors.push({ message: `Row ${line}: missing id or name.` }); return; }
@@ -3097,6 +3112,7 @@ function migrateUnitShiftModel(data) {
   data.units.forEach((u) => {
     if (typeof u.onDemand !== "boolean") u.onDemand = false;
     if (!Array.isArray(u.activeDates)) u.activeDates = [];
+    if (!Number.isFinite(u.sortOrder)) u.sortOrder = 100;
     delete u.shift;
   });
 }

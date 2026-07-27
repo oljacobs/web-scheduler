@@ -32,7 +32,10 @@ Core entities:
 Employee{id, entraId?, name, shift(A|B|C|null), title, certs[], rideUp[], email, isSupervisor, status}
   certs = rank-derived capabilities; rideUp = acting quals ABOVE rank (subset of RIDE_UP_CAPABILITIES),
   stored separately so roster re-import never wipes it. pin removed (Entra auth only).
-Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],visible}
+Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],sortOrder,visible}
+  sortOrder = board order. Front-line 1..8 = BC115,MOF115,L115,E115,M115,M115B,E116,M116.
+  Everything else defaults to 100 (sorts after, then by name). byBoardOrder() is the ONLY
+  ordering — never trust state.units array order, it comes from the API.
   NO unit.shift — apparatus have no platoon; whichever shift is on duty that DATE staffs them.
   onDemand=false -> runs every shift day. onDemand=true -> only on dates in activeDates[].
   migrateUnitShiftModel() strips legacy unit.shift on load. requiredCerts is VESTIGIAL for
