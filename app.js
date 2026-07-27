@@ -136,7 +136,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "schedule-container", "schedule-title", "schedule-subtitle", "supervisor-save-btn", "trade-owner",
+    "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator", "trade-owner",
     "trade-partner", "trade-date", "trade-notes", "submit-trade-btn", "open-unit", "open-date",
     "open-qualification", "open-report-time", "post-open-btn", "unit-toggle-list", "notification-center",
     "approval-queue", "audit-log", "print-btn", "notify-btn",
@@ -192,7 +192,6 @@ function wireEvents() {
     state.currentDate = todayIso();
     render();
   });
-  dom["supervisor-save-btn"].addEventListener("click", saveSupervisorEdits);
   dom["submit-trade-btn"].addEventListener("click", createTradeRequest);
   dom["post-open-btn"].addEventListener("click", createOpenShift);
   dom["print-btn"].addEventListener("click", () => window.print());
@@ -468,6 +467,11 @@ async function hydrateAppState() {
 // writes, so it can't overwrite the server with empty data.
 async function loadRemoteStateAfterAuth() {
   if (!usesSchedulerApi()) return;
+  // In API mode the app starts EMPTY and fetches after sign-in. Without this
+  // flag the board renders blank for a beat, which reads as "the schedule got
+  // wiped" rather than "still loading".
+  state.isLoadingRemote = true;
+  render();
   try {
     const remoteState = await loadRemoteState();   // carries the bearer token now
     if (remoteState) {
@@ -479,6 +483,8 @@ async function loadRemoteStateAfterAuth() {
   } catch (error) {
     console.error("Post-sign-in load failed", error);
     setPersistenceStatus("Server unavailable — try refreshing", "warning");
+  } finally {
+    state.isLoadingRemote = false;
   }
 }
 
@@ -587,8 +593,31 @@ function render() {
   populateOpenShiftSelects();
   renderPermissionStates();
   renderPersistenceStatus();
+  renderSaveIndicator();
   renderReservePanel();
   renderDrawerBadge();
+}
+
+// Passive reassurance in place of the old "Save Supervisor Edits" button.
+// Reports what already happened rather than offering an action.
+function renderSaveIndicator() {
+  const el = dom["save-indicator"];
+  if (!el) return;
+  if (state.persistence.isSaving) {
+    el.textContent = "Saving…";
+    el.className = "save-indicator is-saving";
+    return;
+  }
+  if (!state.persistence.lastSavedAt) {
+    el.textContent = "";
+    el.className = "save-indicator";
+    return;
+  }
+  const when = new Date(state.persistence.lastSavedAt).toLocaleTimeString("en-US", {
+    hour: "numeric", minute: "2-digit", timeZone: "America/Chicago",
+  });
+  el.textContent = `Saved ${when}`;
+  el.className = "save-indicator";
 }
 
 // Badge = work actually waiting on a supervisor: pending trades + open overtime
@@ -747,6 +776,15 @@ function renderSchedule() {
   const viewLabels = { day: "Daily Schedule", week: "Weekly Schedule", month: "Monthly Schedule" };
   dom["schedule-title"].textContent = viewLabels[state.currentView] || "Schedule View";
   dom["schedule-subtitle"].textContent = `${formatDate(range[0])}${range.length > 1 ? ` through ${formatDate(range[range.length - 1])}` : ""}`;
+
+  if (state.isLoadingRemote) {
+    dom["schedule-container"].innerHTML = `
+      <div class="schedule-skeleton" role="status" aria-live="polite">
+        <p class="helper-text">Loading schedule…</p>
+        ${Array.from({ length: 4 }, () => '<div class="skeleton-card"></div>').join("")}
+      </div>`;
+    return;
+  }
 
   if (state.currentView === "day") {
     dom["schedule-container"].innerHTML = renderTimelineCard(range[0]);
@@ -1596,7 +1634,11 @@ function renderPermissionStates() {
   const employeeLocked = !state.isAuthenticated;
 
   dom["publish-btn"].disabled = supervisorLocked;
-  dom["supervisor-save-btn"].disabled = supervisorLocked;
+  // Primary emphasis only while there is something to publish; otherwise it
+  // out-shouts the actual task, which is staffing the board.
+  const isDraft = state.scheduleStatus === "draft";
+  dom["publish-btn"].classList.toggle("button-primary", isDraft);
+  dom["publish-btn"].classList.toggle("button-secondary", !isDraft);
   dom["post-open-btn"].disabled = supervisorLocked;
   dom["submit-trade-btn"].disabled = employeeLocked;
   dom["notify-btn"].disabled = employeeLocked;
@@ -1896,25 +1938,27 @@ function handlePublish() {
     showToast("Supervisor sign-in required to publish schedules.", "error");
     return;
   }
+  // Publishing notifies the department, so surface the gaps first. Publish time
+  // is the last cheap moment to catch an unfilled seat.
+  const range = getDateRange();
+  const openSeats = range.flatMap((d) => getStaffingAlerts(d)).filter((a) => a.level === "danger").length;
+  const label = range.length > 1
+    ? `${formatDate(range[0])} through ${formatDate(range[range.length - 1])}`
+    : formatDate(range[0]);
+  const warning = openSeats > 0
+    ? `\n\nWARNING: ${openSeats} required seat${openSeats === 1 ? " is" : "s are"} still unfilled.`
+    : "\n\nAll required seats are filled.";
+  if (!window.confirm(`Publish the ${state.currentView} schedule for ${label}?${warning}\n\nThis notifies the department.`)) {
+    return;
+  }
   state.scheduleStatus = "published";
   dom["schedule-status"].value = "published";
-  addAudit(`Published ${state.currentView} schedule anchored on ${formatDate(state.currentDate)}.`, currentUserName());
+  addAudit(`Published ${state.currentView} schedule anchored on ${formatDate(state.currentDate)} (${openSeats} unfilled required seats).`, currentUserName());
   createNotification(`Schedule published for ${formatDate(state.currentDate)}.`, "email", currentUserName());
   render();
   persistAppState("Schedule published");
 }
 
-function saveSupervisorEdits() {
-  if (state.currentRole !== "supervisor") {
-    showToast("Supervisor sign-in required to save staffing changes.", "error");
-    return;
-  }
-  addAudit(`Supervisor staffing edits saved for ${formatDate(state.currentDate)}.`, currentUserName());
-  createNotification(`Staffing updates saved for ${formatDate(state.currentDate)}.`, "email", currentUserName());
-  persistAppState("Supervisor edits saved");
-  showToast("Supervisor edits saved successfully.", "success");
-  render();
-}
 
 function createTradeRequest() {
   if (!state.isAuthenticated) {

@@ -106,6 +106,18 @@ getStaffingAlerts still returns ONE ALERT PER EMPTY SEAT (summary/week/month cou
 groupAlertsByUnit() collapses them for display -> "Batt 115 | 2 open seats", danger before
   warning, then most seats; top 6 + "+N more". Needs list goes in the title attr, not the chip.
 
+Pre-pilot UX rules (don't undo these):
+NO save button. Every edit auto-persists (persistAppState, ~27 call sites). #save-indicator is
+  PASSIVE ("Saved 2:14 PM" / "Saving…") via renderSaveIndicator(). saveSupervisorEdits() was a
+  placebo — it only logged + toasted — and is DELETED.
+state.isLoadingRemote gates a skeleton in renderSchedule(); set in loadRemoteStateAfterAuth
+  (finally-cleared). API mode starts empty, so without it a blank board reads as data loss.
+handlePublish() confirms first and reports unfilled required seats in the prompt + audit line.
+publish-btn is button-primary only while scheduleStatus==="draft", else secondary.
+:focus-visible rules exist now — there were ZERO focus styles before; custom button CSS had
+  suppressed the browser default. Don't remove outline without a replacement ring.
+Week/month coverage is NOT colour-only: .cal-warn/.cal-ok prepend ⚠/✓ to the seat count.
+
 High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
 loadRemoteStateAfterAuth, seatAccepts/assignPeopleToSeats/seatDropdownOptions/assignedEmployeeIdsForDate

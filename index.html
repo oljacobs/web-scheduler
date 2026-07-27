@@ -95,7 +95,7 @@
               <div class="date-controls">
                 <button id="prev-btn" class="icon-button" aria-label="Previous range">‹</button>
                 <label>
-                  Anchor Date
+                  Date
                   <input id="date-input" type="date" />
                 </label>
                 <button id="today-btn" class="button button-secondary">Today</button>
@@ -132,7 +132,10 @@
                 <h2 id="schedule-title">Schedule View</h2>
                 <p id="schedule-subtitle" class="helper-text">Crew assignments by unit and day</p>
               </div>
-              <button id="supervisor-save-btn" class="button button-secondary">Save Supervisor Edits</button>
+              <!-- Passive, not a button: every edit already persists on change.
+                   A save button that isn't load-bearing teaches crews their
+                   changes aren't saved until they press it. -->
+              <span id="save-indicator" class="save-indicator"></span>
             </div>
             <div class="schedule-container" id="schedule-container"></div>
           </section>
