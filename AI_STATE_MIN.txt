@@ -18,6 +18,8 @@ SUPERVISOR_TITLES=["Batt. Chief","Div. Chief","Captain","Lieutenant","MOF"]
 employeeTitleOptions=["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
 employeeRoles=["paramedic","emt","engineer","officer"]   (these are CAPABILITIES / certs)
 RIDE_UP_CAPABILITIES=["officer","engineer"]   (medical is license-only, not ride-up-able)
+LICENSE_CAPABILITIES=["paramedic","emt"]  person-held, NOT rank-derived. Roster import MERGES
+  these forward instead of overwriting, so an in-app paramedic grant survives re-import.
 unitTypes=["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue"]
 UNIT_POSITION_REQUIREMENTS: Record<type, {role,label,cap,required?}[]>  (CAPABILITY-based now)
   cap = required capability ("officer"|"engineer"|"paramedic"|"emt"), array = any-of, null = any rank
@@ -30,7 +32,11 @@ Core entities:
 Employee{id, entraId?, name, shift(A|B|C|null), title, certs[], rideUp[], email, isSupervisor, status}
   certs = rank-derived capabilities; rideUp = acting quals ABOVE rank (subset of RIDE_UP_CAPABILITIES),
   stored separately so roster re-import never wipes it. pin removed (Entra auth only).
-Unit{id,name,type,minStaff,requiredCerts,shift,visible}   (unit.shift is currently FIXED per unit — see fdchecklist PROJECT_STATE "shift-per-unit model is wrong")
+Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],visible}
+  NO unit.shift — apparatus have no platoon; whichever shift is on duty that DATE staffs them.
+  onDemand=false -> runs every shift day. onDemand=true -> only on dates in activeDates[].
+  migrateUnitShiftModel() strips legacy unit.shift on load. requiredCerts is VESTIGIAL for
+  typed units (alerts come from UNIT_POSITION_REQUIREMENTS[type], not that field).
 Trade{id,status,employeeId,partnerId,date,notes,type,createdBy}
 OvertimePost{id,status,unitId,date,qualification,reportTime,applicants,approvedEmployeeId?}
 
@@ -65,6 +71,15 @@ addDays/formatDate etc. anchor at noon to avoid tz date-shift
 Staffing:
 getStaffingAlerts(date) -> checkPositionStaffing(unit,people,positions): greedy, capability-based;
   only REQUIRED seats raise "danger" alerts (optional rider seats don't)
+
+Units-per-date / on-demand service:
+unitRunsOn(unit,date) / unitsForDate(date) replace every old `unit.shift===getShiftForDate(date)`
+eligibleEmployeesForDate(date) = platoon on duty that date (supervisors see all, for OT)
+inactiveOnDemandUnits(date) -> renderReserveTray(date) supervisor tray in DAY VIEW only
+activateUnitForDate/deactivateUnitForDate write unit.activeDates; deactivate KEEPS assignments
+  (audit-logged, persisted); unitServiceControlHtml + attachUnitServiceEvents wire the buttons
+seedAssignments() is DEMO-ONLY and hard-disabled when usesSchedulerApi() — it fabricated
+  180 days of capability-unchecked staffing that then persisted to Railway.
 
 High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
