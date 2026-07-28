@@ -186,6 +186,10 @@ gapKey(unitId,date,role) identifies a gap; overtimePostForGap() finds its post.
 eligibleForGap(gap) = credentialed via seatAccepts + active + NOT already assigned that date
   (same-day double-booking is barred department-wide, at apply AND at award).
 notifyGap / applyForGap / withdrawFromGap / awardOvertime(postId,employeeId) / declineApplicant.
+state.coverageShift = "mine"|"A"|"B"|"C"|"all" — platoon filter on the Coverage tab. A gap's platoon
+  is getShiftForDate(gap.date), a property of the DATE not the truck. Defaults to "mine" so each
+  battalion chief sees only their own platoon; stored as "mine" (not the letter) so the filter
+  follows whoever is signed in. Filters the list, the summary AND the badge.
 awardOvertime writes a REAL Assignment (markManual) — awarding used to change nothing on the board.
 Supervisors CHOOSE the winner. approveQueueItem() no longer touches overtime: it used to set
   approvedEmployeeId = applicants[0], and createOpenShift() FABRICATED three applicants, so shifts

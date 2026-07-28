@@ -159,7 +159,7 @@ function cacheDom() {
     "template-unit", "template-shift", "template-seats",
     "template-push-days", "template-push-btn", "template-push-summary",
     "export-audit-btn",
-    "coverage-list", "coverage-summary", "coverage-days", "coverage-badge",
+    "coverage-list", "coverage-summary", "coverage-days", "coverage-badge", "coverage-shift",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -216,6 +216,10 @@ function wireEvents() {
   attachTemplateEvents();
   dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
   dom["coverage-days"]?.addEventListener("change", renderCoveragePanel);
+  dom["coverage-shift"]?.addEventListener("change", (e) => {
+    state.coverageShift = e.target.value;
+    renderCoveragePanel();
+  });
 
   // D7FR roster import
   dom["roster-preview-btn"].addEventListener("click", previewRosterImport);
@@ -2261,22 +2265,36 @@ function renderCoveragePanel() {
   if (!listEl) return;
   const isSupervisor = state.currentRole === "supervisor";
   const days = Math.min(60, Math.max(1, Number(dom["coverage-days"]?.value) || 14));
-  const gaps = coverageGaps(todayIso(), days);
   const me = state.currentUserId;
+  const myShift = employeeById(me)?.shift || null;
+
+  // Battalion chiefs run one platoon, so default to their own and let them widen
+  // it. "mine" is stored rather than the literal letter so the filter follows the
+  // signed-in user instead of sticking to whoever looked first.
+  if (state.coverageShift === undefined) state.coverageShift = myShift ? "mine" : "all";
+  const filter = state.coverageShift;
+  const wantShift = filter === "mine" ? myShift : (["A", "B", "C"].includes(filter) ? filter : null);
+  renderCoverageShiftOptions(myShift);
+
+  const allGaps = coverageGaps(todayIso(), days);
+  const gaps = wantShift ? allGaps.filter((g) => getShiftForDate(g.date) === wantShift) : allGaps;
 
   const visible = isSupervisor
     ? gaps
     : gaps.filter((g) => canApplyToGap(g, me) || (g.post?.applicants || []).includes(me));
 
   if (dom["coverage-summary"]) {
+    const scope = wantShift ? `${wantShift} shift` : "all platoons";
     dom["coverage-summary"].textContent = isSupervisor
-      ? `${gaps.length} unfilled seat${gaps.length === 1 ? "" : "s"} in the next ${days} days.`
-      : `${visible.length} shift${visible.length === 1 ? "" : "s"} you qualify for in the next ${days} days.`;
+      ? `${gaps.length} unfilled seat${gaps.length === 1 ? "" : "s"} • ${scope} • next ${days} days.`
+      : `${visible.length} shift${visible.length === 1 ? "" : "s"} you qualify for • ${scope} • next ${days} days.`;
   }
 
   if (!visible.length) {
     listEl.innerHTML = `<div class="empty-state">${
-      isSupervisor ? "No coverage gaps — every required seat is filled." : "No open shifts you qualify for right now."
+      isSupervisor
+        ? `No coverage gaps${wantShift ? ` on ${wantShift} shift` : ""} — every required seat is filled.`
+        : `No open shifts you qualify for${wantShift ? ` on ${wantShift} shift` : ""} right now.`
     }</div>`;
     updateCoverageBadge(gaps, visible, isSupervisor);
     return;
@@ -2334,6 +2352,22 @@ function renderCoveragePanel() {
 
 // Supervisors are alerted to gaps with people waiting on a decision; employees to
 // shifts they could still pick up.
+function renderCoverageShiftOptions(myShift) {
+  const el = dom["coverage-shift"];
+  if (!el) return;
+  const opts = [
+    ...(myShift ? [{ value: "mine", label: `My shift (${myShift})` }] : []),
+    { value: "A", label: "A shift" },
+    { value: "B", label: "B shift" },
+    { value: "C", label: "C shift" },
+    { value: "all", label: "All platoons" },
+  ];
+  const markup = opts
+    .map((o) => `<option value="${o.value}" ${o.value === state.coverageShift ? "selected" : ""}>${o.label}</option>`)
+    .join("");
+  if (el.innerHTML !== markup) el.innerHTML = markup;
+}
+
 function updateCoverageBadge(gaps, visible, isSupervisor) {
   const el = dom["coverage-badge"];
   if (!el) return;

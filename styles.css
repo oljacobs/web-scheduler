@@ -1929,7 +1929,14 @@ textarea:disabled {
 
 /* ── Coverage / overtime marketplace (drawer -> Coverage) ───────────────── */
 .coverage-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 10px;
+}
+
+.coverage-controls label {
+  flex: 1 1 130px;
 }
 
 .coverage-item + .coverage-item {
