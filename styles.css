@@ -2140,9 +2140,17 @@ textarea:disabled {
 /* Employee editor travels with the roster. Editing credentials means working
    down a 71-person list one at a time; an editor pinned to the top of the page
    sent the supervisor back to the start after every single person. */
-.employee-editor-panel {
+/* Stick the COLUMN, not the panel inside it.
+   A sticky child can only travel within its own parent. With align-items:start
+   the secondary column is exactly as tall as its content, so a sticky panel in
+   there had nowhere to go and simply scrolled away — and because the editor was
+   then off screen, clicking Edit appeared to do nothing at all.
+   Sticking the column works because its containing block is the GRID, which is
+   as tall as the roster beside it. */
+.secondary-column {
   position: sticky;
   top: 84px;                          /* clears the sticky top bar */
+  align-self: start;                  /* stay content-height so sticky can travel */
   max-height: calc(100vh - 110px);
   overflow-y: auto;
 }
@@ -2150,7 +2158,7 @@ textarea:disabled {
 @media (max-width: 1180px) {
   /* Stacked layout: nothing to stick to, and a scrolling inner panel on a
      narrow screen is worse than letting the page scroll. */
-  .employee-editor-panel {
+  .secondary-column {
     position: static;
     max-height: none;
     overflow-y: visible;

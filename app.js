@@ -1659,13 +1659,12 @@ function attachEmployeeManagementEvents() {
       state.selectedEmployeeId = employee.id;
       state.employeeDraft = createEmployeeDraft(employee);
       renderEmployeeEditor();
-      // On a wide screen the editor is STICKY beside the roster, so it is already
-      // in view — scrolling there would throw the supervisor back to the top of a
-      // long list they are working down one person at a time. Only scroll when
-      // the layout has stacked and the editor is genuinely off screen.
-      if (window.matchMedia("(max-width: 1180px)").matches) {
-        dom["employee-editor"].scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      // block:"nearest" is the whole trick — it scrolls ONLY if the editor is off
+      // screen. On a wide layout the sticky editor is already visible so nothing
+      // moves (previously a hard scroll threw the supervisor back to the top of a
+      // 71-person list); on a stacked layout it scrolls down to it. No breakpoint
+      // guess, and it cannot silently do nothing.
+      dom["employee-editor"].scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
   });
 

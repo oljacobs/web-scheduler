@@ -146,11 +146,14 @@ auditLog + notifications are append-only and grew to 18 MB with ZERO assignments
 saveLocalState() swallows quota errors — it is a best-effort backup and must never break the
   remote save path.
 
-.employee-editor-panel is STICKY beside the roster (top:84px, clears the top bar), and
-  .admin-grid uses align-items:start — a stretched column leaves a sticky child no room to
-  travel. The Edit handler now only scrollIntoView() BELOW 1180px: on a wide screen the editor
-  is already visible, and scrolling threw the supervisor back to the top of a 71-person list
-  after every single person they edited.
+The EDITOR COLUMN is sticky, not the panel inside it: .secondary-column gets position:sticky +
+  align-self:start (top:84px). A sticky CHILD can only travel within its own parent, and with
+  .admin-grid align-items:start that column is exactly content height — so a sticky panel there
+  had nowhere to go, scrolled away, and clicking Edit appeared to do NOTHING. Sticking the column
+  works because its containing block is the grid, which is as tall as the roster beside it.
+Edit uses scrollIntoView({block:"nearest"}) — scrolls ONLY when the editor is off screen. A hard
+  block:"start" threw the supervisor back to the top of a 71-person list after every edit; a
+  breakpoint guard silently did nothing when the sticky broke. "nearest" is correct in both.
 
 Pre-pilot UX rules (don't undo these):
 NO save button. Every edit auto-persists (persistAppState, ~27 call sites). #save-indicator is
