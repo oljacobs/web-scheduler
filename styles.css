@@ -2049,3 +2049,65 @@ textarea:disabled {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ── Coverage grouped by date, collapsed by default ─────────────────────── */
+.coverage-day {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: rgba(8, 19, 35, 0.5);
+  overflow: hidden;
+}
+
+.coverage-day + .coverage-day {
+  margin-top: 8px;
+}
+
+.coverage-day > summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  list-style: none;
+  min-height: 48px;            /* stays a comfortable tap target on a tablet */
+  display: flex;
+  align-items: center;
+}
+
+.coverage-day > summary::-webkit-details-marker {
+  display: none;
+}
+
+.coverage-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.coverage-day-head .helper-text {
+  margin-left: 8px;
+  font-size: 0.85rem;
+}
+
+.coverage-day-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Open state gets a marker so a scanned list shows what's expanded. */
+.coverage-day[open] > summary {
+  border-bottom: 1px solid var(--panel-border);
+  background: rgba(77, 163, 255, 0.06);
+}
+
+.coverage-day-body {
+  padding: 12px 14px;
+}
+
+@media (max-width: 700px) {
+  .coverage-day-head {
+    align-items: flex-start;
+  }
+}

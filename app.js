@@ -2325,50 +2325,79 @@ function renderCoveragePanel() {
     return;
   }
 
-  listEl.innerHTML = visible.map((gap) => {
-    const post = gap.post;
-    const applicants = post?.applicants || [];
-    const applied = applicants.includes(me);
-    const eligibleCount = eligibleForGap(gap).length;
+  // Grouped BY DATE and collapsed by default. A chief scans to the shift they
+  // care about, opens it, and sends out everything on that date in one action —
+  // which is the actual workflow. Ungrouped, an empty schedule produces a wall.
+  const byDate = new Map();
+  visible.forEach((gap) => {
+    if (!byDate.has(gap.date)) byDate.set(gap.date, []);
+    byDate.get(gap.date).push(gap);
+  });
 
-    const applicantRows = isSupervisor && applicants.length
-      ? `<div class="applicant-list">${applicants.map((id) => {
-          const emp = employeeById(id);
-          if (!emp) return "";
-          return `<div class="applicant-row">
-            <span><strong>${escapeHtml(emp.name)}</strong> — ${escapeHtml(emp.title || "—")}
-              <span class="pill pill-cap" data-cap="${escapeHtml(gap.cap || "")}">${escapeHtml(gap.need || "any")}</span></span>
-            <span class="button-row">
-              <button class="button button-primary button-small" data-award-post="${post.id}" data-award-emp="${id}">Award</button>
-              <button class="button button-secondary button-small" data-decline-post="${post.id}" data-decline-emp="${id}">Decline</button>
-            </span>
-          </div>`;
-        }).join("")}</div>`
-      : isSupervisor
-        ? `<p class="helper-text">No applicants yet${post?.notifiedAt ? " — alert sent" : ""}.</p>`
+  if (!Array.isArray(state.coverageOpenDates)) state.coverageOpenDates = [];
+
+  listEl.innerHTML = [...byDate.entries()].map(([date, dayGaps]) => {
+    const applicants = dayGaps.reduce((n, g) => n + (g.post?.applicants || []).length, 0);
+    const unsent = dayGaps.filter((g) => !g.post?.notifiedAt).length;
+    const isOpen = state.coverageOpenDates.includes(date);
+
+    const rows = dayGaps.map((gap) => {
+      const post = gap.post;
+      const posted = post?.applicants || [];
+      const applied = posted.includes(me);
+
+      const applicantRows = isSupervisor && posted.length
+        ? `<div class="applicant-list">${posted.map((id) => {
+            const emp = employeeById(id);
+            if (!emp) return "";
+            return `<div class="applicant-row">
+              <span><strong>${escapeHtml(emp.name)}</strong> — ${escapeHtml(emp.title || "—")}</span>
+              <span class="button-row">
+                <button class="button button-primary button-small" data-award-post="${post.id}" data-award-emp="${id}">Award</button>
+                <button class="button button-secondary button-small" data-decline-post="${post.id}" data-decline-emp="${id}">Decline</button>
+              </span>
+            </div>`;
+          }).join("")}</div>`
         : "";
 
-    const supervisorActions = isSupervisor
-      ? `<button class="button button-secondary button-small" data-notify-gap="${gap.key}">
-           ${post?.notifiedAt ? "Re-send alert" : `Notify ${eligibleCount} qualified`}
-         </button>`
-      : applied
-        ? `<button class="button button-secondary button-small" data-withdraw-post="${post.id}">Withdraw</button>`
-        : `<button class="button button-primary button-small" data-apply-gap="${gap.key}">Sign up</button>`;
+      const action = isSupervisor
+        ? `<button class="button button-secondary button-small" data-notify-gap="${gap.key}">
+             ${post?.notifiedAt ? "Re-send" : "Notify"}
+           </button>`
+        : applied
+          ? `<button class="button button-secondary button-small" data-withdraw-post="${post.id}">Withdraw</button>`
+          : `<button class="button button-primary button-small" data-apply-gap="${gap.key}">Sign up</button>`;
 
-    return `<article class="queue-item coverage-item">
-      <div class="unit-card-header">
-        <div>
-          <strong>${escapeHtml(gap.unitName)} — ${escapeHtml(gap.label)}</strong>
-          <p class="helper-text">${formatDate(gap.date)} • needs ${escapeHtml(gap.need || "any qualified rider")}
-            ${applicants.length ? ` • ${applicants.length} applicant${applicants.length === 1 ? "" : "s"}` : ""}</p>
+      return `<article class="queue-item coverage-item">
+        <div class="unit-card-header">
+          <div>
+            <strong>${escapeHtml(gap.unitName)} — ${escapeHtml(gap.label)}</strong>
+            <p class="helper-text">needs ${escapeHtml(gap.need || "any qualified rider")}${
+              posted.length ? ` • ${posted.length} signed up` : ""}</p>
+          </div>
+          <div class="unit-card-actions">
+            ${post?.status === "awarded" ? '<span class="badge badge-success">Awarded</span>' : action}
+          </div>
         </div>
-        <div class="unit-card-actions">
-          ${post?.status === "awarded" ? '<span class="badge badge-success">Awarded</span>' : supervisorActions}
-        </div>
-      </div>
-      ${applicantRows}
-    </article>`;
+        ${applicantRows}
+      </article>`;
+    }).join("");
+
+    return `<details class="coverage-day" data-coverage-date="${date}" ${isOpen ? "open" : ""}>
+      <summary>
+        <span class="coverage-day-head">
+          <span><strong>${formatDate(date)}</strong>
+            <span class="helper-text">${getShiftForDate(date)} shift</span></span>
+          <span class="coverage-day-tags">
+            <span class="badge badge-danger">${dayGaps.length} open</span>
+            ${applicants ? `<span class="badge badge-warning">${applicants} signed up</span>` : ""}
+            ${isSupervisor && unsent ? `<button class="button button-secondary button-small"
+              data-notify-date="${date}">Send out ${unsent}</button>` : ""}
+          </span>
+        </span>
+      </summary>
+      <div class="coverage-day-body">${rows}</div>
+    </details>`;
   }).join("");
 
   updateCoverageBadge(gaps, visible, isSupervisor);
@@ -2406,6 +2435,21 @@ function updateCoverageBadge(gaps, visible, isSupervisor) {
 function attachCoverageEvents(gaps) {
   const root = dom["coverage-list"];
   if (!root) return;
+  root.querySelectorAll("[data-coverage-date]").forEach((d) => {
+    d.addEventListener("toggle", () => {
+      const date = d.dataset.coverageDate;
+      const open = new Set(state.coverageOpenDates || []);
+      if (d.open) open.add(date); else open.delete(date);
+      state.coverageOpenDates = [...open];
+    });
+  });
+  // Inside <summary>, so stop the click from also toggling the disclosure.
+  root.querySelectorAll("[data-notify-date]").forEach((b) =>
+    b.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      notifyAllGapsOnDate(b.dataset.notifyDate, gaps);
+    }));
   root.querySelectorAll("[data-notify-gap]").forEach((b) =>
     b.addEventListener("click", () => notifyGap(b.dataset.notifyGap, gaps)));
   root.querySelectorAll("[data-apply-gap]").forEach((b) =>
@@ -2466,8 +2510,10 @@ function renderPersonalPanel() {
     return;
   }
   el.classList.remove("hidden");
+  // Supervisors get BOTH: they are not immune from mandatory or from picking up
+  // overtime, so they need their own next shifts as well as the sign-up inbox.
   el.innerHTML = state.currentRole === "supervisor"
-    ? renderSupervisorInbox()
+    ? renderEmployeeUpcoming() + renderSupervisorInbox()
     : renderEmployeeUpcoming();
   attachPersonalPanelEvents();
 }
@@ -2539,11 +2585,9 @@ function renderSupervisorInbox() {
 
   if (!waiting.length) {
     return `
-      <div class="panel-heading">
-        <div>
-          <h2>Overtime sign-ups</h2>
-          <p class="helper-text">Nobody is waiting on a decision right now.</p>
-        </div>
+      <div class="personal-section">
+        <h3>Overtime sign-ups</h3>
+        <p class="helper-text">Nobody is waiting on a decision right now.</p>
       </div>`;
   }
 
@@ -2573,13 +2617,13 @@ function renderSupervisorInbox() {
   }).join("");
 
   return `
-    <div class="panel-heading">
-      <div>
-        <h2>Overtime sign-ups <span class="badge badge-warning">${waiting.length}</span></h2>
-        <p class="helper-text">People waiting on a decision. Full gap list is in Tools → Coverage.</p>
-      </div>
-    </div>
-    <div class="stack-list">${rows}</div>`;
+    <div class="personal-section">
+      <h3>Overtime sign-ups <span class="badge badge-warning">${waiting.length}</span></h3>
+      <p class="helper-text" style="margin-bottom:10px">
+        People waiting on a decision. Full gap list is in Tools → Coverage.
+      </p>
+      <div class="stack-list">${rows}</div>
+    </div>`;
 }
 
 function attachPersonalPanelEvents() {
@@ -2933,6 +2977,45 @@ function notifyGap(gapKeyStr, gaps) {
   render();
   persistAppState("Coverage alert queued");
   showToast(`Queued for ${recipients.length} qualified ${recipients.length === 1 ? "person" : "people"}.`, "success");
+}
+
+// "Scan to the date, send out for that shift" — one action for the whole day
+// rather than a button per seat.
+function notifyAllGapsOnDate(date, gaps) {
+  if (state.currentRole !== "supervisor") {
+    showToast("Supervisor sign-in required to send coverage alerts.", "error");
+    return;
+  }
+  const pending = gaps.filter((g) => g.date === date && !g.post?.notifiedAt);
+  if (!pending.length) {
+    showToast("Every gap on this date has already been sent out.", "error");
+    return;
+  }
+  pending.forEach((gap) => notifyGapSilently(gap));
+  addAudit(`Coverage alerts sent for ${pending.length} seat(s) on ${formatDate(date)}.`, currentUserName());
+  render();
+  persistAppState("Coverage alerts queued");
+  showToast(`Sent out ${pending.length} open seat${pending.length === 1 ? "" : "s"} for ${formatDate(date)}.`, "success");
+}
+
+// Shared body of notifyGap without the render/persist/toast, so a bulk send does
+// ONE save and ONE audit line instead of one per seat.
+function notifyGapSilently(gap) {
+  const post = ensureOvertimePost(gap, "open");
+  post.status = "open";
+  post.notifiedAt = new Date().toISOString();
+  eligibleForGap(gap).forEach((emp) => {
+    queueNotification({
+      recipientId: emp.id,
+      channel: "email",
+      subject: `Overtime available — ${gap.unitName} ${formatDate(gap.date)}`,
+      message: `${gap.unitName} needs a ${gap.label}${gap.need ? ` (${gap.need})` : ""} on ` +
+               `${formatDate(gap.date)}. Sign in to the scheduler to apply.`,
+      relatedKind: "overtime",
+      relatedId: post.id,
+    });
+  });
+  return post;
 }
 
 // Employee self-service. Works whether or not the gap has been announced.
