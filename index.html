@@ -414,41 +414,32 @@
 
           <div class="drawer-pane hidden" data-drawer-pane="trades">
             <section class="panel">
-            <div class="panel-heading">
-            <div>
-            <h2>Shift Trades</h2>
-            <p class="helper-text">
-            Swap a shift with a colleague. Supervisors approve the final trade.
-            Overtime lives in the <strong>Coverage</strong> tab.
-            </p>
-            </div>
-            </div>
+              <div class="panel-heading">
+                <div>
+                  <h2>Trade Board</h2>
+                  <p class="helper-text">
+                    Post a shift you need covered. Anyone qualified can accept it — accepting is
+                    binding and goes straight to a supervisor. The person covering works it
+                    <strong>unpaid</strong>; you keep that day's pay and owe them a day back.
+                  </p>
+                </div>
+              </div>
 
-            <div class="workflow-grid">
-            <article class="workflow-card">
-            <h3>Submit Trade</h3>
-            <div class="workflow-form">
-            <label>
-            Your Shift
-            <select id="trade-owner"></select>
-            </label>
-            <label>
-            Swap With
-            <select id="trade-partner"></select>
-            </label>
-            <label>
-            Trade Date
-            <input id="trade-date" type="date" />
-            </label>
-            <label>
-            Notes
-            <textarea id="trade-notes" rows="3" placeholder="Reason, truck preference, extra context"></textarea>
-            </label>
-            </div>
-            <button id="submit-trade-btn" class="button button-primary">Create Trade Request</button>
-            </article>
+              <div id="trade-balance"></div>
 
-            </div>
+              <div class="template-controls" style="margin-top:14px">
+                <label>
+                  Post one of your shifts
+                  <select id="trade-post-shift"></select>
+                </label>
+                <label>
+                  Note (optional)
+                  <input id="trade-post-notes" type="text" maxlength="300" placeholder="Reason, preference, context" />
+                </label>
+                <button id="trade-post-btn" class="button button-primary">Post to board</button>
+              </div>
+
+              <div id="trade-board" class="stack-list" style="margin-top:14px"></div>
             </section>
           </div>
 

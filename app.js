@@ -12,6 +12,7 @@ const state = {
   scheduleStatus: "draft",
   units: [],
   staffingTemplates: [],
+  shiftDebts: [],
   mandatoryBackfill: [],
   mandatoryImportPreview: null,
   employees: [],
@@ -139,8 +140,9 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator", "trade-owner",
-    "trade-partner", "trade-date", "trade-notes", "submit-trade-btn",
+    "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
+    // Trade board
+    "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
     "unit-toggle-list", "notification-center",
     "approval-queue", "audit-log", "print-btn", "notify-btn",
     // Employee import
@@ -205,7 +207,6 @@ function wireEvents() {
     state.currentDate = todayIso();
     render();
   });
-  dom["submit-trade-btn"].addEventListener("click", createTradeRequest);
   dom["print-btn"].addEventListener("click", () => window.print());
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
@@ -223,6 +224,7 @@ function wireEvents() {
   attachTemplateEvents();
   dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
   dom["coverage-days"]?.addEventListener("change", renderCoveragePanel);
+  dom["trade-post-btn"]?.addEventListener("click", postTrade);
   dom["download-mandatory-btn"]?.addEventListener("click", downloadMandatoryTemplate);
   dom["mandatory-fy"]?.addEventListener("change", renderMandatorySummary);
   dom["mandatory-platoon"]?.addEventListener("change", renderMandatorySummary);
@@ -304,7 +306,6 @@ function initializeControls() {
   // Restore active tab
   dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
   dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
-  populateTradeSelects();
   renderSurfaceState();
 }
 
@@ -622,12 +623,12 @@ function render() {
   renderRosterImportPreview();
   renderEmployeeRoster();
   renderEmployeeEditor();
-  populateTradeSelects();
   renderPermissionStates();
   renderPersistenceStatus();
   renderSaveIndicator();
   renderReservePanel();
   renderCoveragePanel();
+  renderTradeBoard();
   renderPersonalPanel();
   renderMandatoryImportPreview();
   renderMandatorySummary();
@@ -712,14 +713,6 @@ function canAccessAdmin() {
 }
 
 
-function populateTradeSelects() {
-  const employees = activeEmployees().map((employee) => `<option value="${employee.id}">${employee.name} • ${employee.shift}</option>`).join("");
-  dom["trade-owner"].innerHTML = employees;
-  dom["trade-partner"].innerHTML = employees;
-  dom["trade-owner"].value = activeEmployeeById(state.currentUserId)?.id || activeEmployees()[0]?.id || "";
-  dom["trade-partner"].value = activeEmployees().find((employee) => employee.id !== dom["trade-owner"].value)?.id || activeEmployees()[1]?.id || "";
-  dom["trade-date"].value = addDays(state.currentDate, 3);
-}
 
 
 function renderSummary() {
@@ -1681,7 +1674,6 @@ function attachEmployeeManagementEvents() {
       if (state.selectedEmployeeId === employee.id) {
         state.employeeDraft = createEmployeeDraft(employee);
       }
-      populateTradeSelects();
       render();
       persistAppState(`Employee ${employee.status === "archived" ? "archived" : "restored"}`);
     });
@@ -1777,7 +1769,6 @@ function saveEmployeeDraft() {
   state.employeeDraft = createEmployeeDraft(employee);
   addAudit(`${employee.name} updated in employee directory.`, currentUserName());
   createNotification(`${employee.name} profile updated in employee directory.`, "email", currentUserName());
-  populateTradeSelects();
   render();
   showToast("Employee changes saved.", "success");
   persistAppState("Employee updated");
@@ -1947,14 +1938,9 @@ function renderPermissionStates() {
   const isDraft = state.scheduleStatus === "draft";
   dom["publish-btn"].classList.toggle("button-primary", isDraft);
   dom["publish-btn"].classList.toggle("button-secondary", !isDraft);
-  dom["submit-trade-btn"].disabled = employeeLocked;
   dom["notify-btn"].disabled = employeeLocked;
   dom["print-btn"].disabled = employeeLocked;
   dom["schedule-status"].disabled = supervisorLocked;
-  dom["trade-owner"].disabled = employeeLocked;
-  dom["trade-partner"].disabled = employeeLocked;
-  dom["trade-date"].disabled = employeeLocked;
-  dom["trade-notes"].disabled = employeeLocked;
   // Employee import
   dom["import-file"].disabled = supervisorLocked;
   dom["preview-import-btn"].disabled = supervisorLocked;
@@ -2264,32 +2250,6 @@ function handlePublish() {
 }
 
 
-function createTradeRequest() {
-  if (!state.isAuthenticated) {
-    showToast("Sign-in required to submit a trade request.", "error");
-    return;
-  }
-  const ownerId = dom["trade-owner"].value;
-  const partnerId = dom["trade-partner"].value;
-  const date = dom["trade-date"].value;
-  if (!ownerId || !partnerId || ownerId === partnerId) return;
-  const trade = {
-    id: `TR-${Date.now()}`,
-    status: "pending",
-    employeeId: ownerId,
-    partnerId,
-    date,
-    notes: dom["trade-notes"].value || "No notes provided",
-    type: "trade",
-    createdBy: currentUserName(),
-  };
-  state.trades.push(trade);
-  addAudit(`Trade request created for ${formatDate(date)}.`, currentUserName());
-  createNotification(`Trade request submitted for ${formatDate(date)} and routed for supervisor approval.`, "email", currentUserName());
-  dom["trade-notes"].value = "";
-  render();
-  persistAppState("Trade request created");
-}
 
 // One list, two audiences. Supervisors see every gap with notify/award controls;
 // employees see only gaps they are CREDENTIALED for and can apply to or withdraw
@@ -2465,10 +2425,325 @@ function attachCoverageEvents(gaps) {
     b.addEventListener("click", () => applyForGap(b.dataset.applyGap, gaps)));
   root.querySelectorAll("[data-withdraw-post]").forEach((b) =>
     b.addEventListener("click", () => withdrawFromGap(b.dataset.withdrawPost)));
+  root.querySelectorAll("[data-approve-trade]").forEach((b) =>
+    b.addEventListener("click", () => approveTrade(b.dataset.approveTrade)));
+  root.querySelectorAll("[data-deny-trade]").forEach((b) =>
+    b.addEventListener("click", () => denyTrade(b.dataset.denyTrade)));
   root.querySelectorAll("[data-award-post]").forEach((b) =>
     b.addEventListener("click", () => awardOvertime(b.dataset.awardPost, b.dataset.awardEmp)));
   root.querySelectorAll("[data-decline-post]").forEach((b) =>
     b.addEventListener("click", () => declineApplicant(b.dataset.declinePost, b.dataset.declineEmp)));
+}
+
+// ─── Trade board ─────────────────────────────────────────────────────────────
+// An employee posts a shift they need covered; another employee ACCEPTS (binding,
+// no second confirm); a supervisor approves.
+//
+// PAY DOES NOT FOLLOW THE WORKER. The poster keeps their normal pay for that
+// date; the accepter works it unpaid and is owed a day back. That obligation is
+// recorded in state.shiftDebts — the trade board and "banked time" are one system.
+
+function tradeById(id) {
+  return (state.trades || []).find((t) => t.id === id) || null;
+}
+
+// Shifts the signed-in person could post: their own future assignments that
+// aren't already on the board.
+function postableShiftsFor(employeeId, horizonDays) {
+  const posted = new Set(
+    (state.trades || [])
+      .filter((t) => ["posted", "accepted", "approved"].includes(t.status))
+      .map((t) => `${t.date}|${t.unitId}`)
+  );
+  const out = [];
+  let date = todayIso();
+  for (let i = 0; i < (horizonDays || 120); i += 1) {
+    const byUnit = state.assignments?.[date] || {};
+    Object.entries(byUnit).forEach(([unitId, people]) => {
+      if (!(people || []).some((p) => p && p.id === employeeId)) return;
+      if (posted.has(`${date}|${unitId}`)) return;
+      const unit = unitById(unitId);
+      const { seats } = assignPeopleToSeats(unit?.type, people);
+      const mine = seats.find((st) => st.person && st.person.id === employeeId);
+      out.push({
+        date, unitId,
+        unitName: unit?.name || unitId,
+        role: mine?.pos?.role || "",
+        label: mine?.pos?.label || "Rider",
+      });
+    });
+    date = addDays(date, 1);
+  }
+  return out;
+}
+
+// THE eligibility rule. Not "does this person fit the poster's seat" — that is
+// too strict, because supervisors legitimately shuffle a crew around to make a
+// trade work. Instead: swap the accepter in for the poster and ask whether every
+// REQUIRED seat still fills. The greedy seat-filler rearranges exactly the way a
+// supervisor would, so reshuffling is permitted for free.
+function tradeCrewIsLegal(trade, accepter) {
+  const unit = unitById(trade.unitId);
+  const positions = UNIT_POSITION_REQUIREMENTS[unit?.type];
+  if (!unit || !positions) return true;          // untyped unit: no seat rules
+  const crew = getAssignments(trade.date, trade.unitId)
+    .filter((p) => p && p.id !== trade.employeeId)
+    .map((p) => resolvePerson(p) || p)
+    .concat([accepter]);
+  const { seats } = assignPeopleToSeats(unit.type, crew);
+  return seats.filter((st) => seatIsRequired(st.pos)).every((st) => st.person);
+}
+
+function canAcceptTrade(trade, employeeId) {
+  const emp = employeeById(employeeId);
+  if (!emp || emp.status === "archived") return false;
+  if (trade.status !== "posted") return false;
+  if (trade.employeeId === employeeId) return false;            // not your own
+  if (assignedEmployeeIdsForDate(trade.date).has(employeeId)) return false;
+  return tradeCrewIsLegal(trade, emp);
+}
+
+function postTrade() {
+  const value = dom["trade-post-shift"]?.value;
+  if (!state.currentUserId || !value) {
+    showToast("Choose one of your shifts to post.", "error");
+    return;
+  }
+  const [date, unitId, role] = value.split("|");
+  const trade = {
+    id: `TR-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    status: "posted",
+    employeeId: state.currentUserId,
+    partnerId: null,
+    date,
+    unitId,
+    role: role || "",
+    type: "trade",
+    notes: (dom["trade-post-notes"]?.value || "").slice(0, 300),
+    acceptedAt: null,
+    approvedBy: "",
+    createdBy: currentUserName(),
+  };
+  state.trades.push(trade);
+  if (dom["trade-post-notes"]) dom["trade-post-notes"].value = "";
+  addAudit(`${currentUserName()} posted ${unitById(unitId)?.name || unitId} on ${formatDate(date)} to the trade board.`, currentUserName());
+  render();
+  persistAppState("Trade posted");
+  showToast("Posted to the trade board.", "success");
+}
+
+function cancelTrade(tradeId) {
+  const trade = tradeById(tradeId);
+  if (!trade || trade.employeeId !== state.currentUserId) return;
+  if (trade.status !== "posted") {
+    showToast("Already accepted — a supervisor has to resolve it.", "error");
+    return;
+  }
+  trade.status = "cancelled";
+  addAudit(`Trade for ${formatDate(trade.date)} withdrawn by ${currentUserName()}.`, currentUserName());
+  render();
+  persistAppState("Trade withdrawn");
+}
+
+// Accepting is BINDING — it goes straight to a supervisor, no second confirm
+// from the poster.
+function acceptTrade(tradeId) {
+  const trade = tradeById(tradeId);
+  if (!trade || !state.currentUserId) return;
+  if (!canAcceptTrade(trade, state.currentUserId)) {
+    showToast("You are not eligible to cover this shift.", "error");
+    return;
+  }
+  trade.partnerId = state.currentUserId;
+  trade.status = "accepted";
+  trade.acceptedAt = new Date().toISOString();
+  queueNotification({
+    recipientId: trade.employeeId,
+    subject: `Trade accepted — ${formatDate(trade.date)}`,
+    message: `${currentUserName()} accepted your ${formatDate(trade.date)} shift on ` +
+             `${unitById(trade.unitId)?.name || trade.unitId}. Awaiting supervisor approval.`,
+    relatedKind: "trade",
+    relatedId: trade.id,
+  });
+  addAudit(`${currentUserName()} accepted the trade for ${formatDate(trade.date)}.`, currentUserName());
+  render();
+  persistAppState("Trade accepted");
+  showToast("Accepted — sent for supervisor approval.", "success");
+}
+
+// A day owed, one row per approved trade. Auto-settles the reciprocal: if the
+// poster already owed the accepter a day, this squares them rather than stacking
+// a second obligation — which is how crews actually think about it.
+function recordShiftDebt(trade) {
+  if (!Array.isArray(state.shiftDebts)) state.shiftDebts = [];
+  const reciprocal = state.shiftDebts.find(
+    (d) => !d.settledAt && d.debtorId === trade.partnerId && d.creditorId === trade.employeeId
+  );
+  if (reciprocal) {
+    reciprocal.settledByTradeId = trade.id;
+    reciprocal.settledAt = new Date().toISOString();
+    return { settled: true };
+  }
+  state.shiftDebts.push({
+    debtorId: trade.employeeId,      // poster kept the pay
+    creditorId: trade.partnerId,     // accepter worked unpaid
+    originTradeId: trade.id,
+    settledByTradeId: null,
+    settledAt: null,
+  });
+  return { settled: false };
+}
+
+function shiftDebtBalance(employeeId) {
+  const open = (state.shiftDebts || []).filter((d) => !d.settledAt);
+  const owed = open.filter((d) => d.creditorId === employeeId).length;
+  const owes = open.filter((d) => d.debtorId === employeeId).length;
+  return { owed, owes, net: owed - owes };
+}
+
+function approveTrade(tradeId) {
+  if (state.currentRole !== "supervisor") return;
+  const trade = tradeById(tradeId);
+  if (!trade || trade.status !== "accepted") return;
+  const accepter = employeeById(trade.partnerId);
+  const poster = employeeById(trade.employeeId);
+  if (!accepter || !poster) return;
+  if (!tradeCrewIsLegal(trade, accepter)) {
+    showToast("That trade would leave a required seat unfilled.", "error");
+    return;
+  }
+
+  // Swap on the board. The accepter WORKS it; the poster is still PAID for it.
+  const crew = getAssignments(trade.date, trade.unitId).filter((p) => p && p.id !== trade.employeeId);
+  if (!state.assignments[trade.date]) state.assignments[trade.date] = {};
+  state.assignments[trade.date][trade.unitId] = markManual([
+    ...crew,
+    { ...accepter, _paid: trade.employeeId },
+  ]);
+
+  trade.status = "approved";
+  trade.approvedBy = currentUserName();
+  const { settled } = recordShiftDebt(trade);
+
+  const unitName = unitById(trade.unitId)?.name || trade.unitId;
+  queueNotification({
+    recipientId: trade.partnerId,
+    subject: `Trade approved — ${formatDate(trade.date)}`,
+    message: `You are covering ${unitName} on ${formatDate(trade.date)} for ${poster.name}. ` +
+             (settled ? `This squares the day they owed you.` : `${poster.name} now owes you a day.`),
+    relatedKind: "trade",
+    relatedId: trade.id,
+  });
+  queueNotification({
+    recipientId: trade.employeeId,
+    subject: `Trade approved — ${formatDate(trade.date)}`,
+    message: `${accepter.name} is covering your ${formatDate(trade.date)} shift on ${unitName}. ` +
+             `You keep your pay for the date. ` +
+             (settled ? `Your day owed to them is now settled.` : `You owe them a day.`),
+    relatedKind: "trade",
+    relatedId: trade.id,
+  });
+  addAudit(
+    `Trade approved: ${accepter.name} covers ${poster.name} on ${unitName} ${formatDate(trade.date)} ` +
+    `(pay stays with ${poster.name}; ${settled ? "reciprocal day settled" : "day owed recorded"}).`,
+    currentUserName()
+  );
+  render();
+  persistAppState("Trade approved");
+  showToast(`Approved — ${accepter.name} covers ${formatDate(trade.date)}.`, "success");
+}
+
+function denyTrade(tradeId) {
+  if (state.currentRole !== "supervisor") return;
+  const trade = tradeById(tradeId);
+  if (!trade) return;
+  trade.status = "denied";
+  trade.approvedBy = currentUserName();
+  [trade.employeeId, trade.partnerId].filter(Boolean).forEach((id) => {
+    queueNotification({
+      recipientId: id,
+      subject: `Trade not approved — ${formatDate(trade.date)}`,
+      message: `The trade for ${formatDate(trade.date)} was not approved.`,
+      relatedKind: "trade",
+      relatedId: trade.id,
+    });
+  });
+  addAudit(`Trade for ${formatDate(trade.date)} denied.`, currentUserName());
+  render();
+  persistAppState("Trade denied");
+}
+
+function renderTradeBoard() {
+  const boardEl = dom["trade-board"];
+  if (!boardEl) return;
+  const me = state.currentUserId;
+
+  // Post form: only your OWN upcoming shifts, so nobody can post someone else's.
+  const postable = me ? postableShiftsFor(me, 120) : [];
+  if (dom["trade-post-shift"]) {
+    dom["trade-post-shift"].innerHTML = postable.length
+      ? postable.map((sh) => `<option value="${sh.date}|${sh.unitId}|${escapeHtml(sh.role)}">
+          ${formatDate(sh.date)} — ${escapeHtml(sh.unitName)} (${escapeHtml(sh.label)})
+        </option>`).join("")
+      : `<option value="">No upcoming shifts to post</option>`;
+    dom["trade-post-shift"].disabled = !postable.length;
+    if (dom["trade-post-btn"]) dom["trade-post-btn"].disabled = !postable.length;
+  }
+
+  if (dom["trade-balance"] && me) {
+    const { owed, owes, net } = shiftDebtBalance(me);
+    dom["trade-balance"].innerHTML = `<div class="status-box ${net < 0 ? "status-box-warning" : ""}">
+      <strong>Banked days:</strong> owed to you ${owed} • you owe ${owes}
+      ${net === 0 ? "— all square." : net > 0 ? `— net +${net}.` : `— net ${net}.`}
+      <br /><span class="helper-text">A trade you cover is unpaid; the poster keeps that day's pay and owes you a day back.</span>
+    </div>`;
+  }
+
+  const isSupervisor = state.currentRole === "supervisor";
+  const open = (state.trades || [])
+    .filter((t) => ["posted", "accepted"].includes(t.status) && t.date >= todayIso())
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!open.length) {
+    boardEl.innerHTML = `<div class="empty-state">Nothing on the trade board right now.</div>`;
+    return;
+  }
+
+  boardEl.innerHTML = open.map((t) => {
+    const poster = employeeById(t.employeeId);
+    const accepter = t.partnerId ? employeeById(t.partnerId) : null;
+    const unitName = unitById(t.unitId)?.name || t.unitId;
+    const mine = t.employeeId === me;
+    const eligible = canAcceptTrade(t, me);
+
+    let action = "";
+    if (t.status === "accepted") {
+      action = `<span class="badge badge-warning">Accepted — awaiting approval</span>`;
+    } else if (mine) {
+      action = `<button class="button button-secondary button-small" data-cancel-trade="${t.id}">Withdraw</button>`;
+    } else if (eligible) {
+      action = `<button class="button button-primary button-small" data-accept-trade="${t.id}">Accept</button>`;
+    } else {
+      action = `<span class="helper-text">Not eligible</span>`;
+    }
+
+    return `<article class="queue-item">
+      <div class="unit-card-header">
+        <div>
+          <strong>${escapeHtml(unitName)} — ${escapeHtml(t.role || "seat")}</strong>
+          <p class="helper-text">${formatDate(t.date)} • ${getShiftForDate(t.date)} shift •
+            posted by ${escapeHtml(poster?.name || "—")}${accepter ? ` • accepted by ${escapeHtml(accepter.name)}` : ""}</p>
+          ${t.notes ? `<p class="helper-text">"${escapeHtml(t.notes)}"</p>` : ""}
+        </div>
+        <div class="unit-card-actions">${action}</div>
+      </div>
+    </article>`;
+  }).join("");
+
+  boardEl.querySelectorAll("[data-accept-trade]").forEach((b) =>
+    b.addEventListener("click", () => acceptTrade(b.dataset.acceptTrade)));
+  boardEl.querySelectorAll("[data-cancel-trade]").forEach((b) =>
+    b.addEventListener("click", () => cancelTrade(b.dataset.cancelTrade)));
 }
 
 // ─── Personal landing view ───────────────────────────────────────────────────
@@ -2592,13 +2867,39 @@ function renderSupervisorInbox() {
     .filter((p) => !myShift || state.coverageShift === "all" || getShiftForDate(p.date) === (state.coverageShift === "mine" || !state.coverageShift ? myShift : state.coverageShift))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  if (!waiting.length) {
+  const tradesWaiting = (state.trades || [])
+    .filter((t) => t.status === "accepted" && t.date >= todayIso())
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!waiting.length && !tradesWaiting.length) {
     return `
       <div class="personal-section">
         <h3>Waiting on you</h3>
         <p class="helper-text">No approvals outstanding.</p>
       </div>`;
   }
+
+  const tradeRows = tradesWaiting.map((t) => {
+    const poster = employeeById(t.employeeId);
+    const accepter = employeeById(t.partnerId);
+    const unitName = unitById(t.unitId)?.name || t.unitId;
+    const legal = accepter ? tradeCrewIsLegal(t, accepter) : false;
+    return `<article class="queue-item">
+      <div class="unit-card-header">
+        <div>
+          <span class="badge badge-soft">Trade</span>
+          <strong>${escapeHtml(unitName)} — ${escapeHtml(t.role || "seat")}</strong>
+          <p class="helper-text">${formatDate(t.date)} • ${escapeHtml(accepter?.name || "—")}
+            covers ${escapeHtml(poster?.name || "—")} • pay stays with ${escapeHtml(poster?.name || "—")}</p>
+          ${legal ? "" : '<p class="helper-text" style="color:var(--danger)">Would leave a required seat unfilled.</p>'}
+        </div>
+        <span class="button-row">
+          <button class="button button-primary button-small" data-approve-trade="${t.id}" ${legal ? "" : "disabled"}>Approve</button>
+          <button class="button button-secondary button-small" data-deny-trade="${t.id}">Deny</button>
+        </span>
+      </div>
+    </article>`;
+  }).join("");
 
   const rows = waiting.map((p) => {
     const unitName = unitById(p.unitId)?.name || p.unitId;
@@ -2628,17 +2929,21 @@ function renderSupervisorInbox() {
 
   return `
     <div class="personal-section">
-      <h3>Waiting on you <span class="badge badge-warning">${waiting.length}</span></h3>
+      <h3>Waiting on you <span class="badge badge-warning">${waiting.length + tradesWaiting.length}</span></h3>
       <p class="helper-text" style="margin-bottom:10px">
         Overtime sign-ups and, in future, accepted trades. Full gap list is in Tools → Coverage.
       </p>
-      <div class="stack-list">${rows}</div>
+      <div class="stack-list">${tradeRows}${rows}</div>
     </div>`;
 }
 
 function attachPersonalPanelEvents() {
   const root = dom["personal-panel"];
   if (!root) return;
+  root.querySelectorAll("[data-approve-trade]").forEach((b) =>
+    b.addEventListener("click", () => approveTrade(b.dataset.approveTrade)));
+  root.querySelectorAll("[data-deny-trade]").forEach((b) =>
+    b.addEventListener("click", () => denyTrade(b.dataset.denyTrade)));
   root.querySelectorAll("[data-award-post]").forEach((b) =>
     b.addEventListener("click", () => awardOvertime(b.dataset.awardPost, b.dataset.awardEmp)));
   root.querySelectorAll("[data-decline-post]").forEach((b) =>
@@ -3194,7 +3499,6 @@ function applyEmployeeImport() {
   mergeEmployees(state.importPreview.validRows);
   state.importPreview = null;
   seedAssignments(true);
-  populateTradeSelects();
   addAudit("Employee CSV import applied.", currentUserName());
   createNotification("Employee import completed successfully.", "email", currentUserName());
   dom["import-message"].textContent = "Employee import applied and schedule regenerated.";
@@ -4407,6 +4711,7 @@ function serializableState() {
     units: state.units,
     staffingTemplates: state.staffingTemplates,
     mandatoryBackfill: state.mandatoryBackfill,
+    shiftDebts: state.shiftDebts,
     employees: state.employees,
     trades: state.trades,
     overtimePosts: state.overtimePosts,
@@ -4443,6 +4748,7 @@ function applyPersistedState(data) {
   }
   state.staffingTemplates = Array.isArray(data.staffingTemplates) ? data.staffingTemplates : [];
   state.mandatoryBackfill = Array.isArray(data.mandatoryBackfill) ? data.mandatoryBackfill : [];
+  state.shiftDebts = Array.isArray(data.shiftDebts) ? data.shiftDebts : [];
   state.employees = Array.isArray(data.employees) ? data.employees : [];
   state.trades = Array.isArray(data.trades) ? data.trades : [];
   state.overtimePosts = Array.isArray(data.overtimePosts) ? data.overtimePosts : [];

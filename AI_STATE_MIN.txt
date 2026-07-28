@@ -193,6 +193,25 @@ SUPERVISOR inbox: ONLY posts with applicants awaiting a decision, filtered by st
   made the drawer feel cluttered before the schedule is filled in.
 Award/Decline buttons here reuse awardOvertime/declineApplicant via attachPersonalPanelEvents().
 
+Trade board (drawer -> Trades) + banked time:
+Flow: POST one of your OWN future shifts -> another employee ACCEPTS (BINDING, no second confirm)
+  -> supervisor approves in "Waiting on you". Trade{...,unitId,role,acceptedAt,approvedBy},
+  status posted|accepted|approved|denied|cancelled.
+ELIGIBILITY = tradeCrewIsLegal(): swap the accepter in for the poster and check EVERY REQUIRED
+  seat still fills. NOT "accepter must fit the poster's seat" — supervisors legitimately reshuffle
+  a crew to make a trade work, and the greedy filler reproduces that for free.
+  Plus: not your own post, not already working that date, not archived.
+PAY DOES NOT FOLLOW THE WORKER. On approval the accepter is written into the seat carrying
+  `_paid: <posterId>`; Django Assignment.paid_employee stores it and `paid_to` resolves
+  (override else worker). PAYROLL READS paid_to, STAFFING READS employee. Never infer one
+  from the other. Migration 0008.
+state.shiftDebts=[{debtorId,creditorId,originTradeId,settledByTradeId,settledAt}] — Django
+  ShiftDebt. recordShiftDebt() AUTO-SETTLES the reciprocal: if the poster already owed the
+  accepter an unsettled day, that pair squares instead of stacking a second obligation.
+  shiftDebtBalance(id) -> {owed,owes,net}. This ledger IS the "banked time" feature.
+The old two-person trade form (trade-owner/trade-partner/submit-trade-btn, createTradeRequest,
+  populateTradeSelects) is DELETED — it required a partner up front and failed silently.
+
 Mandatory backfill (Admin -> Mandatory):
 state.mandatoryBackfill=[{employeeId,date,order,fiscalYear,notes}]; Django MandatoryBackfill
   unique(employee,date), migration 0007. NOT a rotation — employees pick their forced-hire dates
