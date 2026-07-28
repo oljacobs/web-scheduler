@@ -2595,8 +2595,8 @@ function renderSupervisorInbox() {
   if (!waiting.length) {
     return `
       <div class="personal-section">
-        <h3>Overtime sign-ups</h3>
-        <p class="helper-text">Nobody is waiting on a decision right now.</p>
+        <h3>Waiting on you</h3>
+        <p class="helper-text">No approvals outstanding.</p>
       </div>`;
   }
 
@@ -2616,6 +2616,7 @@ function renderSupervisorInbox() {
     return `<article class="queue-item">
       <div class="unit-card-header">
         <div>
+          <span class="badge badge-soft">Overtime</span>
           <strong>${escapeHtml(unitName)} — ${escapeHtml(p.role || "open seat")}</strong>
           <p class="helper-text">${formatDate(p.date)} • ${getShiftForDate(p.date)} shift •
             ${(p.applicants || []).length} signed up${p.notifiedAt ? "" : " • not yet sent out"}</p>
@@ -2627,9 +2628,9 @@ function renderSupervisorInbox() {
 
   return `
     <div class="personal-section">
-      <h3>Overtime sign-ups <span class="badge badge-warning">${waiting.length}</span></h3>
+      <h3>Waiting on you <span class="badge badge-warning">${waiting.length}</span></h3>
       <p class="helper-text" style="margin-bottom:10px">
-        People waiting on a decision. Full gap list is in Tools → Coverage.
+        Overtime sign-ups and, in future, accepted trades. Full gap list is in Tools → Coverage.
       </p>
       <div class="stack-list">${rows}</div>
     </div>`;
