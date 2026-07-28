@@ -53,9 +53,23 @@
           </div>
         </section>
 
-        <a class="button button-secondary cross-app-link" href="https://checklist.d7fr.org">
-          Apparatus Checklists →
-        </a>
+        <!-- Shared hub nav. Same destinations, same order as the checklist app's
+             header, so crews learn one set of links rather than two. SharePoint
+             boards open in a new tab — different system, and losing your place
+             mid-task is costly. -->
+        <nav class="hub-nav" aria-label="Department tools">
+          <a class="button button-secondary cross-app-link" href="https://checklist.d7fr.org">
+            Apparatus Checklists →
+          </a>
+          <a class="button button-secondary cross-app-link is-external"
+             href="https://d7fr.sharepoint.com/sites/Fleet" target="_blank" rel="noopener">
+            Fleet board ↗
+          </a>
+          <a class="button button-secondary cross-app-link is-external"
+             href="https://d7fr.sharepoint.com/sites/stations" target="_blank" rel="noopener">
+            Stations board ↗
+          </a>
+        </nav>
       </aside>
 
       <main id="main-content" class="main-content">

@@ -346,11 +346,32 @@ textarea:disabled {
   color: var(--text);
 }
 
-/* Cross-app nav link to the Apparatus Checklist app; styled like a button. */
+/* Cross-app nav links, styled like buttons. */
+.hub-nav {
+  display: grid;
+  gap: 8px;
+}
+
 .cross-app-link {
   display: block;
   text-align: center;
   text-decoration: none;
+  min-height: 44px;
+  line-height: 20px;
+}
+
+/* External hubs are visually secondary — they leave the app, so they should not
+   compete with our own navigation. */
+.cross-app-link.is-external {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cross-app-link.is-external:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .icon-button {
