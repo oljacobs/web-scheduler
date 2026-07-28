@@ -179,6 +179,16 @@ BACKEND PRUNE GUARD (scheduler/views.py _write_state): a Unit/Employee missing f
   rebuilt only for units present in the payload. Deleting cascades to Assignment, and a stale
   browser tab wiped MOF115 twice before this existed — do not "simplify" it back.
 
+Personal landing view (#personal-panel, on the SCHEDULE surface, role-dependent):
+renderPersonalPanel() -> renderEmployeeUpcoming() | renderSupervisorInbox().
+EMPLOYEE: next 4 working days via upcomingShiftsFor(id,4,90) — scans assignments forward, so
+  overtime days appear as ordinary working days but are badged via awardedOvertimeIndex()
+  (key `date|unitId|employeeId`). Plus "Overtime awarded" and "Applications pending" lists.
+SUPERVISOR: ONLY posts with applicants awaiting a decision, filtered by state.coverageShift —
+  deliberately NOT the full future gap list (that is Tools -> Coverage). Mixing the two is what
+  made the drawer feel cluttered before the schedule is filled in.
+Award/Decline buttons here reuse awardOvertime/declineApplicant via attachPersonalPanelEvents().
+
 Mandatory backfill (Admin -> Mandatory):
 state.mandatoryBackfill=[{employeeId,date,order,fiscalYear,notes}]; Django MandatoryBackfill
   unique(employee,date), migration 0007. NOT a rotation — employees pick their forced-hire dates

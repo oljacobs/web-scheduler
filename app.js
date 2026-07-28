@@ -162,6 +162,7 @@ function cacheDom() {
     "template-push-days", "template-push-btn", "template-push-summary",
     "export-audit-btn",
     "coverage-list", "coverage-summary", "coverage-days", "coverage-badge", "coverage-shift",
+    "personal-panel",
     // Mandatory backfill
     "mandatory-fy", "mandatory-platoon", "download-mandatory-btn", "mandatory-import-file",
     "mandatory-preview-btn", "mandatory-apply-btn", "mandatory-import-message",
@@ -627,6 +628,7 @@ function render() {
   renderSaveIndicator();
   renderReservePanel();
   renderCoveragePanel();
+  renderPersonalPanel();
   renderMandatoryImportPreview();
   renderMandatorySummary();
   renderDrawerBadge();
@@ -2410,6 +2412,179 @@ function attachCoverageEvents(gaps) {
     b.addEventListener("click", () => applyForGap(b.dataset.applyGap, gaps)));
   root.querySelectorAll("[data-withdraw-post]").forEach((b) =>
     b.addEventListener("click", () => withdrawFromGap(b.dataset.withdrawPost)));
+  root.querySelectorAll("[data-award-post]").forEach((b) =>
+    b.addEventListener("click", () => awardOvertime(b.dataset.awardPost, b.dataset.awardEmp)));
+  root.querySelectorAll("[data-decline-post]").forEach((b) =>
+    b.addEventListener("click", () => declineApplicant(b.dataset.declinePost, b.dataset.declineEmp)));
+}
+
+// ─── Personal landing view ───────────────────────────────────────────────────
+// Answers the two "at a glance" questions the drawer cannot: an employee asking
+// "what am I working next, and did I get that overtime?", and a supervisor
+// asking "who signed up for what I sent out?".
+
+// Awarded overtime, keyed date|unitId, so an assignment can be badged as OT.
+function awardedOvertimeIndex() {
+  const map = new Map();
+  (state.overtimePosts || []).forEach((p) => {
+    if (p.status === "awarded" && p.approvedEmployeeId) {
+      map.set(`${p.date}|${p.unitId}|${p.approvedEmployeeId}`, p);
+    }
+  });
+  return map;
+}
+
+// An employee's next N working days, scanning forward. Includes overtime, since
+// from the crew's point of view it is simply a day they are working.
+function upcomingShiftsFor(employeeId, count, horizonDays) {
+  const found = [];
+  const ot = awardedOvertimeIndex();
+  let date = todayIso();
+  for (let i = 0; i < (horizonDays || 60) && found.length < (count || 4); i += 1) {
+    const byUnit = state.assignments?.[date] || {};
+    Object.entries(byUnit).forEach(([unitId, people]) => {
+      if (found.length >= (count || 4)) return;
+      if (!(people || []).some((p) => p && p.id === employeeId)) return;
+      found.push({
+        date,
+        unitId,
+        unitName: unitById(unitId)?.name || unitId,
+        platoon: getShiftForDate(date),
+        isOvertime: ot.has(`${date}|${unitId}|${employeeId}`),
+      });
+    });
+    date = addDays(date, 1);
+  }
+  return found;
+}
+
+function renderPersonalPanel() {
+  const el = dom["personal-panel"];
+  if (!el) return;
+  if (!state.isAuthenticated || !state.currentUserId) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  el.innerHTML = state.currentRole === "supervisor"
+    ? renderSupervisorInbox()
+    : renderEmployeeUpcoming();
+  attachPersonalPanelEvents();
+}
+
+function renderEmployeeUpcoming() {
+  const me = state.currentUserId;
+  const shifts = upcomingShiftsFor(me, 4, 90);
+  const awarded = (state.overtimePosts || [])
+    .filter((p) => p.status === "awarded" && p.approvedEmployeeId === me && p.date >= todayIso())
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const pending = (state.overtimePosts || [])
+    .filter((p) => p.status !== "awarded" && (p.applicants || []).includes(me) && p.date >= todayIso())
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const shiftCards = shifts.length
+    ? shifts.map((sh) => `
+        <div class="next-shift ${sh.isOvertime ? "is-overtime" : ""}">
+          <span class="next-shift-date">${formatDate(sh.date)}</span>
+          <strong>${escapeHtml(sh.unitName)}</strong>
+          <span class="next-shift-meta">${sh.platoon} shift</span>
+          ${sh.isOvertime ? '<span class="badge badge-warning">Overtime</span>' : ""}
+        </div>`).join("")
+    : '<div class="empty-state">No upcoming shifts on the schedule yet.</div>';
+
+  const awardedList = awarded.length
+    ? `<div class="personal-section">
+        <h3>Overtime awarded</h3>
+        ${awarded.map((p) => `
+          <div class="personal-row is-awarded">
+            <span><strong>${escapeHtml(unitById(p.unitId)?.name || p.unitId)}</strong>
+              — ${escapeHtml(p.role || "open seat")}</span>
+            <span>${formatDate(p.date)} • report ${escapeHtml(p.reportTime || DEFAULT_REPORT_TIME)}</span>
+          </div>`).join("")}
+      </div>`
+    : "";
+
+  const pendingList = pending.length
+    ? `<div class="personal-section">
+        <h3>Applications pending</h3>
+        ${pending.map((p) => `
+          <div class="personal-row">
+            <span>${escapeHtml(unitById(p.unitId)?.name || p.unitId)} — ${escapeHtml(p.role || "open seat")}</span>
+            <span>${formatDate(p.date)} • awaiting decision</span>
+          </div>`).join("")}
+      </div>`
+    : "";
+
+  return `
+    <div class="panel-heading">
+      <div>
+        <h2>Your next shifts</h2>
+        <p class="helper-text">The next four days you are on the schedule, overtime included.</p>
+      </div>
+    </div>
+    <div class="next-shift-grid">${shiftCards}</div>
+    ${awardedList}
+    ${pendingList}`;
+}
+
+// Only gaps that have ALREADY been pushed out and have someone waiting. This is
+// deliberately not the full future gap list — that is what the Coverage tab is
+// for, and mixing them is what made the drawer feel cluttered.
+function renderSupervisorInbox() {
+  const myShift = employeeById(state.currentUserId)?.shift || null;
+  const waiting = (state.overtimePosts || [])
+    .filter((p) => p.status !== "awarded" && (p.applicants || []).length > 0 && p.date >= todayIso())
+    .filter((p) => !myShift || state.coverageShift === "all" || getShiftForDate(p.date) === (state.coverageShift === "mine" || !state.coverageShift ? myShift : state.coverageShift))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!waiting.length) {
+    return `
+      <div class="panel-heading">
+        <div>
+          <h2>Overtime sign-ups</h2>
+          <p class="helper-text">Nobody is waiting on a decision right now.</p>
+        </div>
+      </div>`;
+  }
+
+  const rows = waiting.map((p) => {
+    const unitName = unitById(p.unitId)?.name || p.unitId;
+    const applicants = (p.applicants || []).map((id) => {
+      const emp = employeeById(id);
+      if (!emp) return "";
+      return `<div class="applicant-row">
+        <span><strong>${escapeHtml(emp.name)}</strong> — ${escapeHtml(emp.title || "—")} (${escapeHtml(emp.shift || "?")} shift)</span>
+        <span class="button-row">
+          <button class="button button-primary button-small" data-award-post="${p.id}" data-award-emp="${id}">Award</button>
+          <button class="button button-secondary button-small" data-decline-post="${p.id}" data-decline-emp="${id}">Decline</button>
+        </span>
+      </div>`;
+    }).join("");
+    return `<article class="queue-item">
+      <div class="unit-card-header">
+        <div>
+          <strong>${escapeHtml(unitName)} — ${escapeHtml(p.role || "open seat")}</strong>
+          <p class="helper-text">${formatDate(p.date)} • ${getShiftForDate(p.date)} shift •
+            ${(p.applicants || []).length} signed up${p.notifiedAt ? "" : " • not yet sent out"}</p>
+        </div>
+      </div>
+      <div class="applicant-list">${applicants}</div>
+    </article>`;
+  }).join("");
+
+  return `
+    <div class="panel-heading">
+      <div>
+        <h2>Overtime sign-ups <span class="badge badge-warning">${waiting.length}</span></h2>
+        <p class="helper-text">People waiting on a decision. Full gap list is in Tools → Coverage.</p>
+      </div>
+    </div>
+    <div class="stack-list">${rows}</div>`;
+}
+
+function attachPersonalPanelEvents() {
+  const root = dom["personal-panel"];
+  if (!root) return;
   root.querySelectorAll("[data-award-post]").forEach((b) =>
     b.addEventListener("click", () => awardOvertime(b.dataset.awardPost, b.dataset.awardEmp)));
   root.querySelectorAll("[data-decline-post]").forEach((b) =>
