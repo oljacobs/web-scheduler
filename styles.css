@@ -396,6 +396,9 @@ textarea:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.9fr);
   gap: 20px;
+  /* start, not stretch — a stretched column leaves a sticky child no room to
+     travel, so the editor would sit still while the roster scrolled past it. */
+  align-items: start;
 }
 
 .toolbar-row {
@@ -2109,5 +2112,26 @@ textarea:disabled {
 @media (max-width: 700px) {
   .coverage-day-head {
     align-items: flex-start;
+  }
+}
+
+
+/* Employee editor travels with the roster. Editing credentials means working
+   down a 71-person list one at a time; an editor pinned to the top of the page
+   sent the supervisor back to the start after every single person. */
+.employee-editor-panel {
+  position: sticky;
+  top: 84px;                          /* clears the sticky top bar */
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+}
+
+@media (max-width: 1180px) {
+  /* Stacked layout: nothing to stick to, and a scrolling inner panel on a
+     narrow screen is worse than letting the page scroll. */
+  .employee-editor-panel {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }

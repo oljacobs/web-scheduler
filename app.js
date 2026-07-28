@@ -1659,7 +1659,13 @@ function attachEmployeeManagementEvents() {
       state.selectedEmployeeId = employee.id;
       state.employeeDraft = createEmployeeDraft(employee);
       renderEmployeeEditor();
-      dom["employee-editor"].scrollIntoView({ behavior: "smooth", block: "start" });
+      // On a wide screen the editor is STICKY beside the roster, so it is already
+      // in view — scrolling there would throw the supervisor back to the top of a
+      // long list they are working down one person at a time. Only scroll when
+      // the layout has stacked and the editor is genuinely off screen.
+      if (window.matchMedia("(max-width: 1180px)").matches) {
+        dom["employee-editor"].scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     });
   });
 
