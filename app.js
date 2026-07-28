@@ -1804,10 +1804,17 @@ function renderNotifications() {
 }
 
 function renderApprovalQueue() {
+  // ONLY outstanding decisions. This list previously included every trade and
+  // overtime post ever created — resolved ones never left, and they still showed
+  // live Approve/Deny buttons.
   const queue = [
-    ...state.trades.map((trade) => ({ ...trade, queueType: "trade" })),
-    ...state.overtimePosts.map((post) => ({ ...post, queueType: "overtime" })),
-  ].sort((a, b) => a.date.localeCompare(b.date));
+    ...state.trades
+      .filter((t) => t.status === "pending")
+      .map((trade) => ({ ...trade, queueType: "trade" })),
+    ...state.overtimePosts
+      .filter((p) => p.status !== "awarded" && p.status !== "closed" && (p.applicants || []).length > 0)
+      .map((post) => ({ ...post, queueType: "overtime" })),
+  ].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
   dom["approval-queue"].innerHTML = queue.length
     ? queue
@@ -1827,14 +1834,16 @@ function renderApprovalQueue() {
               <p>${details}</p>
               <p class="helper-text">${item.notes || `${item.applicants?.length || 0} applicant(s) in queue`}</p>
               <div class="queue-item-actions ${state.currentRole !== "supervisor" ? "hidden" : ""}">
-                <button class="button button-secondary" data-approve="${item.id}">Approve</button>
-                <button class="button button-secondary" data-deny="${item.id}">Deny</button>
+                ${item.queueType === "trade"
+                  ? `<button class="button button-secondary" data-approve="${item.id}">Approve</button>
+                     <button class="button button-secondary" data-deny="${item.id}">Deny</button>`
+                  : `<p class="helper-text">Award this to a named applicant from the schedule page or Coverage tab.</p>`}
               </div>
             </article>
           `;
         })
         .join("")
-    : `<div class="empty-state">Nothing pending approval right now.</div>`;
+    : `<div class="empty-state">Nothing waiting on a decision.</div>`;
 
   [...document.querySelectorAll("[data-approve]")].forEach((button) => {
     button.addEventListener("click", () => approveQueueItem(button.dataset.approve));
@@ -2894,12 +2903,16 @@ function coverageGaps(startDate, days) {
       const { seats } = assignPeopleToSeats(unit.type, getAssignments(date, unit.id));
       seats.forEach((seat) => {
         if (seat.person || !seatIsRequired(seat.pos)) return;
+        // Already awarded = filled. Without this the row lingers with an
+        // "Awarded" badge, which is exactly the clutter the list should shed.
+        const existingPost = overtimePostForGap(unit.id, date, seat.pos.role);
+        if (existingPost && existingPost.status === "awarded") return;
         gaps.push({
           key: gapKey(unit.id, date, seat.pos.role),
           unitId: unit.id, unitName: unit.name, date,
           role: seat.pos.role, label: seat.pos.label,
           cap: seat.pos.cap, need: seatNeedLabel(seat.pos),
-          post: overtimePostForGap(unit.id, date, seat.pos.role),
+          post: existingPost,
         });
       });
     });

@@ -219,6 +219,13 @@ gapKey(unitId,date,role) identifies a gap; overtimePostForGap() finds its post.
 eligibleForGap(gap) = credentialed via seatAccepts + active + NOT already assigned that date
   (same-day double-booking is barred department-wide, at apply AND at award).
 notifyGap / applyForGap / withdrawFromGap / awardOvertime(postId,employeeId) / declineApplicant.
+coverageGaps() SKIPS a seat whose post is already "awarded" — the seat is spoken for even if the
+  greedy seat-filler placed the person in a different seat on that truck. Without this the row
+  lingered with an "Awarded" badge forever.
+renderApprovalQueue() shows ONLY outstanding decisions: trades status==="pending", and overtime
+  that is not awarded/closed AND has applicants. It previously listed EVERY trade and post ever
+  created, resolved ones included, with live Approve/Deny on them. Overtime rows carry no
+  Approve/Deny at all — it is awarded to a NAMED applicant from the landing page or Coverage.
 Coverage list is grouped BY DATE in <details>, COLLAPSED by default (scan to a shift, open it,
   send it out). notifyAllGapsOnDate() sends every un-notified seat on a date via
   notifyGapSilently() — one save + ONE audit line, not one per seat. The "Send out N" button lives
