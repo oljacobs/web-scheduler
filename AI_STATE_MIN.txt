@@ -179,6 +179,27 @@ BACKEND PRUNE GUARD (scheduler/views.py _write_state): a Unit/Employee missing f
   rebuilt only for units present in the payload. Deleting cascades to Assignment, and a stale
   browser tab wiped MOF115 twice before this existed — do not "simplify" it back.
 
+Mandatory backfill (Admin -> Mandatory):
+state.mandatoryBackfill=[{employeeId,date,order,fiscalYear,notes}]; Django MandatoryBackfill
+  unique(employee,date), migration 0007. NOT a rotation — employees pick their forced-hire dates
+  at the start of the fiscal year and supervisors enter them, so it is a STORED CALENDAR.
+FY runs Oct 1 -> Sep 30 and is NAMED BY START YEAR: fiscalYearBounds(2026) = FY2027.
+  currentFiscalYear() = the FY we are in; planningFiscalYear() = the one being prepared (Jul
+  onward rolls forward). The UI defaults to PLANNING — picks are entered before Oct 1.
+mandatoryEligibleShift(date) -> the ONE platoon that may be forced that date. Nobody may work 72
+  hrs straight, so it is the platoon working NEITHER date-1 NOR date+1 (and not the on-duty one).
+  C day1 -> A pool; C day2 -> B pool. Derived from rotationPattern, never hardcoded. The import
+  REJECTS (not warns) a person from the wrong platoon — it is a rest-rule violation, not a typo.
+  The template's platoon filter means "dates this platoon can be FORCED", not "dates it is on duty".
+buildMandatoryTemplateCsv(startYear, platoon) emits a sheet with date+platoons ALREADY FILLED
+  (365 rows, or ~121 for one platoon) so supervisors only type names — the platoon maths is
+  where hand-entry errors would come from. Import matches on email, then badge, then id.
+Import is idempotent on (employee,date): re-uploading a corrected sheet updates, never duplicates.
+mandatoryForDate(date) -> designated people, first-called first.
+NOT BUILT YET: backfill must BYPASS the same-day exclusion (it is the only case where on-duty
+  people are notified); escalation after 3-5 unanswered days must be a SERVER-side scheduled
+  command, never the SPA.
+
 Overtime / coverage (drawer -> Coverage tab, ONE list for both roles):
 coverageGaps(startDate,days) -> every unfilled REQUIRED seat with the capability it needs, derived
   from the schedule (never typed in, so a post can't ask for the wrong qualification).

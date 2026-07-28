@@ -12,6 +12,8 @@ const state = {
   scheduleStatus: "draft",
   units: [],
   staffingTemplates: [],
+  mandatoryBackfill: [],
+  mandatoryImportPreview: null,
   employees: [],
   trades: [],
   overtimePosts: [],
@@ -160,6 +162,10 @@ function cacheDom() {
     "template-push-days", "template-push-btn", "template-push-summary",
     "export-audit-btn",
     "coverage-list", "coverage-summary", "coverage-days", "coverage-badge", "coverage-shift",
+    // Mandatory backfill
+    "mandatory-fy", "mandatory-platoon", "download-mandatory-btn", "mandatory-import-file",
+    "mandatory-preview-btn", "mandatory-apply-btn", "mandatory-import-message",
+    "mandatory-import-preview", "mandatory-summary",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -216,6 +222,11 @@ function wireEvents() {
   attachTemplateEvents();
   dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
   dom["coverage-days"]?.addEventListener("change", renderCoveragePanel);
+  dom["download-mandatory-btn"]?.addEventListener("click", downloadMandatoryTemplate);
+  dom["mandatory-fy"]?.addEventListener("change", renderMandatorySummary);
+  dom["mandatory-platoon"]?.addEventListener("change", renderMandatorySummary);
+  dom["mandatory-preview-btn"]?.addEventListener("click", handleMandatoryPreview);
+  dom["mandatory-apply-btn"]?.addEventListener("click", applyMandatoryImport);
   dom["coverage-shift"]?.addEventListener("change", (e) => {
     state.coverageShift = e.target.value;
     renderCoveragePanel();
@@ -280,6 +291,11 @@ function wireEvents() {
 function initializeControls() {
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
+  // Default to the fiscal year people are picking for: after Oct 1 that's the
+  // current one, before it that's the one about to start.
+  if (dom["mandatory-fy"] && !dom["mandatory-fy"].value) {
+    dom["mandatory-fy"].value = String(planningFiscalYear());
+  }
   dom["employee-search"].value = state.employeeFilter.search;
   dom["roster-shift-filter"].value = state.employeeFilter.shift;
   dom["employee-status-filter"].value = state.employeeFilter.status;
@@ -586,6 +602,11 @@ function migratePersistedUnitTypes(units) {
 function render() {
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
+  // Default to the fiscal year people are picking for: after Oct 1 that's the
+  // current one, before it that's the one about to start.
+  if (dom["mandatory-fy"] && !dom["mandatory-fy"].value) {
+    dom["mandatory-fy"].value = String(planningFiscalYear());
+  }
   dom.viewButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.view === state.currentView));
   renderSurfaceState();
   renderSummary();
@@ -606,6 +627,8 @@ function render() {
   renderSaveIndicator();
   renderReservePanel();
   renderCoveragePanel();
+  renderMandatoryImportPreview();
+  renderMandatorySummary();
   renderDrawerBadge();
   renderTemplateEditor();   // binds its own seat events
 }
@@ -2393,6 +2416,242 @@ function attachCoverageEvents(gaps) {
     b.addEventListener("click", () => declineApplicant(b.dataset.declinePost, b.dataset.declineEmp)));
 }
 
+// ─── Mandatory backfill (forced hire) ────────────────────────────────────────
+// NOT a rotation the system derives. Employees pick their dates at the start of
+// the fiscal year and supervisors enter them for the year ahead. The fairness
+// decision was already made when people picked, so this is stored, not computed.
+
+// WHICH PLATOON CAN BE FORCED ON A DATE.
+//
+// Nobody may be made to work 72 hours straight, so a platoon can only be brought
+// in on a date it works NEITHER the day before NOR the day after. On a 48/96
+// rotation that leaves exactly one eligible platoon per date:
+//
+//   C shift day 1 -> B just finished a 48, so B would hit 72. Forced pool is A.
+//   C shift day 2 -> A starts a 48 tomorrow, so A would hit 72. Forced pool is B.
+//
+// Derived from rotationPattern rather than hardcoded, so changing the rotation
+// changes this automatically instead of silently breaking it.
+function mandatoryEligibleShift(date) {
+  const onDuty = getShiftForDate(date);
+  const prev = getShiftForDate(addDays(date, -1));
+  const next = getShiftForDate(addDays(date, 1));
+  const candidates = ["A", "B", "C"].filter((sh) => sh !== onDuty && sh !== prev && sh !== next);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+// Fiscal year runs Oct 1 -> Sep 30 and is NAMED BY ITS START YEAR.
+// FY2027 = 2026-10-01 .. 2027-09-30.
+function fiscalYearBounds(startYear) {
+  return { start: `${startYear}-10-01`, end: `${startYear + 1}-09-30` };
+}
+
+function currentFiscalYear(dateIso) {
+  const d = dateIso || todayIso();
+  const [y, m] = d.split("-").map(Number);
+  return m >= 10 ? y : y - 1;
+}
+
+// The year supervisors are PREPARING, which is not the year we are in. Picks are
+// collected before Oct 1 for the year about to start, so from July onward the
+// useful default is the upcoming fiscal year, not the one running out.
+function planningFiscalYear(dateIso) {
+  const d = dateIso || todayIso();
+  const [y, m] = d.split("-").map(Number);
+  return m >= 7 ? y : y - 1;
+}
+
+// The whole point of generating rather than handing over a blank sheet: the app
+// already knows which platoon is on duty on every date, so supervisors never have
+// to work that out by hand — which is where the errors would come from.
+function buildMandatoryTemplateCsv(startYear, platoon) {
+  const { start, end } = fiscalYearBounds(startYear);
+  // The platoon column supervisors actually need is the FORCED pool, not who is
+  // on duty — those are different platoons on every date. Both are emitted so the
+  // sheet is self-explanatory.
+  const rows = ["date,onDutyPlatoon,mandatoryPlatoon,employeeEmailOrBadge,order,notes"];
+  let date = start;
+  while (date <= end) {
+    const onDuty = getShiftForDate(date);
+    const eligible = mandatoryEligibleShift(date);
+    if (!platoon || platoon === "all" || eligible === platoon) {
+      rows.push(`${date},${onDuty},${eligible || ""},,1,`);
+    }
+    date = addDays(date, 1);
+  }
+  return rows.join("\n");
+}
+
+function downloadMandatoryTemplate() {
+  const startYear = Number(dom["mandatory-fy"]?.value) || planningFiscalYear();
+  const platoon = dom["mandatory-platoon"]?.value || "all";
+  const label = platoon === "all" ? "all" : platoon.toLowerCase();
+  downloadCsv(`d7fr-mandatory-fy${startYear + 1}-${label}.csv`, buildMandatoryTemplateCsv(startYear, platoon));
+}
+
+// Matched on email first, then badge — the two identifiers a supervisor actually
+// has to hand. Employee ids are internal and nobody types those.
+function findEmployeeByIdentifier(token) {
+  const t = String(token || "").trim().toLowerCase();
+  if (!t) return null;
+  return (
+    state.employees.find((e) => (e.email || "").toLowerCase() === t) ||
+    state.employees.find((e) => String(e.badge || "").toLowerCase() === t) ||
+    state.employees.find((e) => (e.id || "").toLowerCase() === t) ||
+    null
+  );
+}
+
+function previewMandatoryImport(text) {
+  const rows = parseCsv(text);
+  const errors = [];
+  const warnings = [];
+  const validRows = [];
+  const seen = new Set();
+
+  rows.forEach((row, index) => {
+    const line = index + 2;
+    const date = (row.date || "").trim();
+    const token = (row.employeeemailorbadge || row.employee || "").trim();
+    if (!date && !token) return;                       // untouched template row
+    if (!token) return;                                // date with nobody picked yet
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      errors.push({ message: `Row ${line}: date must be YYYY-MM-DD (got "${date}").` });
+      return;
+    }
+    const emp = findEmployeeByIdentifier(token);
+    if (!emp) {
+      errors.push({ message: `Row ${line}: no employee matches "${token}".` });
+      return;
+    }
+    if (emp.status === "archived") {
+      warnings.push({ message: `Row ${line}: ${emp.name} is archived.` });
+    }
+    const key = `${emp.id}|${date}`;
+    if (seen.has(key)) {
+      errors.push({ message: `Row ${line}: ${emp.name} listed twice for ${date}.` });
+      return;
+    }
+    seen.add(key);
+
+    // HARD ERROR, not a warning: forcing a platoon that works the adjacent day
+    // means 72 consecutive hours. That is a rest-rule violation, not a typo.
+    const eligible = mandatoryEligibleShift(date);
+    if (!emp.shift) {
+      errors.push({ message: `Row ${line}: ${emp.name} has no platoon assigned.` });
+      return;
+    }
+    if (eligible && emp.shift !== eligible) {
+      errors.push({
+        message: `Row ${line}: ${emp.name} is ${emp.shift} shift, but only ${eligible} shift can be ` +
+                 `forced on ${date} (${getShiftForDate(date)} shift is on duty). ` +
+                 `${emp.shift} shift works an adjacent day — that would be 72 hours straight.`,
+      });
+      return;
+    }
+    validRows.push({
+      employeeId: emp.id,
+      date,
+      order: Number(row.order) > 0 ? Number(row.order) : 1,
+      fiscalYear: currentFiscalYear(date),
+      notes: (row.notes || "").slice(0, 200),
+    });
+  });
+
+  return { rows, errors, warnings, validRows, stats: { valid: validRows.length } };
+}
+
+function applyMandatoryImport() {
+  if (state.currentRole !== "supervisor" || !state.isAuthenticated) {
+    dom["mandatory-import-message"].textContent = "Supervisor sign-in is required.";
+    return;
+  }
+  const preview = state.mandatoryImportPreview;
+  if (!preview || preview.errors.length) {
+    dom["mandatory-import-message"].textContent = "Resolve import errors before applying.";
+    return;
+  }
+  if (!Array.isArray(state.mandatoryBackfill)) state.mandatoryBackfill = [];
+  let added = 0;
+  let updated = 0;
+  preview.validRows.forEach((row) => {
+    const existing = state.mandatoryBackfill.find(
+      (m) => m.employeeId === row.employeeId && m.date === row.date
+    );
+    if (existing) { Object.assign(existing, row); updated += 1; }
+    else { state.mandatoryBackfill.push(row); added += 1; }
+  });
+  state.mandatoryImportPreview = null;
+  addAudit(`Mandatory backfill import applied: ${added} added, ${updated} updated.`, currentUserName());
+  dom["mandatory-import-file"].value = "";
+  render();
+  persistAppState("Mandatory backfill imported");
+  showToast(`Mandatory list updated — ${added} added, ${updated} updated.`, "success");
+}
+
+// Who is designated for a date, first-called first.
+async function handleMandatoryPreview() {
+  if (state.currentRole !== "supervisor") {
+    dom["mandatory-import-message"].textContent = "Supervisor sign-in is required.";
+    return;
+  }
+  const file = dom["mandatory-import-file"].files[0];
+  if (!file) {
+    dom["mandatory-import-message"].textContent = "Choose the completed CSV first.";
+    return;
+  }
+  const text = await file.text();
+  const preview = previewMandatoryImport(text);
+  state.mandatoryImportPreview = { ...preview, type: "mandatory" };
+  const { errors, warnings, validRows } = preview;
+  dom["mandatory-import-message"].textContent = errors.length
+    ? `${errors.length} error(s) — nothing will be applied. ${errors.slice(0, 2).map((e) => e.message).join(" ")}`
+    : `${validRows.length} pick(s) ready${warnings.length ? `, ${warnings.length} warning(s)` : ""}.`;
+  renderMandatoryImportPreview();
+}
+
+function renderMandatoryImportPreview() {
+  const el = dom["mandatory-import-preview"];
+  if (!el) return;
+  const preview = state.mandatoryImportPreview;
+  el.innerHTML = preview ? buildImportPreviewHtml(preview, "Mandatory") : "";
+}
+
+// A supervisor needs to see coverage of the LIST itself: which duty dates still
+// have nobody designated. That is the gap that matters before Oct 1.
+function renderMandatorySummary() {
+  const el = dom["mandatory-summary"];
+  if (!el) return;
+  const startYear = Number(dom["mandatory-fy"]?.value) || planningFiscalYear();
+  const { start, end } = fiscalYearBounds(startYear);
+  const picks = (state.mandatoryBackfill || []).filter((m) => m.date >= start && m.date <= end);
+  const byDate = new Set(picks.map((m) => m.date));
+
+  let dutyDates = 0;
+  let covered = 0;
+  let date = start;
+  while (date <= end) {
+    dutyDates += 1;
+    if (byDate.has(date)) covered += 1;
+    date = addDays(date, 1);
+  }
+  const people = new Set(picks.map((m) => m.employeeId)).size;
+  el.innerHTML = `<div class="status-box ${covered < dutyDates ? "status-box-warning" : ""}">
+    <strong>FY${startYear + 1}</strong> (${formatDate(start)} – ${formatDate(end)}):
+    ${covered} of ${dutyDates} dates have someone designated, across ${people}
+    ${people === 1 ? "person" : "people"}.
+    ${covered < dutyDates ? `<br /><span class="helper-text">${dutyDates - covered} dates still have nobody on the mandatory list.</span>` : ""}
+  </div>`;
+}
+
+function mandatoryForDate(date) {
+  return (state.mandatoryBackfill || [])
+    .filter((m) => m.date === date)
+    .sort((a, b) => (a.order || 1) - (b.order || 1))
+    .map((m) => ({ ...m, employee: employeeById(m.employeeId) }))
+    .filter((m) => m.employee);
+}
+
 // ─── Overtime: gaps, applications, awards ────────────────────────────────────
 // The OPPORTUNITY is the staffing gap itself. A post records that the gap is open
 // for applications; "notify" records that qualified people were told. That is why
@@ -3875,6 +4134,7 @@ function serializableState() {
   return {
     units: state.units,
     staffingTemplates: state.staffingTemplates,
+    mandatoryBackfill: state.mandatoryBackfill,
     employees: state.employees,
     trades: state.trades,
     overtimePosts: state.overtimePosts,
@@ -3910,6 +4170,7 @@ function applyPersistedState(data) {
     state.units = defaultUnits();
   }
   state.staffingTemplates = Array.isArray(data.staffingTemplates) ? data.staffingTemplates : [];
+  state.mandatoryBackfill = Array.isArray(data.mandatoryBackfill) ? data.mandatoryBackfill : [];
   state.employees = Array.isArray(data.employees) ? data.employees : [];
   state.trades = Array.isArray(data.trades) ? data.trades : [];
   state.overtimePosts = Array.isArray(data.overtimePosts) ? data.overtimePosts : [];

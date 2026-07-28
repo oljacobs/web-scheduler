@@ -150,6 +150,7 @@
                   <button class="tab-button" data-tab="imports">Imports</button>
                   <button class="tab-button" data-tab="units">Units</button>
                   <button class="tab-button" data-tab="templates">Templates</button>
+                  <button class="tab-button" data-tab="mandatory">Mandatory</button>
                 </div>
 
                 <div class="tab-pane" data-tab-id="employees">
@@ -263,6 +264,54 @@
                     </div>
                   </div>
                   <div id="unit-toggle-list" class="toggle-list"></div>
+                </div>
+
+                <div class="tab-pane hidden" data-tab-id="mandatory">
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Mandatory Backfill List</h2>
+                      <p class="helper-text">
+                        Employees pick their forced-hire dates at the start of the fiscal year (Oct 1).
+                        Download a sheet with every date, the platoon on duty, and the platoon eligible
+                        to be forced already filled in — add names and upload it back. Re-uploading a
+                        corrected sheet updates rather than duplicating.
+                        <br /><br />
+                        <strong>Only one platoon can be forced on any given date.</strong> Nobody may work
+                        72 hours straight, so the eligible platoon is the one working neither the day
+                        before nor the day after. On a C-shift day 1 that is A shift; on C-shift day 2 it
+                        is B shift. The import rejects anyone from the wrong platoon.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="template-controls">
+                    <label>
+                      Fiscal year (starts Oct 1)
+                      <input id="mandatory-fy" type="number" min="2020" max="2100" />
+                    </label>
+                    <label>
+                      Forced pool
+                      <select id="mandatory-platoon">
+                        <option value="all">All dates</option>
+                        <option value="A">Dates A shift can be forced</option>
+                        <option value="B">Dates B shift can be forced</option>
+                        <option value="C">Dates C shift can be forced</option>
+                      </select>
+                    </label>
+                    <button id="download-mandatory-btn" class="button button-secondary">Download sheet</button>
+                  </div>
+
+                  <div class="template-push">
+                    <label>
+                      Completed sheet (CSV)
+                      <input id="mandatory-import-file" type="file" accept=".csv" />
+                    </label>
+                    <button id="mandatory-preview-btn" class="button button-secondary">Preview</button>
+                    <button id="mandatory-apply-btn" class="button button-primary">Apply import</button>
+                  </div>
+                  <p id="mandatory-import-message" class="helper-text"></p>
+                  <div id="mandatory-import-preview"></div>
+                  <div id="mandatory-summary" class="stack-list"></div>
                 </div>
 
                 <div class="tab-pane hidden" data-tab-id="templates">
