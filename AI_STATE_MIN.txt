@@ -56,7 +56,13 @@ Capabilities / seats:
 personCapabilities(emp)=[...certs, ...rideUp]; seatAccepts(pos,emp) checks pos.cap vs caps (null=any)
 resolvePerson(p)=live employee by id (assignment snapshots resolved to current record)
 assignPeopleToSeats(unitType,people) greedy-fills seats (specific/required first) -> {seats,extra}
-seatDropdownOptions(pos,unit,date): active, seat-eligible, NOT assignedEmployeeIdsForDate(date) (no double-booking)
+seatDropdownOptions(pos,unit,date): active, seat-eligible, NOT assignedEmployeeIdsForDate(date)
+  (no double-booking). Grouped into <optgroup> BY PLATOON, on-duty shift first, off-duty ones
+  labelled "(overtime)" — a flat alphabetical list across all three shifts made a supervisor read
+  every name to find who was even on duty.
+Seat ORDER in UNIT_POSITION_REQUIREMENTS is the DISPLAY order on the card. Ladder used to list
+  Driver before Officer while Engine listed Officer first; both now read Officer > Driver/Engineer
+  > riders. Keep new unit types consistent.
   assignedEmployeeIdsForDate only counts assignments to EXISTING units (orphaned/deleted-unit ones ignored)
 
 Auth flow (MSAL):

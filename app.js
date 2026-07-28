@@ -80,9 +80,12 @@ const UNIT_POSITION_REQUIREMENTS = {
     { role: "BC",  label: "BC Position",  cap: "officer" },
     { role: "ICT", label: "ICT Position", cap: ["officer", "engineer"] },
   ],
+  // Officer first, then driver, then riders — same reading order as Engine.
+  // Seat order here IS display order on the card, so an inconsistency between
+  // trucks is a usability bug, not cosmetics.
   Ladder: [
+    { role: "Officer", label: "Officer",         cap: "officer" },
     { role: "Driver",  label: "Driver/Engineer", cap: "engineer" },
-    { role: "Officer", label: "Officer Seat",    cap: "officer" },
     { role: "FF1",     label: "FF 1",            cap: null },
     { role: "FF2",     label: "FF 2",            cap: null },
   ],
@@ -4081,14 +4084,32 @@ function assignPeopleToSeats(unitType, people) {
 function seatDropdownOptions(pos, unit, date) {
   const booked = assignedEmployeeIdsForDate(date);
   const base = eligibleEmployeesForDate(date);
-  return base
+  const onDuty = getShiftForDate(date);
+  const candidates = base
     .filter((e) => !booked.has(e.id))
-    .filter((e) => seatAccepts(pos, e))
-    .map((e) => {
-      const acting = !seatAllowsAny(pos) && !(e.certs || []).some((c) => (Array.isArray(pos.cap) ? pos.cap : [pos.cap]).includes(c));
-      return `<option value="${e.id}">${escapeHtml(e.name)} — ${escapeHtml(e.title || "—")}${acting ? " (acting)" : ""} (${e.shift || "?"})</option>`;
+    .filter((e) => seatAccepts(pos, e));
+
+  // Grouped by platoon, the on-duty one first — that is who a supervisor is
+  // normally choosing from. Cross-platoon (overtime) options stay available but
+  // sit below, clearly labelled, instead of being mixed in alphabetically.
+  const optionFor = (e) => {
+    const acting = !seatAllowsAny(pos) && !(e.certs || []).some((c) => (Array.isArray(pos.cap) ? pos.cap : [pos.cap]).includes(c));
+    return `<option value="${e.id}">${escapeHtml(e.name)} — ${escapeHtml(e.title || "—")}${acting ? " (acting)" : ""}</option>`;
+  };
+  const order = [onDuty, ...["A", "B", "C"].filter((sh) => sh !== onDuty)];
+  const groups = order
+    .map((sh) => {
+      const members = candidates.filter((e) => e.shift === sh).sort((a, b) => a.name.localeCompare(b.name));
+      if (!members.length) return "";
+      const label = sh === onDuty ? `${sh} shift — on duty` : `${sh} shift — off duty (overtime)`;
+      return `<optgroup label="${label}">${members.map(optionFor).join("")}</optgroup>`;
     })
     .join("");
+  const unassigned = candidates.filter((e) => !["A", "B", "C"].includes(e.shift))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return groups + (unassigned.length
+    ? `<optgroup label="No platoon assigned">${unassigned.map(optionFor).join("")}</optgroup>`
+    : "");
 }
 
 // One seat row: shows the assigned person (with Remove) or a pick dropdown.
