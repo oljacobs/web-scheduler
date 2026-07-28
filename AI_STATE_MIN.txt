@@ -235,7 +235,16 @@ buildMandatoryTemplateCsv(startYear, platoon) emits a sheet with date+platoons A
   where hand-entry errors would come from. Import matches on email, then badge, then id.
 Import is idempotent on (employee,date): re-uploading a corrected sheet updates, never duplicates.
 mandatoryForDate(date) -> designated people, first-called first.
-NOT BUILT YET: backfill must BYPASS the same-day exclusion (it is the only case where on-duty
+FORCE-IN (built): forceCandidatesForGap(gap) -> people who PRE-PICKED that date, filtered to the
+  ONE platoon mandatoryEligibleShift() allows, who hold the seat, in picked `order`. Carries
+  alreadyWorking so the confirm can warn about a 48-hour tour.
+forceInToGap() is a SEPARATE path from eligibleForGap() on purpose: it is the only place the
+  same-day exclusion is ignored and on-duty people are contacted. Do NOT merge the two rules —
+  voluntary overtime must stay strict. Awards the post as forced:true, writes the assignment,
+  notifies, and audits as "FORCED".
+The Force button only appears once a gap has been NOTIFIED and has zero applicants — never the
+  first move.
+STILL NOT BUILT: escalation after 3-5 unanswered days (it is the only case where on-duty
   people are notified); escalation after 3-5 unanswered days must be a SERVER-side scheduled
   command, never the SPA.
 

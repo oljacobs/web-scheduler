@@ -2332,10 +2332,17 @@ function renderCoveragePanel() {
           }).join("")}</div>`
         : "";
 
+      // Force-in only appears once a gap has been announced and nobody took it —
+      // it should never be the first move.
+      const forceable = isSupervisor && post?.notifiedAt && !posted.length;
       const action = isSupervisor
         ? `<button class="button button-secondary button-small" data-notify-gap="${gap.key}">
              ${post?.notifiedAt ? "Re-send" : "Notify"}
-           </button>`
+           </button>` +
+          (forceable
+            ? `<button class="button button-secondary button-small" data-force-gap="${gap.key}"
+                 title="Assign from the mandatory backfill list">Force</button>`
+            : "")
         : applied
           ? `<button class="button button-secondary button-small" data-withdraw-post="${post.id}">Withdraw</button>`
           : `<button class="button button-primary button-small" data-apply-gap="${gap.key}">Sign up</button>`;
@@ -2422,6 +2429,8 @@ function attachCoverageEvents(gaps) {
       event.stopPropagation();
       notifyAllGapsOnDate(b.dataset.notifyDate, gaps);
     }));
+  root.querySelectorAll("[data-force-gap]").forEach((b) =>
+    b.addEventListener("click", () => forceInToGap(b.dataset.forceGap, gaps)));
   root.querySelectorAll("[data-notify-gap]").forEach((b) =>
     b.addEventListener("click", () => notifyGap(b.dataset.notifyGap, gaps)));
   root.querySelectorAll("[data-apply-gap]").forEach((b) =>
@@ -3124,6 +3133,87 @@ function applyMandatoryImport() {
   render();
   persistAppState("Mandatory backfill imported");
   showToast(`Mandatory list updated — ${added} added, ${updated} updated.`, "success");
+}
+
+// FORCE-IN: the only path that may notify people who are already on duty, and
+// the only one that ignores the same-day exclusion. Kept deliberately separate
+// from eligibleForGap() rather than relaxing it — voluntary overtime must keep
+// the strict rule, and a shared "flexible" rule would quietly erode it.
+//
+// Candidates are the people who PRE-PICKED this date (see the Mandatory tab),
+// filtered to the one platoon the 72-hour rule allows, in their picked order.
+function forceCandidatesForGap(gap) {
+  const eligibleShift = mandatoryEligibleShift(gap.date);
+  const pos = { cap: gap.cap };
+  return mandatoryForDate(gap.date)
+    .filter((m) => {
+      const emp = m.employee;
+      if (!emp || emp.status === "archived") return false;
+      if (eligibleShift && emp.shift !== eligibleShift) return false;  // 72-hour rule
+      return seatAccepts(pos, emp);                                    // must hold the seat
+    })
+    .map((m) => ({ ...m, alreadyWorking: assignedEmployeeIdsForDate(gap.date).has(m.employee.id) }));
+}
+
+function forceInToGap(gapKeyStr, gaps) {
+  if (state.currentRole !== "supervisor") {
+    showToast("Supervisor sign-in required to force staffing.", "error");
+    return;
+  }
+  const gap = gaps.find((g) => g.key === gapKeyStr);
+  if (!gap) return;
+  const candidates = forceCandidatesForGap(gap);
+  if (!candidates.length) {
+    window.alert(
+      `Nobody is available to force onto ${gap.unitName} for ${formatDate(gap.date)}.\n\n` +
+      `Only ${mandatoryEligibleShift(gap.date) || "—"} shift may be forced on that date ` +
+      `(the 72-hour rule), and nobody on the mandatory list for that date holds ` +
+      `${gap.need || "this seat"}.`
+    );
+    return;
+  }
+
+  const first = candidates[0];
+  const warn = first.alreadyWorking
+    ? `\n\nNOTE: ${first.employee.name} is ALREADY on the schedule that day. Forcing them means a 48-hour tour.`
+    : "";
+  const ok = window.confirm(
+    `Force ${first.employee.name} (#${first.order || 1} on the mandatory list, ${first.employee.shift} shift) ` +
+    `onto ${gap.unitName} — ${gap.label} for ${formatDate(gap.date)}?` +
+    `\n\n${candidates.length} candidate(s) on the list for this date.${warn}` +
+    `\n\nThis is a FORCED assignment, not a volunteer pickup.`
+  );
+  if (!ok) return;
+
+  const post = ensureOvertimePost(gap, "open");
+  post.status = "awarded";
+  post.approvedEmployeeId = first.employee.id;
+  post.forced = true;
+
+  if (!state.assignments[gap.date]) state.assignments[gap.date] = {};
+  state.assignments[gap.date][gap.unitId] = markManual([
+    ...getAssignments(gap.date, gap.unitId),
+    first.employee,
+  ]);
+
+  queueNotification({
+    recipientId: first.employee.id,
+    channel: "email",
+    subject: `MANDATORY overtime — ${gap.unitName} ${formatDate(gap.date)}`,
+    message: `You have been assigned mandatory coverage on ${gap.unitName} ` +
+             `(${gap.label}) for ${formatDate(gap.date)}. Report at ` +
+             `${post.reportTime || DEFAULT_REPORT_TIME}. This is a forced assignment.`,
+    relatedKind: "overtime",
+    relatedId: post.id,
+  });
+  addAudit(
+    `FORCED ${first.employee.name} onto ${gap.unitName} ${gap.label} for ${formatDate(gap.date)} ` +
+    `(mandatory list #${first.order || 1}${first.alreadyWorking ? ", already on duty" : ""}).`,
+    currentUserName()
+  );
+  render();
+  persistAppState("Mandatory backfill assigned");
+  showToast(`${first.employee.name} forced onto ${formatDate(gap.date)}.`, "success");
 }
 
 // Who is designated for a date, first-called first.
