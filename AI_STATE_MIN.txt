@@ -41,7 +41,16 @@ Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],sortOrder,visibl
   migrateUnitShiftModel() strips legacy unit.shift on load. requiredCerts is VESTIGIAL for
   typed units (alerts come from UNIT_POSITION_REQUIREMENTS[type], not that field).
 Trade{id,status,employeeId,partnerId,date,notes,type,createdBy}
-OvertimePost{id,status,unitId,date,qualification,reportTime,applicants,approvedEmployeeId?}
+Notification{id,recipientId,channel(email|sms|in_app),subject,message,status(queued|sent|failed|
+  skipped),relatedKind,relatedId,createdBy,time}  — an OUTBOX, not a log. Nothing sends yet;
+  rows persist server-side as "queued" so wiring SMTP/SMS later is a transport change only.
+  Django Notification model + migration 0006. Previously notifications were NEVER serialized:
+  the SPA sent them, the server discarded them, nothing came back.
+OvertimePost{id,status(requested|open|awarded|closed),unitId,date,role,requiredCap,qualification,
+  reportTime,applicants[],approvedEmployeeId?,notifiedAt}
+  The OPPORTUNITY is the GAP (unit+date+seat role); the post records that it is open and, once
+  notified, that qualified people were told. Applying to an un-announced gap creates the post as
+  "requested" so supervisors see demand — that is how "sign up for shifts not yet sent out" works.
 
 Capabilities / seats:
 personCapabilities(emp)=[...certs, ...rideUp]; seatAccepts(pos,emp) checks pos.cap vs caps (null=any)
@@ -169,6 +178,22 @@ BACKEND PRUNE GUARD (scheduler/views.py _write_state): a Unit/Employee missing f
   is deleted ONLY if it has no assignments; otherwise it is hidden/archived. Assignments are
   rebuilt only for units present in the payload. Deleting cascades to Assignment, and a stale
   browser tab wiped MOF115 twice before this existed — do not "simplify" it back.
+
+Overtime / coverage (drawer -> Coverage tab, ONE list for both roles):
+coverageGaps(startDate,days) -> every unfilled REQUIRED seat with the capability it needs, derived
+  from the schedule (never typed in, so a post can't ask for the wrong qualification).
+gapKey(unitId,date,role) identifies a gap; overtimePostForGap() finds its post.
+eligibleForGap(gap) = credentialed via seatAccepts + active + NOT already assigned that date
+  (same-day double-booking is barred department-wide, at apply AND at award).
+notifyGap / applyForGap / withdrawFromGap / awardOvertime(postId,employeeId) / declineApplicant.
+awardOvertime writes a REAL Assignment (markManual) — awarding used to change nothing on the board.
+Supervisors CHOOSE the winner. approveQueueItem() no longer touches overtime: it used to set
+  approvedEmployeeId = applicants[0], and createOpenShift() FABRICATED three applicants, so shifts
+  were awarded to people who never volunteered. Both deleted.
+
+`node --check` only checks SYNTAX. It happily passed while addEventListener("click", createOpenShift)
+  referenced a deleted function, which would have thrown in wireEvents() and killed startup.
+  Verify named handlers resolve after removing any function.
 
 High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)

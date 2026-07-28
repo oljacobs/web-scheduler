@@ -1926,3 +1926,42 @@ textarea:disabled {
     width: 100%;
   }
 }
+
+/* ── Coverage / overtime marketplace (drawer -> Coverage) ───────────────── */
+.coverage-controls {
+  margin-bottom: 10px;
+}
+
+.coverage-item + .coverage-item {
+  margin-top: 10px;
+}
+
+.applicant-list {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--panel-border);
+  display: grid;
+  gap: 8px;
+}
+
+.applicant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.applicant-row .button-row {
+  gap: 6px;
+}
+
+@media (max-width: 700px) {
+  .applicant-row {
+    align-items: stretch;
+  }
+
+  .applicant-row .button-row .button {
+    flex: 1;
+  }
+}

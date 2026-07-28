@@ -138,8 +138,8 @@ function cacheDom() {
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator", "trade-owner",
-    "trade-partner", "trade-date", "trade-notes", "submit-trade-btn", "open-unit", "open-date",
-    "open-qualification", "open-report-time", "post-open-btn", "unit-toggle-list", "notification-center",
+    "trade-partner", "trade-date", "trade-notes", "submit-trade-btn",
+    "unit-toggle-list", "notification-center",
     "approval-queue", "audit-log", "print-btn", "notify-btn",
     // Employee import
     "import-file", "preview-import-btn", "apply-import-btn", "import-message", "import-preview",
@@ -159,6 +159,7 @@ function cacheDom() {
     "template-unit", "template-shift", "template-seats",
     "template-push-days", "template-push-btn", "template-push-summary",
     "export-audit-btn",
+    "coverage-list", "coverage-summary", "coverage-days", "coverage-badge",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -198,7 +199,6 @@ function wireEvents() {
     render();
   });
   dom["submit-trade-btn"].addEventListener("click", createTradeRequest);
-  dom["post-open-btn"].addEventListener("click", createOpenShift);
   dom["print-btn"].addEventListener("click", () => window.print());
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
@@ -215,6 +215,7 @@ function wireEvents() {
   attachShellChromeEvents();
   attachTemplateEvents();
   dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
+  dom["coverage-days"]?.addEventListener("change", renderCoveragePanel);
 
   // D7FR roster import
   dom["roster-preview-btn"].addEventListener("click", previewRosterImport);
@@ -283,7 +284,6 @@ function initializeControls() {
   dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
   dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
   populateTradeSelects();
-  populateOpenShiftSelects();
   renderSurfaceState();
 }
 
@@ -597,11 +597,11 @@ function render() {
   renderEmployeeRoster();
   renderEmployeeEditor();
   populateTradeSelects();
-  populateOpenShiftSelects();
   renderPermissionStates();
   renderPersistenceStatus();
   renderSaveIndicator();
   renderReservePanel();
+  renderCoveragePanel();
   renderDrawerBadge();
   renderTemplateEditor();   // binds its own seat events
 }
@@ -692,12 +692,6 @@ function populateTradeSelects() {
   dom["trade-date"].value = addDays(state.currentDate, 3);
 }
 
-function populateOpenShiftSelects() {
-  dom["open-unit"].innerHTML = visibleUnitsAll()
-    .map((unit) => `<option value="${unit.id}">${unit.name}</option>`)
-    .join("");
-  dom["open-date"].value = addDays(state.currentDate, 2);
-}
 
 function renderSummary() {
   const range = getDateRange();
@@ -821,6 +815,9 @@ const TEMPLATE_PUSH_DEFAULT_DAYS = 180;   // ~6 months
 // How many audit/notification rows the BROWSER carries. Full history lives on
 // the server; this is only the display window.
 const HISTORY_KEEP = 250;
+
+// Default report time on a newly created overtime gap.
+const DEFAULT_REPORT_TIME = "06:30";
 
 function renderTemplateEditor() {
   const unitSelect = dom["template-unit"];
@@ -1656,7 +1653,6 @@ function attachEmployeeManagementEvents() {
         state.employeeDraft = createEmployeeDraft(employee);
       }
       populateTradeSelects();
-      populateOpenShiftSelects();
       render();
       persistAppState(`Employee ${employee.status === "archived" ? "archived" : "restored"}`);
     });
@@ -1753,7 +1749,6 @@ function saveEmployeeDraft() {
   addAudit(`${employee.name} updated in employee directory.`, currentUserName());
   createNotification(`${employee.name} profile updated in employee directory.`, "email", currentUserName());
   populateTradeSelects();
-  populateOpenShiftSelects();
   render();
   showToast("Employee changes saved.", "success");
   persistAppState("Employee updated");
@@ -1914,7 +1909,6 @@ function renderPermissionStates() {
   const isDraft = state.scheduleStatus === "draft";
   dom["publish-btn"].classList.toggle("button-primary", isDraft);
   dom["publish-btn"].classList.toggle("button-secondary", !isDraft);
-  dom["post-open-btn"].disabled = supervisorLocked;
   dom["submit-trade-btn"].disabled = employeeLocked;
   dom["notify-btn"].disabled = employeeLocked;
   dom["print-btn"].disabled = employeeLocked;
@@ -1923,10 +1917,6 @@ function renderPermissionStates() {
   dom["trade-partner"].disabled = employeeLocked;
   dom["trade-date"].disabled = employeeLocked;
   dom["trade-notes"].disabled = employeeLocked;
-  dom["open-unit"].disabled = supervisorLocked;
-  dom["open-date"].disabled = supervisorLocked;
-  dom["open-qualification"].disabled = supervisorLocked;
-  dom["open-report-time"].disabled = supervisorLocked;
   // Employee import
   dom["import-file"].disabled = supervisorLocked;
   dom["preview-import-btn"].disabled = supervisorLocked;
@@ -1970,10 +1960,8 @@ function renderPermissionStates() {
   }
 
   if (supervisorLocked) {
-    dom["post-open-btn"].title = "Supervisor sign-in required";
     dom["publish-btn"].title = "Supervisor sign-in required";
   } else {
-    dom["post-open-btn"].removeAttribute("title");
     dom["publish-btn"].removeAttribute("title");
   }
 
@@ -2265,29 +2253,320 @@ function createTradeRequest() {
   persistAppState("Trade request created");
 }
 
-function createOpenShift() {
-  if (state.currentRole !== "supervisor") {
-    showToast("Supervisor sign-in required to post overtime shifts.", "error");
+// One list, two audiences. Supervisors see every gap with notify/award controls;
+// employees see only gaps they are CREDENTIALED for and can apply to or withdraw
+// from. Same data, so the two can never drift apart.
+function renderCoveragePanel() {
+  const listEl = dom["coverage-list"];
+  if (!listEl) return;
+  const isSupervisor = state.currentRole === "supervisor";
+  const days = Math.min(60, Math.max(1, Number(dom["coverage-days"]?.value) || 14));
+  const gaps = coverageGaps(todayIso(), days);
+  const me = state.currentUserId;
+
+  const visible = isSupervisor
+    ? gaps
+    : gaps.filter((g) => canApplyToGap(g, me) || (g.post?.applicants || []).includes(me));
+
+  if (dom["coverage-summary"]) {
+    dom["coverage-summary"].textContent = isSupervisor
+      ? `${gaps.length} unfilled seat${gaps.length === 1 ? "" : "s"} in the next ${days} days.`
+      : `${visible.length} shift${visible.length === 1 ? "" : "s"} you qualify for in the next ${days} days.`;
+  }
+
+  if (!visible.length) {
+    listEl.innerHTML = `<div class="empty-state">${
+      isSupervisor ? "No coverage gaps — every required seat is filled." : "No open shifts you qualify for right now."
+    }</div>`;
+    updateCoverageBadge(gaps, visible, isSupervisor);
     return;
   }
-  const post = {
-    id: `OT-${Date.now()}`,
-    status: "open",
-    unitId: dom["open-unit"].value,
-    date: dom["open-date"].value,
-    qualification: dom["open-qualification"].value,
-    reportTime: dom["open-report-time"].value,
-    applicants: availableEmployeesForOpenShift(dom["open-date"].value).slice(0, 3).map((employee) => employee.id),
+
+  listEl.innerHTML = visible.map((gap) => {
+    const post = gap.post;
+    const applicants = post?.applicants || [];
+    const applied = applicants.includes(me);
+    const eligibleCount = eligibleForGap(gap).length;
+
+    const applicantRows = isSupervisor && applicants.length
+      ? `<div class="applicant-list">${applicants.map((id) => {
+          const emp = employeeById(id);
+          if (!emp) return "";
+          return `<div class="applicant-row">
+            <span><strong>${escapeHtml(emp.name)}</strong> — ${escapeHtml(emp.title || "—")}
+              <span class="pill pill-cap" data-cap="${escapeHtml(gap.cap || "")}">${escapeHtml(gap.need || "any")}</span></span>
+            <span class="button-row">
+              <button class="button button-primary button-small" data-award-post="${post.id}" data-award-emp="${id}">Award</button>
+              <button class="button button-secondary button-small" data-decline-post="${post.id}" data-decline-emp="${id}">Decline</button>
+            </span>
+          </div>`;
+        }).join("")}</div>`
+      : isSupervisor
+        ? `<p class="helper-text">No applicants yet${post?.notifiedAt ? " — alert sent" : ""}.</p>`
+        : "";
+
+    const supervisorActions = isSupervisor
+      ? `<button class="button button-secondary button-small" data-notify-gap="${gap.key}">
+           ${post?.notifiedAt ? "Re-send alert" : `Notify ${eligibleCount} qualified`}
+         </button>`
+      : applied
+        ? `<button class="button button-secondary button-small" data-withdraw-post="${post.id}">Withdraw</button>`
+        : `<button class="button button-primary button-small" data-apply-gap="${gap.key}">Sign up</button>`;
+
+    return `<article class="queue-item coverage-item">
+      <div class="unit-card-header">
+        <div>
+          <strong>${escapeHtml(gap.unitName)} — ${escapeHtml(gap.label)}</strong>
+          <p class="helper-text">${formatDate(gap.date)} • needs ${escapeHtml(gap.need || "any qualified rider")}
+            ${applicants.length ? ` • ${applicants.length} applicant${applicants.length === 1 ? "" : "s"}` : ""}</p>
+        </div>
+        <div class="unit-card-actions">
+          ${post?.status === "awarded" ? '<span class="badge badge-success">Awarded</span>' : supervisorActions}
+        </div>
+      </div>
+      ${applicantRows}
+    </article>`;
+  }).join("");
+
+  updateCoverageBadge(gaps, visible, isSupervisor);
+  attachCoverageEvents(gaps);
+}
+
+// Supervisors are alerted to gaps with people waiting on a decision; employees to
+// shifts they could still pick up.
+function updateCoverageBadge(gaps, visible, isSupervisor) {
+  const el = dom["coverage-badge"];
+  if (!el) return;
+  const count = isSupervisor
+    ? gaps.filter((g) => (g.post?.applicants || []).length && g.post?.status !== "awarded").length
+    : visible.filter((g) => !(g.post?.applicants || []).includes(state.currentUserId)).length;
+  el.textContent = String(count);
+  el.classList.toggle("hidden", count === 0);
+}
+
+function attachCoverageEvents(gaps) {
+  const root = dom["coverage-list"];
+  if (!root) return;
+  root.querySelectorAll("[data-notify-gap]").forEach((b) =>
+    b.addEventListener("click", () => notifyGap(b.dataset.notifyGap, gaps)));
+  root.querySelectorAll("[data-apply-gap]").forEach((b) =>
+    b.addEventListener("click", () => applyForGap(b.dataset.applyGap, gaps)));
+  root.querySelectorAll("[data-withdraw-post]").forEach((b) =>
+    b.addEventListener("click", () => withdrawFromGap(b.dataset.withdrawPost)));
+  root.querySelectorAll("[data-award-post]").forEach((b) =>
+    b.addEventListener("click", () => awardOvertime(b.dataset.awardPost, b.dataset.awardEmp)));
+  root.querySelectorAll("[data-decline-post]").forEach((b) =>
+    b.addEventListener("click", () => declineApplicant(b.dataset.declinePost, b.dataset.declineEmp)));
+}
+
+// ─── Overtime: gaps, applications, awards ────────────────────────────────────
+// The OPPORTUNITY is the staffing gap itself. A post records that the gap is open
+// for applications; "notify" records that qualified people were told. That is why
+// an employee can apply to a gap nobody has announced yet — applying creates the
+// post in "requested" state so a supervisor sees the demand.
+
+// A gap is identified by unit + date + seat role. Derived from the real schedule,
+// never typed in, so a post can't ask for a qualification the seat doesn't need.
+function gapKey(unitId, date, role) {
+  return `${unitId}|${date}|${role}`;
+}
+
+// Every unfilled REQUIRED seat across a date range, with the capability it needs.
+function coverageGaps(startDate, days) {
+  const gaps = [];
+  for (let offset = 0; offset < days; offset += 1) {
+    const date = addDays(startDate, offset);
+    unitsForDate(date).forEach((unit) => {
+      const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
+      if (!positions) return;
+      const { seats } = assignPeopleToSeats(unit.type, getAssignments(date, unit.id));
+      seats.forEach((seat) => {
+        if (seat.person || !seatIsRequired(seat.pos)) return;
+        gaps.push({
+          key: gapKey(unit.id, date, seat.pos.role),
+          unitId: unit.id, unitName: unit.name, date,
+          role: seat.pos.role, label: seat.pos.label,
+          cap: seat.pos.cap, need: seatNeedLabel(seat.pos),
+          post: overtimePostForGap(unit.id, date, seat.pos.role),
+        });
+      });
+    });
+  }
+  return gaps;
+}
+
+function overtimePostForGap(unitId, date, role) {
+  return (state.overtimePosts || []).find(
+    (p) => p.unitId === unitId && p.date === date && p.role === role
+  ) || null;
+}
+
+// Who may work this gap: credentialed for the seat, active, and NOT already on
+// the schedule that date. Same-day double-booking is barred department-wide.
+function eligibleForGap(gap) {
+  const booked = assignedEmployeeIdsForDate(gap.date);
+  const pos = { cap: gap.cap };
+  return activeEmployees().filter((e) => !booked.has(e.id) && seatAccepts(pos, e));
+}
+
+function canApplyToGap(gap, employeeId) {
+  return eligibleForGap(gap).some((e) => e.id === employeeId);
+}
+
+function ensureOvertimePost(gap, status) {
+  let post = overtimePostForGap(gap.unitId, gap.date, gap.role);
+  if (post) return post;
+  post = {
+    id: `OT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    status: status || "requested",
+    unitId: gap.unitId,
+    date: gap.date,
+    role: gap.role,
+    requiredCap: Array.isArray(gap.cap) ? gap.cap.join("|") : (gap.cap || ""),
+    qualification: gap.need,        // legacy display field
+    reportTime: DEFAULT_REPORT_TIME,
+    applicants: [],
+    notifiedAt: null,
   };
   state.overtimePosts.push(post);
-  addAudit(`Open shift posted for ${unitById(post.unitId)?.name} on ${formatDate(post.date)}.`, currentUserName());
-  createNotification(
-    `Open shift posted for ${unitById(post.unitId)?.name}. Eligible off-duty employees notified by email.`,
-    "email",
-    currentUserName(),
+  return post;
+}
+
+// Supervisor announces gaps to everyone qualified. Queues one notification per
+// recipient — nothing sends yet, but the outbox is real and persisted, so turning
+// on email (or SMS) later delivers these rather than starting from scratch.
+function notifyGap(gapKeyStr, gaps) {
+  if (state.currentRole !== "supervisor") {
+    showToast("Supervisor sign-in required to send coverage alerts.", "error");
+    return;
+  }
+  const gap = gaps.find((g) => g.key === gapKeyStr);
+  if (!gap) return;
+  const post = ensureOvertimePost(gap, "open");
+  post.status = "open";
+  post.notifiedAt = new Date().toISOString();
+
+  const recipients = eligibleForGap(gap);
+  recipients.forEach((emp) => {
+    queueNotification({
+      recipientId: emp.id,
+      channel: "email",
+      subject: `Overtime available — ${gap.unitName} ${formatDate(gap.date)}`,
+      message: `${gap.unitName} needs a ${gap.label}${gap.need ? ` (${gap.need})` : ""} on ` +
+               `${formatDate(gap.date)}. Sign in to the scheduler to apply.`,
+      relatedKind: "overtime",
+      relatedId: post.id,
+    });
+  });
+  addAudit(
+    `Coverage alert sent for ${gap.unitName} ${gap.label} on ${formatDate(gap.date)} (${recipients.length} qualified).`,
+    currentUserName()
   );
   render();
-  persistAppState("Open shift posted");
+  persistAppState("Coverage alert queued");
+  showToast(`Queued for ${recipients.length} qualified ${recipients.length === 1 ? "person" : "people"}.`, "success");
+}
+
+// Employee self-service. Works whether or not the gap has been announced.
+function applyForGap(gapKeyStr, gaps) {
+  const gap = gaps.find((g) => g.key === gapKeyStr);
+  if (!gap || !state.currentUserId) return;
+  if (!canApplyToGap(gap, state.currentUserId)) {
+    showToast("You are not eligible for this shift.", "error");
+    return;
+  }
+  const post = ensureOvertimePost(gap, "requested");
+  if (post.applicants.includes(state.currentUserId)) return;
+  post.applicants = [...post.applicants, state.currentUserId];
+  addAudit(`${currentUserName()} applied for overtime — ${gap.unitName} ${gap.label} on ${formatDate(gap.date)}.`, currentUserName());
+  render();
+  persistAppState("Overtime application submitted");
+  showToast("Application submitted.", "success");
+}
+
+function withdrawFromGap(postId) {
+  const post = (state.overtimePosts || []).find((p) => p.id === postId);
+  if (!post || !state.currentUserId) return;
+  if (post.status === "awarded") {
+    showToast("This shift has already been awarded.", "error");
+    return;
+  }
+  post.applicants = (post.applicants || []).filter((id) => id !== state.currentUserId);
+  addAudit(`${currentUserName()} withdrew from overtime on ${formatDate(post.date)}.`, currentUserName());
+  render();
+  persistAppState("Overtime application withdrawn");
+  showToast("Application withdrawn.", "success");
+}
+
+// Supervisor picks the winner — never automatic. Awarding writes a REAL assignment
+// (marked manual so a template push can't overwrite it) and tells every applicant
+// where they stand, successful or not.
+function awardOvertime(postId, employeeId) {
+  if (state.currentRole !== "supervisor") {
+    showToast("Supervisor sign-in required to award overtime.", "error");
+    return;
+  }
+  const post = (state.overtimePosts || []).find((p) => p.id === postId);
+  const employee = employeeById(employeeId);
+  if (!post || !employee) return;
+  if (assignedEmployeeIdsForDate(post.date).has(employeeId)) {
+    showToast(`${employee.name} is already on the schedule that day.`, "error");
+    return;
+  }
+
+  post.status = "awarded";
+  post.approvedEmployeeId = employeeId;
+
+  if (!state.assignments[post.date]) state.assignments[post.date] = {};
+  const existing = getAssignments(post.date, post.unitId);
+  state.assignments[post.date][post.unitId] = markManual([...existing, employee]);
+
+  const unitName = unitById(post.unitId)?.name || post.unitId;
+  queueNotification({
+    recipientId: employeeId,
+    channel: "email",
+    subject: `Overtime awarded — ${unitName} ${formatDate(post.date)}`,
+    message: `You have been awarded the ${post.role || "open"} seat on ${unitName} for ` +
+             `${formatDate(post.date)}. Report at ${post.reportTime || DEFAULT_REPORT_TIME}.`,
+    relatedKind: "overtime",
+    relatedId: post.id,
+  });
+  (post.applicants || []).filter((id) => id !== employeeId).forEach((id) => {
+    queueNotification({
+      recipientId: id,
+      channel: "email",
+      subject: `Overtime filled — ${unitName} ${formatDate(post.date)}`,
+      message: `The ${post.role || "open"} seat on ${unitName} for ${formatDate(post.date)} ` +
+               `has been filled. Thank you for volunteering.`,
+      relatedKind: "overtime",
+      relatedId: post.id,
+    });
+  });
+
+  addAudit(`Overtime awarded to ${employee.name} — ${unitName} ${formatDate(post.date)}.`, currentUserName());
+  render();
+  persistAppState("Overtime awarded");
+  showToast(`Awarded to ${employee.name}.`, "success");
+}
+
+function declineApplicant(postId, employeeId) {
+  if (state.currentRole !== "supervisor") return;
+  const post = (state.overtimePosts || []).find((p) => p.id === postId);
+  const employee = employeeById(employeeId);
+  if (!post || !employee) return;
+  post.applicants = (post.applicants || []).filter((id) => id !== employeeId);
+  queueNotification({
+    recipientId: employeeId,
+    channel: "email",
+    subject: `Overtime application — ${formatDate(post.date)}`,
+    message: `Your application for ${unitById(post.unitId)?.name || post.unitId} on ` +
+             `${formatDate(post.date)} was not selected.`,
+    relatedKind: "overtime",
+    relatedId: post.id,
+  });
+  addAudit(`Overtime application declined for ${employee.name} on ${formatDate(post.date)}.`, currentUserName());
+  render();
+  persistAppState("Overtime application declined");
 }
 
 function createDailyDigest() {
@@ -2351,7 +2630,6 @@ function applyEmployeeImport() {
   state.importPreview = null;
   seedAssignments(true);
   populateTradeSelects();
-  populateOpenShiftSelects();
   addAudit("Employee CSV import applied.", currentUserName());
   createNotification("Employee import completed successfully.", "email", currentUserName());
   dom["import-message"].textContent = "Employee import applied and schedule regenerated.";
@@ -2677,7 +2955,6 @@ function applyUnitImport() {
   mergeUnits(state.unitImportPreview.validRows);
   state.unitImportPreview = null;
   seedAssignments(true);
-  populateOpenShiftSelects();
   addAudit("Unit CSV import applied.", currentUserName());
   createNotification("Unit import completed successfully.", "email", currentUserName());
   dom["unit-import-message"].textContent = "Unit import applied and schedule regenerated.";
@@ -2715,25 +2992,33 @@ function approveQueueItem(id) {
   const trade = state.trades.find((item) => item.id === id);
   if (trade) {
     trade.status = "approved";
-    createNotification(`Trade for ${formatDate(trade.date)} approved for ${employeeById(trade.employeeId)?.name} and ${employeeById(trade.partnerId)?.name}.`, "email", currentUserName());
+    queueNotification({
+      recipientId: trade.employeeId,
+      subject: `Trade approved — ${formatDate(trade.date)}`,
+      message: `Your trade for ${formatDate(trade.date)} with ${employeeById(trade.partnerId)?.name || "a partner"} was approved.`,
+      relatedKind: "trade",
+      relatedId: trade.id,
+    });
+    if (trade.partnerId) {
+      queueNotification({
+        recipientId: trade.partnerId,
+        subject: `Trade approved — ${formatDate(trade.date)}`,
+        message: `The trade with ${employeeById(trade.employeeId)?.name || "a colleague"} for ${formatDate(trade.date)} was approved.`,
+        relatedKind: "trade",
+        relatedId: trade.id,
+      });
+    }
     addAudit(`Trade ${trade.id} approved.`, currentUserName());
     render();
     persistAppState("Trade approved");
     return;
   }
-  const overtime = state.overtimePosts.find((item) => item.id === id);
-  if (overtime) {
-    overtime.status = "approved";
-    overtime.approvedEmployeeId = overtime.applicants[0];
-    const employee = employeeById(overtime.approvedEmployeeId);
-    createNotification(
-      `${employee?.name} approved for overtime on ${formatDate(overtime.date)} at ${unitById(overtime.unitId)?.name}. Report at ${overtime.reportTime}.`,
-      "email",
-      currentUserName(),
-    );
-    addAudit(`Overtime ${overtime.id} awarded to ${employee?.name}.`, currentUserName());
-    render();
-    persistAppState("Overtime approved");
+  // Overtime is never awarded automatically. This branch used to set
+  // approvedEmployeeId = applicants[0] — which, with fabricated applicants,
+  // handed real shifts to people who had never volunteered. Awarding now goes
+  // through awardOvertime(postId, employeeId) with a named applicant.
+  if (state.overtimePosts.some((item) => item.id === id)) {
+    showToast("Choose an applicant to award this shift to.", "error");
   }
 }
 
@@ -3059,25 +3344,44 @@ function visibleUnitsAll() {
   return [...state.units].sort(byBoardOrder);
 }
 
-function availableEmployeesForOpenShift(date) {
-  const activeShift = getShiftForDate(date);
-  return activeEmployees().filter((employee) => employee.shift !== activeShift);
-}
 
 // ─── Notification / Audit Helpers ─────────────────────────────────────────────
 
-function createNotification(message, channel, createdBy) {
-  const title = channel === "sms" ? "SMS notification" : "Email notification";
+// Every notification is an OUTBOX ROW, not a log line. Nothing sends yet — the
+// mail and SMS transports aren't built — but rows persist server-side as
+// "queued", so switching delivery on later is a transport change rather than a
+// redesign, and messages written in the meantime are not lost.
+function queueNotification({ recipientId = null, channel = "email", subject = "", message, relatedKind = "", relatedId = "" }) {
   const entry = {
     id: `NT-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    title,
-    message,
+    recipientId,
     channel,
-    createdBy,
+    subject,
+    message,
+    status: "queued",
+    relatedKind,
+    relatedId,
+    createdBy: currentUserName(),
     time: formatDateTime(new Date()),
+    title: channel === "sms" ? "SMS" : channel === "in_app" ? "In-app" : "Email",
   };
   state.notifications.push(entry);
+  if (state.notifications.length > HISTORY_KEEP * 2) {
+    state.notifications = state.notifications.slice(-HISTORY_KEEP);
+  }
   return entry;
+}
+
+// Legacy broadcast helper — no single addressee. Kept so existing call sites
+// keep working; prefer queueNotification() when there IS a recipient.
+function createNotification(message, channel, createdBy) {
+  return queueNotification({
+    channel: channel || "email",
+    subject: "",
+    message,
+    relatedKind: "",
+    relatedId: "",
+  });
 }
 
 // AUDIT POLICY — log things that CHANGE THE SCHEDULE or someone's obligations.

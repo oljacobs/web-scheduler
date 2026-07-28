@@ -329,6 +329,7 @@
         <div class="drawer-head">
           <div class="drawer-tabs">
             <button class="drawer-tab is-active" data-drawer-tab="reserve">Reserve</button>
+            <button class="drawer-tab" data-drawer-tab="coverage">Coverage<span id="coverage-badge" class="drawer-badge hidden">0</span></button>
             <button class="drawer-tab" data-drawer-tab="trades">Trades / OT</button>
             <button class="drawer-tab" data-drawer-tab="queue">Queue</button>
             <button class="drawer-tab" data-drawer-tab="activity">Activity</button>
@@ -339,6 +340,17 @@
         <div class="drawer-body">
           <div class="drawer-pane" data-drawer-pane="reserve">
             <div id="reserve-panel"></div>
+          </div>
+
+          <div class="drawer-pane hidden" data-drawer-pane="coverage">
+            <div class="coverage-controls">
+              <label>
+                Look ahead (days)
+                <input id="coverage-days" type="number" min="1" max="60" value="14" />
+              </label>
+            </div>
+            <p id="coverage-summary" class="helper-text"></p>
+            <div id="coverage-list" class="stack-list"></div>
           </div>
 
           <div class="drawer-pane hidden" data-drawer-pane="trades">
@@ -377,31 +389,11 @@
             </article>
 
             <article class="workflow-card">
-            <h3>Post Open Shift</h3>
-            <div class="workflow-form">
-            <label>
-            Unit
-            <select id="open-unit"></select>
-            </label>
-            <label>
-            Open Shift Date
-            <input id="open-date" type="date" />
-            </label>
-            <label>
-            Qualification Needed
-            <select id="open-qualification">
-            <option value="paramedic">Paramedic</option>
-            <option value="emt">EMT</option>
-            <option value="engineer">Engineer</option>
-            <option value="officer">Officer</option>
-            </select>
-            </label>
-            <label>
-            Report Time
-            <input id="open-report-time" type="time" value="06:30" />
-            </label>
-            </div>
-            <button id="post-open-btn" class="button button-primary">Post Overtime Opportunity</button>
+            <h3>Open shifts</h3>
+            <p class="helper-text">
+            Overtime is driven by real coverage gaps — see the <strong>Coverage</strong> tab.
+            Supervisors notify qualified crews there; employees sign up there.
+            </p>
             </article>
             </div>
             </section>
