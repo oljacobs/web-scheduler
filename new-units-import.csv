@@ -1,0 +1,4 @@
+id,name,type,minStaff,requiredCerts,onDemand,visible
+E118,"Engine 118",Engine,2,"officer",false,true
+M118,"Medic 118",Medic,2,"paramedic",false,true
+HR115,"Heavy Rescue 115",Rescue,2,"engineer",true,true

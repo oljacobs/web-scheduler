@@ -47,7 +47,12 @@ Notification{id,recipientId,channel(email|sms|in_app),subject,message,status(que
   Django Notification model + migration 0006. Previously notifications were NEVER serialized:
   the SPA sent them, the server discarded them, nothing came back.
 OvertimePost{id,status(requested|open|awarded|closed),unitId,date,role,requiredCap,qualification,
-  reportTime,applicants[],approvedEmployeeId?,notifiedAt}
+  reportTime,applicants[],approvedEmployeeId?,notifiedAt,forced}
+  forced=true means a MANDATORY hire, not a volunteer. Set by forceInToGap(); Django
+  OvertimePost.forced + migration 0011. It used to be set in the SPA and DROPPED on every
+  round trip (the serializer didn't list it), so a forced hire and a volunteer were
+  indistinguishable after any reload. Coverage rows badge it "Forced" (warning) vs
+  "Awarded" (success). Every OT accountability number depends on this field.
   The OPPORTUNITY is the GAP (unit+date+seat role); the post records that it is open and, once
   notified, that qualified people were told. Applying to an un-announced gap creates the post as
   "requested" so supervisors see demand — that is how "sign up for shifts not yet sent out" works.

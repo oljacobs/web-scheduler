@@ -2360,7 +2360,11 @@ function renderCoveragePanel() {
               posted.length ? ` • ${posted.length} signed up` : ""}</p>
           </div>
           <div class="unit-card-actions">
-            ${post?.status === "awarded" ? '<span class="badge badge-success">Awarded</span>' : action}
+            ${post?.status === "awarded"
+                ? (post.forced
+                    ? '<span class="badge badge-warning">Forced</span>'
+                    : '<span class="badge badge-success">Awarded</span>')
+                : action}
           </div>
         </div>
         ${applicantRows}
