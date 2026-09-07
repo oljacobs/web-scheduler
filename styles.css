@@ -608,6 +608,59 @@ textarea:disabled {
   width: 100%;
 }
 
+/* --- Pay code block ---
+   Hangs under a filled seat as a second grid line spanning both columns, so the
+   name/role alignment of the seat list above it is untouched. */
+.seat-row-pay {
+  grid-template-columns: minmax(130px, 34%) 1fr;
+}
+
+.seat-pay {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(141, 175, 214, 0.18);
+}
+
+.seat-pay select,
+.seat-pay input {
+  font-size: 0.78rem;
+  padding: 4px 8px;
+}
+
+.seat-pay .pay-select { flex: 1 1 12rem; min-width: 0; }
+.seat-pay .pay-note,
+.seat-pay .pay-for { flex: 1 1 10rem; min-width: 0; }
+
+/* An unfilled REQUIRED comment is the one thing payroll will bounce, so it is
+   the only state in this block that gets alarm colour. */
+.pay-note-missing {
+  border-color: var(--danger, #ff6b6b) !important;
+}
+
+.seat-pay-readonly {
+  border-top: none;
+  padding-top: 2px;
+}
+
+.pay-chip {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(77, 163, 255, 0.16);
+  color: var(--text, #e8eef6);
+}
+
+.pay-detail {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .person-row {
   padding: 12px;
   border-radius: 14px;

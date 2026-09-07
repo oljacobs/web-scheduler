@@ -39,6 +39,13 @@ PayCode{code,description,group,commentRequired,commentPrompt,wantsPerson} — se
 Assignment gains pay_code, pay_code_note, pay_code_for(Employee). On the wire they ride
   with the person like _src/_paid: `_pay` (code), `_payNote`, `_payFor` (roster id).
   state.payCodes is reference data sent down by /state/, not something the SPA owns.
+SPA picker: payCodeBlockHtml() hangs a pay block under any FILLED seat row
+  (seatRowHtml). Supervisors get select.pay-select + input.pay-note OR select.pay-for
+  (wantsPerson); everyone else gets a read-only .pay-chip. attachPayCodeEvents() is
+  wired in render() next to attachUnitMoveEvents. Changing a code CLEARS the old note
+  and for-who, and stamps the unit-day manual (updateAssignedPerson -> markManual) so a
+  template push cannot silently wipe a payroll record. Empty values are DELETED from
+  the person object, never stored blank. No payCodes from the server => no UI at all.
 THESE CODES ARE THE OT "WHY" the Asst. Chief asked for — do not invent a cause
   taxonomy alongside them; MINSTAFF/EMREP/ERC/deployment codes already say it, and
   using them makes the QA/QI report reconcile with payroll by construction.

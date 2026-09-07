@@ -40,7 +40,14 @@ Implications the spec does not yet cover:
 
 ## 2. Pay codes on the board
 
-**New.** Source: `Paycom Labor Distribution Sheet 2026.01`.
+**Mostly BUILT.** Source: `Paycom Labor Distribution Sheet 2026.01`.
+
+Done: `PayCode` model + migration 0012, `seed_pay_codes` (24 codes live on Railway),
+`_pay`/`_payNote`/`_payFor` round-trip through `/api/scheduler/state/`, the seat-row
+picker with prompt-labelled comment and roster picker, and pay codes on the printed
+sheet. Remaining is the one confirmation at the bottom of this section, plus deciding
+whether a required comment left blank should BLOCK publishing (today it only shows
+red on the field).
 
 - Show the pay code against a person on a rig, on the daily board and the printed
   schedule.

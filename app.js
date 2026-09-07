@@ -824,6 +824,7 @@ function renderSchedule() {
   }
 
   attachUnitMoveEvents();
+  attachPayCodeEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
   attachUnitServiceEvents(dom["schedule-container"]);
 }
@@ -4209,6 +4210,174 @@ function seatDropdownOptions(pos, unit, date) {
     : "");
 }
 
+// ─── Pay codes ────────────────────────────────────────────────────────────────
+// The department already has a payroll vocabulary (Paycom labor distribution
+// codes). Rather than inventing a parallel "reason" taxonomy, a seat carries the
+// code payroll will actually be billed under. `state.payCodes` is reference data
+// pushed down by the server; the SPA never stores its own copy.
+function payCodeDef(code) {
+  if (!code) return null;
+  return (state.payCodes || []).find((p) => p.code === code) || null;
+}
+
+function payCodeOptionsHtml(selected) {
+  const codes = state.payCodes || [];
+  if (!codes.length) return "";
+  // Group headings come from payroll's own grouping so the list reads the way
+  // the paper sheet does.
+  const groups = [];
+  codes.forEach((c) => {
+    const g = c.group || "Other";
+    let bucket = groups.find((b) => b.name === g);
+    if (!bucket) { bucket = { name: g, items: [] }; groups.push(bucket); }
+    bucket.items.push(c);
+  });
+  return groups.map((g) => {
+    const opts = g.items.map((c) => {
+      const label = c.description ? `${c.code} — ${c.description}` : c.code;
+      return `<option value="${escapeHtml(c.code)}"${c.code === selected ? " selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+    return `<optgroup label="${escapeHtml(g.name)}">${opts}</optgroup>`;
+  }).join("");
+}
+
+// Roster picker for codes whose comment prompt is "For who" (covering someone
+// else's shift). Stores a roster id, never a typed name, so the print sheet and
+// any later Paycom export resolve to a real person.
+function payForOptionsHtml(person, selected) {
+  return activeEmployees()
+    .filter((e) => e.id !== person.id)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => `<option value="${e.id}"${e.id === selected ? " selected" : ""}>${escapeHtml(e.name)}</option>`)
+    .join("");
+}
+
+// The pay block hangs under a filled seat row. Supervisors get the controls;
+// everyone else sees the code read-only, because the crew needs to be able to
+// verify what they were coded as without being able to change it.
+function payCodeBlockHtml(person, unit, date, isSupervisor) {
+  const codes = state.payCodes || [];
+  if (!codes.length) return "";
+  const code = person._pay || "";
+  const def = payCodeDef(code);
+
+  if (!isSupervisor) {
+    if (!code) return "";
+    const forWho = person._payFor ? (employeeById(person._payFor)?.name || "") : "";
+    return `<div class="seat-pay seat-pay-readonly">
+        <span class="pay-chip">${escapeHtml(code)}</span>
+        ${forWho ? `<span class="pay-detail">for ${escapeHtml(forWho)}</span>` : ""}
+        ${person._payNote ? `<span class="pay-detail">${escapeHtml(person._payNote)}</span>` : ""}
+      </div>`;
+  }
+
+  const attrs = `data-pay-date="${date}" data-pay-unit="${unit.id}" data-pay-person="${person.id}"`;
+  let extra = "";
+  if (def && def.wantsPerson) {
+    extra += `<select class="pay-for" ${attrs} aria-label="Covering for">
+        <option value="">— for who —</option>${payForOptionsHtml(person, person._payFor || "")}
+      </select>`;
+  } else if (def && def.commentRequired) {
+    const missing = !(person._payNote || "").trim();
+    extra += `<input class="pay-note${missing ? " pay-note-missing" : ""}" type="text" ${attrs}
+        value="${escapeHtml(person._payNote || "")}"
+        placeholder="${escapeHtml(def.commentPrompt || "Comment")} (required)"
+        aria-label="${escapeHtml(def.commentPrompt || "Comment")}">`;
+  } else if (def) {
+    extra += `<input class="pay-note" type="text" ${attrs}
+        value="${escapeHtml(person._payNote || "")}"
+        placeholder="${escapeHtml(def.commentPrompt || "Note (optional)")}"
+        aria-label="${escapeHtml(def.commentPrompt || "Note")}">`;
+  }
+
+  return `<div class="seat-pay">
+      <select class="pay-select" ${attrs} aria-label="Pay code for ${escapeHtml(person.name)}">
+        <option value="">— pay code —</option>${payCodeOptionsHtml(code)}
+      </select>
+      ${extra}
+    </div>`;
+}
+
+// Patch one assigned person in place. Keys set to "" or undefined are DELETED
+// rather than stored empty, so a cleared code leaves no orphan note behind.
+//
+// The whole unit-day is stamped manual: a pay code is a payroll record a human
+// entered, and a later template push must not silently wipe it.
+function updateAssignedPerson(date, unitId, personId, patch) {
+  const list = getAssignments(date, unitId);
+  const idx = list.findIndex((p) => p.id === personId);
+  if (idx === -1) return null;
+  const next = { ...list[idx] };
+  Object.entries(patch).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") delete next[k];
+    else next[k] = v;
+  });
+  const updated = [...list];
+  updated[idx] = next;
+  if (!state.assignments[date]) state.assignments[date] = {};
+  state.assignments[date][unitId] = markManual(updated);
+  return next;
+}
+
+function attachPayCodeEvents(scope) {
+  const root = scope || document;
+
+  [...root.querySelectorAll(".pay-select")].forEach((select) => {
+    select.addEventListener("change", () => {
+      const { payDate: date, payUnit: unitId, payPerson: personId } = select.dataset;
+      const code = select.value;
+      // Changing (or clearing) the code drops the old comment and the old
+      // "for who" -- they belonged to the previous code and would be misleading.
+      const person = updateAssignedPerson(date, unitId, personId, {
+        _pay: code, _payNote: "", _payFor: "",
+      });
+      if (!person) return;
+      const who = employeeById(personId)?.name || "Employee";
+      addAudit(
+        code
+          ? `${who} coded ${code} on ${unitById(unitId)?.name} for ${formatDate(date)}.`
+          : `Pay code cleared for ${who} on ${unitById(unitId)?.name}, ${formatDate(date)}.`,
+        currentUserName(),
+      );
+      render();
+      persistAppState("Pay code updated");
+    });
+  });
+
+  // `change` (not `input`) on purpose: it fires on blur, so a re-render never
+  // yanks the caret out of a half-typed comment.
+  [...root.querySelectorAll(".pay-note")].forEach((input) => {
+    input.addEventListener("change", () => {
+      const { payDate: date, payUnit: unitId, payPerson: personId } = input.dataset;
+      const note = input.value.trim().slice(0, 300);
+      if (!updateAssignedPerson(date, unitId, personId, { _payNote: note })) return;
+      const current = getAssignments(date, unitId).find((p) => p.id === personId);
+      input.classList.toggle(
+        "pay-note-missing",
+        !note && !!payCodeDef(current?._pay)?.commentRequired,
+      );
+      persistAppState("Pay code comment updated");
+    });
+  });
+
+  [...root.querySelectorAll(".pay-for")].forEach((select) => {
+    select.addEventListener("change", () => {
+      const { payDate: date, payUnit: unitId, payPerson: personId } = select.dataset;
+      if (!updateAssignedPerson(date, unitId, personId, { _payFor: select.value })) return;
+      const who = employeeById(personId)?.name || "Employee";
+      const target = employeeById(select.value)?.name;
+      addAudit(
+        target
+          ? `${who} covering for ${target} on ${unitById(unitId)?.name}, ${formatDate(date)}.`
+          : `Coverage target cleared for ${who} on ${unitById(unitId)?.name}, ${formatDate(date)}.`,
+        currentUserName(),
+      );
+      persistAppState("Pay code coverage updated");
+    });
+  });
+}
+
 // One seat row: shows the assigned person (with Remove) or a pick dropdown.
 function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverride) {
   const label = labelOverride || `${pos.label}${required ? "" : " (optional)"}`;
@@ -4225,7 +4394,8 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
   } else {
     control = `<span class="seat-empty">${required ? "Unfilled" : "—"}</span>`;
   }
-  return `<div class="seat-row ${required ? "" : "seat-optional"}"><span class="seat-label">${escapeHtml(label)}</span>${control}</div>`;
+  const pay = person ? payCodeBlockHtml(person, unit, date, isSupervisor) : "";
+  return `<div class="seat-row ${required ? "" : "seat-optional"}${pay ? " seat-row-pay" : ""}"><span class="seat-label">${escapeHtml(label)}</span>${control}${pay}</div>`;
 }
 
 function getShiftForDate(date) {
