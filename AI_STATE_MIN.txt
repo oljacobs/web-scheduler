@@ -28,6 +28,45 @@ UNIT_POSITION_REQUIREMENTS: Record<type, {role,label,cap,required?}[]>  (CAPABIL
 GRAPH_SCOPES=["User.Read","User.ReadBasic.All"]; APP_CONFIG.schedulerApiScopes=["api://<clientId>/access_as_user"]
 views: day|week|month; scheduleStatus: draft|published; shifts: A|B|C|null
 
+PAY CODES (Paycom labor distribution, migration 0012):
+PayCode{code,description,group,commentRequired,commentPrompt,wantsPerson} — seeded by
+  `seed_pay_codes` from the department sheet, NOT invented. HR-assigned-only codes
+  (100,200,ACADEMY,ADMMTG,ASH,BSH,CSH,DISC,FMLA,LTD,MNT,TSHR) are deliberately NOT
+  seeded: a supervisor staffing a rig does not decide someone is on FMLA.
+  commentPrompt is one of "What and where" / "For who" / "Incident ID" / "Reason" —
+  label the field with it instead of a generic Notes box. wantsPerson === "For who",
+  which is every backfill code, and should be a ROSTER PICKER not free text.
+Assignment gains pay_code, pay_code_note, pay_code_for(Employee). On the wire they ride
+  with the person like _src/_paid: `_pay` (code), `_payNote`, `_payFor` (roster id).
+  state.payCodes is reference data sent down by /state/, not something the SPA owns.
+SPA picker: payCodeBlockHtml() hangs a pay block under any FILLED seat row
+  (seatRowHtml). Supervisors get select.pay-select + input.pay-note OR select.pay-for
+  (wantsPerson); everyone else gets a read-only .pay-chip. attachPayCodeEvents() is
+  wired in render() next to attachUnitMoveEvents. Changing a code CLEARS the old note
+  and for-who, and stamps the unit-day manual (updateAssignedPerson -> markManual) so a
+  template push cannot silently wipe a payroll record. Empty values are DELETED from
+  the person object, never stored blank. No payCodes from the server => no UI at all.
+THESE CODES ARE THE OT "WHY" the Asst. Chief asked for — do not invent a cause
+  taxonomy alongside them; MINSTAFF/EMREP/ERC/deployment codes already say it, and
+  using them makes the QA/QI report reconcile with payroll by construction.
+
+VERCEL MONITORING (index.html, before </body>):
+Speed Insights + Web Analytics are the two PLAIN-HTML script tags
+  (/_vercel/speed-insights/script.js, /_vercel/insights/script.js), NOT the npm
+  packages -- this site has no bundler, so @vercel/speed-insights would never run.
+  Both need enabling per-project in the Vercel dashboard or the requests 404.
+  An inline stripUrl()/speedInsightsBeforeSend()/va("beforeSend") pair strips query
+  and hash before anything is reported, so a member name can never ride out in a URL.
+  blank.html (the MSAL popup target) deliberately has NO tracking on it.
+
+PRINT (renderPrintSheet / openPrintOptions / attachPrintEvents):
+#print-options modal picks start date, window (24/48/72h or 7d) and which units;
+#print-sheet is built on demand and is display:none except in @media print, where the
+  app shell is hidden instead. Two-column unit cards, one row per SEAT (not per person)
+  so an unfilled required seat prints as OPEN. Pay code, "for who" and note print
+  against each person. Deliberately NOT the day view with print CSS: the screen is a
+  staffing tool, the sheet is a shift document.
+
 Core entities:
 Employee{id, entraId?, name, shift(A|B|C|null), title, certs[], rideUp[], email, isSupervisor, status}
   certs = rank-derived capabilities; rideUp = acting quals ABOVE rank (subset of RIDE_UP_CAPABILITIES),

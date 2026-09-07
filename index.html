@@ -510,5 +510,81 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="./config.js"></script>
     <script src="./app.js"></script>
+    <!-- Print options. A printed sheet is a shift document, not a screenshot of a
+         staffing tool, so it gets its own DOM and its own choices. -->
+    <div id="print-options" class="print-options" hidden role="dialog"
+         aria-label="Print schedule options">
+      <div class="print-options-card">
+        <h2>Print schedule</h2>
+        <div class="print-options-row">
+          <label>Starting
+            <input type="date" data-print-start>
+          </label>
+          <label>Window
+            <select data-print-days>
+              <option value="2">48 hours</option>
+              <option value="1">24 hours</option>
+              <option value="3">72 hours</option>
+              <option value="7">7 days</option>
+            </select>
+          </label>
+        </div>
+        <div class="print-options-units">
+          <div class="print-options-unitshead">
+            <span>Apparatus</span>
+            <span>
+              <button type="button" class="link-button" data-print-all>All</button>
+              <button type="button" class="link-button" data-print-none>None</button>
+            </span>
+          </div>
+          <div data-print-units></div>
+        </div>
+        <div class="print-options-actions">
+          <button type="button" class="button-secondary" data-print-cancel>Cancel</button>
+          <button type="button" class="button-primary" data-print-go>Print</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Built on demand, shown only to the printer. -->
+    <div id="print-sheet" class="print-sheet" aria-hidden="true"></div>
+
+    <!-- ── Vercel Speed Insights + Web Analytics ──────────────────────────────
+         This is a plain static site: no framework, no bundler, no build step.
+         The @vercel/speed-insights and @vercel/analytics npm packages therefore
+         have nothing to import them and would never run -- the documented path
+         for plain HTML is these two script tags, which Vercel serves from the
+         deployment itself. Nothing to install, nothing to keep updated.
+
+         Both must be switched on in the Vercel dashboard for this project first;
+         without that these two requests 404 and no data is collected. -->
+    <script>
+      // Report the PATH only. The scheduler puts no names in the URL today, but
+      // the MSAL popup and any future deep link (?employee=..., #trade-...) would,
+      // and this is the cheap place to guarantee a member's name never leaves the
+      // building inside an analytics payload.
+      function stripUrl(u) {
+        try {
+          const parsed = new URL(u);
+          parsed.search = "";
+          parsed.hash = "";
+          return parsed.toString();
+        } catch (e) {
+          return u;
+        }
+      }
+      function speedInsightsBeforeSend(data) {
+        if (data && data.url) data.url = stripUrl(data.url);
+        return data;
+      }
+      window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+      window.va("beforeSend", function (event) {
+        if (event && event.url) event.url = stripUrl(event.url);
+        return event;
+      });
+    </script>
+    <script defer src="/_vercel/speed-insights/script.js"></script>
+    <script defer src="/_vercel/insights/script.js"></script>
   </body>
 </html>
