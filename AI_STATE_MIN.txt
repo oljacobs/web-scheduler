@@ -66,6 +66,15 @@ THIRD GOTCHA, SAME FAMILY: assignPeopleToSeats() returns { pos, person } -- the
   all undefined on the wrapper. printSeatRows read them off the wrapper and printed
   "undefined" as every seat label, and since `undefined !== false` it also marked
   every optional rider seat required. Read seat.pos.label and seatIsRequired(seat.pos).
+FOURTH GOTCHA, SAME FAMILY -- THE ACTUAL "undefined" IN THE NOTIFICATION CENTER:
+  queueNotification() sets `title` and `time` on the local object, but
+  NotificationSerializer has NEITHER (its fields are id, recipientId, channel,
+  subject, message, status, relatedKind, relatedId, createdBy, createdAt). Both
+  vanish on the first round trip, so everything older than the current session
+  rendered "undefined" over the message and "EMAIL • undefined" under it. Fixed by
+  DERIVING at render: notificationTitle() (subject || channel label) and
+  notificationTime() (local time || createdAt). Rule: never render a raw property
+  the serializer does not list -- it will look right until the next reload.
 AUDIT/NOTIFICATION TEXT IS FROZEN AT WRITE TIME: those strings are stored, not
   re-rendered, so a lookup that misses bakes the word "undefined" into the record
   permanently. Use unitLabel(id) (falls back to the raw id), never a bare

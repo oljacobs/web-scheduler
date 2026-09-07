@@ -1794,20 +1794,48 @@ function saveEmployeeDraft() {
 
 // ─── Notifications, Queues, Audit ─────────────────────────────────────────────
 
+// `title` and `time` are DERIVED, not stored. queueNotification() sets them on the
+// local object, but NotificationSerializer on the Django side has no such fields
+// (it has subject / createdAt / createdBy), so both vanish on the first round trip
+// -- which is why every notification older than the current session rendered as
+// "undefined" above the message and "EMAIL • undefined" below it. Derive them at
+// render time from fields that actually survive, and never read a raw property
+// that the server does not send.
+function notificationTitle(n) {
+  if (n.subject) return n.subject;
+  const channel = String(n.channel || "email").toLowerCase();
+  if (channel === "sms") return "SMS";
+  if (channel === "in_app") return "In-app";
+  return "Email";
+}
+
+function notificationTime(n) {
+  if (n.time) return n.time;              // set locally, before any round trip
+  if (n.createdAt) {                      // what the server actually returns
+    const when = new Date(n.createdAt);
+    if (!Number.isNaN(when.getTime())) return formatDateTime(when);
+  }
+  return "";
+}
+
 function renderNotifications() {
   dom["notification-center"].innerHTML = state.notifications.length
     ? state.notifications
         .slice()
         .reverse()
-        .map(
-          (notification) => `
+        .map((notification) => {
+          const channel = String(notification.channel || "email").toUpperCase();
+          const meta = [channel, notification.createdBy, notificationTime(notification)]
+            .filter(Boolean)
+            .join(" • ");
+          return `
         <article class="queue-item">
-          <strong>${notification.title}</strong>
-          <p>${notification.message}</p>
-          <time>${notification.channel.toUpperCase()} • ${notification.time}</time>
+          <strong>${escapeHtml(notificationTitle(notification))}</strong>
+          <p>${escapeHtml(notification.message || "")}</p>
+          <time>${escapeHtml(meta)}</time>
         </article>
-      `,
-        )
+      `;
+        })
         .join("")
     : `<div class="empty-state">No notifications queued.</div>`;
 }

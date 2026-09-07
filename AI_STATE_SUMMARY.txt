@@ -149,6 +149,10 @@ PAY CODES (see AI_STATE_MIN.txt for the full contract)
   controls. An already-set code always shows as a read-only chip. #pay-codes-toggle.
 - assignPeopleToSeats() returns { pos, person }. The seat definition is under
   `pos` -- seat.label/seat.role/seat.required do not exist on the wrapper.
+- Notification `title` and `time` are LOCAL-ONLY derived fields; the server
+  serializer has subject/createdAt/createdBy instead. Render via
+  notificationTitle()/notificationTime(), never the raw properties -- they look
+  correct until the first reload and then read "undefined".
 - unitLabel(id) is the ONLY safe way to name a unit inside audit or notification
   text: those strings are stored at write time, so `unitById(id)?.name` missing
   writes a permanent "undefined" into the record.
