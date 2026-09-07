@@ -548,5 +548,43 @@
 
     <!-- Built on demand, shown only to the printer. -->
     <div id="print-sheet" class="print-sheet" aria-hidden="true"></div>
+
+    <!-- ── Vercel Speed Insights + Web Analytics ──────────────────────────────
+         This is a plain static site: no framework, no bundler, no build step.
+         The @vercel/speed-insights and @vercel/analytics npm packages therefore
+         have nothing to import them and would never run -- the documented path
+         for plain HTML is these two script tags, which Vercel serves from the
+         deployment itself. Nothing to install, nothing to keep updated.
+
+         Both must be switched on in the Vercel dashboard for this project first;
+         without that these two requests 404 and no data is collected. -->
+    <script>
+      // Report the PATH only. The scheduler puts no names in the URL today, but
+      // the MSAL popup and any future deep link (?employee=..., #trade-...) would,
+      // and this is the cheap place to guarantee a member's name never leaves the
+      // building inside an analytics payload.
+      function stripUrl(u) {
+        try {
+          const parsed = new URL(u);
+          parsed.search = "";
+          parsed.hash = "";
+          return parsed.toString();
+        } catch (e) {
+          return u;
+        }
+      }
+      function speedInsightsBeforeSend(data) {
+        if (data && data.url) data.url = stripUrl(data.url);
+        return data;
+      }
+      window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+      window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+      window.va("beforeSend", function (event) {
+        if (event && event.url) event.url = stripUrl(event.url);
+        return event;
+      });
+    </script>
+    <script defer src="/_vercel/speed-insights/script.js"></script>
+    <script defer src="/_vercel/insights/script.js"></script>
   </body>
 </html>

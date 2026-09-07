@@ -50,6 +50,15 @@ THESE CODES ARE THE OT "WHY" the Asst. Chief asked for — do not invent a cause
   taxonomy alongside them; MINSTAFF/EMREP/ERC/deployment codes already say it, and
   using them makes the QA/QI report reconcile with payroll by construction.
 
+VERCEL MONITORING (index.html, before </body>):
+Speed Insights + Web Analytics are the two PLAIN-HTML script tags
+  (/_vercel/speed-insights/script.js, /_vercel/insights/script.js), NOT the npm
+  packages -- this site has no bundler, so @vercel/speed-insights would never run.
+  Both need enabling per-project in the Vercel dashboard or the requests 404.
+  An inline stripUrl()/speedInsightsBeforeSend()/va("beforeSend") pair strips query
+  and hash before anything is reported, so a member name can never ride out in a URL.
+  blank.html (the MSAL popup target) deliberately has NO tracking on it.
+
 PRINT (renderPrintSheet / openPrintOptions / attachPrintEvents):
 #print-options modal picks start date, window (24/48/72h or 7d) and which units;
 #print-sheet is built on demand and is display:none except in @media print, where the
