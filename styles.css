@@ -2164,3 +2164,73 @@ textarea:disabled {
     overflow-y: visible;
   }
 }
+
+
+/* ─── Print options + printable shift sheet ─────────────────────────────── */
+
+.print-options {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 8, 18, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 1rem;
+}
+.print-options[hidden] { display: none; }
+.print-options-card {
+  background: var(--surface, #12294a);
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  width: min(30rem, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.print-options-card h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
+.print-options-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+.print-options-row label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; }
+.print-options-row input,
+.print-options-row select { padding: 0.45rem 0.6rem; border-radius: 8px; font-size: 16px; }
+.print-options-unitshead {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.8rem; margin-bottom: 0.4rem;
+}
+.print-unit-pick {
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.25rem 0; font-size: 0.9rem;
+}
+.print-options-actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 1rem; }
+
+/* Off screen, on paper. */
+.print-sheet { display: none; }
+
+@media print {
+  .app-shell, .app-topbar, .print-options { display: none !important; }
+  .print-sheet { display: block !important; color: #111; background: #fff; }
+
+  .print-head h1 { font-size: 15pt; margin: 0 0 2pt; }
+  .print-head p { font-size: 9pt; margin: 0; }
+  .print-meta { color: #555; }
+
+  /* A day stays together; the whole point is one shift per glance. */
+  .print-day { break-inside: avoid; margin-top: 10pt; }
+  .print-day h2 { font-size: 11pt; margin: 0 0 4pt; border-bottom: 1px solid #000; }
+
+  /* Two columns of unit cards is what fits a 48-hour window on one page. */
+  .print-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6pt 12pt; }
+  .print-unit { break-inside: avoid; }
+  .print-unit h3 { font-size: 9.5pt; margin: 0 0 1pt; }
+  .print-unit table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+  .print-unit th {
+    text-align: left; font-weight: 600; color: #444;
+    width: 5.5em; padding: 0.5pt 4pt 0.5pt 0; vertical-align: top;
+  }
+  .print-unit td { padding: 0.5pt 0; vertical-align: top; }
+  .print-open { font-weight: 700; }
+  .print-code { font-weight: 700; letter-spacing: 0.02em; }
+  .print-note { color: #444; }
+
+  @page { margin: 10mm; }
+}

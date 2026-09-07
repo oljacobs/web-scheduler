@@ -148,6 +148,7 @@ function cacheDom() {
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
     "unit-toggle-list", "notification-center",
     "approval-queue", "audit-log", "print-btn", "notify-btn",
+    "print-options", "print-sheet",
     // Employee import
     "import-file", "preview-import-btn", "apply-import-btn", "import-message", "import-preview",
     "download-employee-template-btn",
@@ -210,7 +211,7 @@ function wireEvents() {
     state.currentDate = todayIso();
     render();
   });
-  dom["print-btn"].addEventListener("click", () => window.print());
+  dom["print-btn"].addEventListener("click", openPrintOptions);
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
   // Employee import
@@ -224,6 +225,7 @@ function wireEvents() {
   dom["download-unit-template-btn"].addEventListener("click", downloadUnitTemplate);
 
   attachShellChromeEvents();
+  attachPrintEvents();
   attachTemplateEvents();
   dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
   dom["coverage-days"]?.addEventListener("change", renderCoveragePanel);
@@ -4939,4 +4941,135 @@ function migrateUnitShiftModel(data) {
 function setPersistenceStatus(message, level) {
   state.persistence.status = message;
   state.persistence.level = level;
+}
+
+
+// ─── Printable shift sheet ───────────────────────────────────────────────────
+// The print button used to be `window.print()` against the live board, which
+// prints a staffing TOOL. What a shift needs is a DOCUMENT: a 48-hour window on
+// one page, the units you actually care about, and the pay code and note against
+// each person. Different job, so it gets its own DOM rather than more print CSS.
+
+const PRINT_STATE = { start: null, days: 2, units: null };
+
+function printableUnits() {
+  return visibleUnits().slice().sort(byBoardOrder);
+}
+
+function printSheetDates() {
+  const start = PRINT_STATE.start || state.currentDate || todayIso();
+  return Array.from({ length: PRINT_STATE.days }, (_, i) => addDays(start, i));
+}
+
+function payCodeFor(person) {
+  const code = person?._pay;
+  if (!code) return null;
+  const def = (state.payCodes || []).find((p) => p.code === code) || { code };
+  const forWho = person._payFor ? resolvePerson({ id: person._payFor }) : null;
+  return {
+    code,
+    note: person._payNote || "",
+    forName: forWho?.name || "",
+    description: def.description || "",
+  };
+}
+
+function printSeatRows(unit, date) {
+  const people = getAssignments(date, unit.id).map(resolvePerson).filter(Boolean);
+  const { seats, extra } = assignPeopleToSeats(unit.type, people);
+  const rows = seats.map((seat) => ({
+    label: seat.label || seat.role,
+    person: seat.person || null,
+    required: seat.required !== false,
+  }));
+  extra.forEach((person) => rows.push({ label: "Rider", person, required: false }));
+  return rows;
+}
+
+function renderPrintSheet() {
+  const host = dom["print-sheet"];
+  if (!host) return;
+  const dates = printSheetDates();
+  const units = printableUnits().filter(
+    (u) => !PRINT_STATE.units || PRINT_STATE.units.has(u.id));
+
+  const header = `
+    <div class="print-head">
+      <h1>D7FR Shift Schedule</h1>
+      <p>${dates.map((d) => `${formatDate(d)} (${getShiftForDate(d) || "—"} shift)`).join("  ·  ")}</p>
+      <p class="print-meta">Printed ${formatDateTime(new Date())}${
+        state.scheduleStatus === "draft" ? " — DRAFT, not published" : ""}</p>
+    </div>`;
+
+  const body = dates.map((date) => {
+    const running = units.filter((u) => unitRunsOn(u, date));
+    if (!running.length) return "";
+    const cards = running.map((unit) => {
+      const rows = printSeatRows(unit, date).map((row) => {
+        const pay = row.person ? payCodeFor(row.person) : null;
+        // An unfilled REQUIRED seat is the thing an officer is scanning for, so it
+        // gets the ink. Optional rider seats left empty are not news.
+        const name = row.person
+          ? row.person.name
+          : (row.required ? '<span class="print-open">OPEN</span>' : "—");
+        const codeCell = pay
+          ? `<span class="print-code">${pay.code}</span>` +
+            (pay.forName ? ` for ${pay.forName}` : "") +
+            (pay.note ? `<span class="print-note"> — ${pay.note}</span>` : "")
+          : "";
+        return `<tr><th>${row.label}</th><td>${name}</td><td>${codeCell}</td></tr>`;
+      }).join("");
+      return `
+        <section class="print-unit">
+          <h3>${unit.name}</h3>
+          <table>${rows}</table>
+        </section>`;
+    }).join("");
+    return `<div class="print-day"><h2>${formatDate(date)} · ${getShiftForDate(date) || "—"} shift</h2>
+              <div class="print-grid">${cards}</div></div>`;
+  }).join("");
+
+  host.innerHTML = header + (body || "<p>No apparatus in service for these dates.</p>");
+}
+
+function openPrintOptions() {
+  const host = dom["print-options"];
+  if (!host) { window.print(); return; }
+  PRINT_STATE.start = PRINT_STATE.start || state.currentDate || todayIso();
+  const units = printableUnits();
+  host.querySelector("[data-print-start]").value = PRINT_STATE.start;
+  host.querySelector("[data-print-days]").value = String(PRINT_STATE.days);
+  host.querySelector("[data-print-units]").innerHTML = units.map((u) => `
+    <label class="print-unit-pick">
+      <input type="checkbox" value="${u.id}"
+        ${!PRINT_STATE.units || PRINT_STATE.units.has(u.id) ? "checked" : ""}> ${u.name}
+    </label>`).join("");
+  host.hidden = false;
+}
+
+function closePrintOptions() {
+  if (dom["print-options"]) dom["print-options"].hidden = true;
+}
+
+function attachPrintEvents() {
+  const host = dom["print-options"];
+  if (!host) return;
+  host.querySelector("[data-print-cancel]").addEventListener("click", closePrintOptions);
+  host.querySelector("[data-print-all]").addEventListener("click", () => {
+    host.querySelectorAll("[data-print-units] input").forEach((i) => { i.checked = true; });
+  });
+  host.querySelector("[data-print-none]").addEventListener("click", () => {
+    host.querySelectorAll("[data-print-units] input").forEach((i) => { i.checked = false; });
+  });
+  host.querySelector("[data-print-go]").addEventListener("click", () => {
+    PRINT_STATE.start = host.querySelector("[data-print-start]").value || todayIso();
+    PRINT_STATE.days = Number(host.querySelector("[data-print-days]").value) || 2;
+    const picked = [...host.querySelectorAll("[data-print-units] input:checked")]
+      .map((i) => i.value);
+    // No selection means every unit, not an empty page.
+    PRINT_STATE.units = picked.length ? new Set(picked) : null;
+    renderPrintSheet();
+    closePrintOptions();
+    window.print();
+  });
 }
