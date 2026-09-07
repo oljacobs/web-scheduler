@@ -41,6 +41,7 @@ PRIMARY STATE OBJECT (`state`)
 - importPreview: EmployeeImportPreview|null
 - unitImportPreview: UnitImportPreview|null
 - assignments: Record<date, Record<unitId, Employee[]>>
+- payCodes: PayCode[]                    — REFERENCE data from the API, never sent back up
 - activeSurface: "schedule" | "admin"
 - activeAdminTab: string (default "employees")
 - employeeFilter: { search, shift, status, sort }
@@ -131,6 +132,19 @@ PERSISTENCE FLOW
   - migrateEmployeeTitles(data)   ← maps legacy title strings to current D7FR titles
   - migratePersistedUnitTypes(data.units)
   - then assigns state collections and UI prefs
+  - IT IS AN ALLOWLIST, KEY BY KEY. Anything the server sends that is not named
+    here is silently dropped. This bit once: the API sent payCodes with every
+    load, applyPersistedState never copied them, so state.payCodes stayed
+    undefined and the seat pay-code picker rendered nothing on every account and
+    every role. ADD A LINE HERE WHENEVER YOU ADD A KEY TO THE SERVER PAYLOAD.
+  - payCodes is copied ONLY when the payload carries the array — a localStorage
+    restore has no such key and must not blank a list already loaded from the API.
+
+PAY CODES (see AI_STATE_MIN.txt for the full contract)
+- state.payCodes = Paycom labor-distribution codes, seeded server-side, sent down
+  with the state and deliberately NOT included in serializableState().
+- payCodeBlockHtml() renders the picker under a FILLED seat; empty state.payCodes
+  renders nothing at all, which is the intended degrade for Supabase/local mode.
 
 STAFFING ALERTS
 - getStaffingAlerts(date): uses UNIT_POSITION_REQUIREMENTS when available

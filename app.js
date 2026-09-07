@@ -24,6 +24,9 @@ const state = {
   unitImportPreview: null,
   rosterImportPreview: null,
   assignments: {},
+  // Reference data pushed down by the server (never sent back up). Empty in
+  // Supabase/localStorage mode, which is why every reader guards on it.
+  payCodes: [],
   activeSurface: "schedule",
   activeAdminTab: "employees",
   employeeFilter: { search: "", shift: "all", status: "active", sort: "name" },
@@ -5047,6 +5050,11 @@ function applyPersistedState(data) {
   state.notifications = Array.isArray(data.notifications) ? data.notifications : [];
   state.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
   state.assignments = data.assignments && typeof data.assignments === "object" ? data.assignments : {};
+  // Pay codes are REFERENCE data: the Django API sends them down with the state,
+  // and serializableState() deliberately never sends them back. Only overwrite
+  // when the payload actually carries them -- a localStorage restore has no
+  // payCodes key, and blanking the list there would silently kill the picker.
+  if (Array.isArray(data.payCodes)) state.payCodes = data.payCodes;
   state.scheduleStatus = data.scheduleStatus || "draft";
   state.employeeFilter = {
     search: data.employeeFilter?.search || "",

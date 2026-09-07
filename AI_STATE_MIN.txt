@@ -46,6 +46,17 @@ SPA picker: payCodeBlockHtml() hangs a pay block under any FILLED seat row
   and for-who, and stamps the unit-day manual (updateAssignedPerson -> markManual) so a
   template push cannot silently wipe a payroll record. Empty values are DELETED from
   the person object, never stored blank. No payCodes from the server => no UI at all.
+GOTCHA THAT ALREADY BIT ONCE: applyPersistedState() is a KEY-BY-KEY ALLOWLIST. The
+  API sent payCodes down correctly and the SPA dropped them, so the picker rendered
+  nothing everywhere. Any new key in the server payload MUST be added there too, or
+  it does not exist client-side. Guarded now by two assertions in the smoke test.
+  The copy is conditional (Array.isArray) so a localStorage restore, which has no
+  payCodes key, cannot blank a list already loaded from the API.
+CSS TRAP: the global `input, select, textarea { width: 100% }` rule at styles.css:286
+  applies to CHECKBOXES. Any new checkbox row needs an explicit
+  `input[type="checkbox"] { width:16px; height:16px; flex-shrink:0 }` or the box
+  stretches the row and shoves its label to the far right. See .roster-check-label
+  and .print-unit-pick.
 THESE CODES ARE THE OT "WHY" the Asst. Chief asked for — do not invent a cause
   taxonomy alongside them; MINSTAFF/EMREP/ERC/deployment codes already say it, and
   using them makes the QA/QI report reconcile with payroll by construction.
@@ -124,7 +135,9 @@ DOMContentLoaded -> hydrateAppState -> initMsal -> initializeControls -> render
 serializableState persists: units, employees(incl certs+rideUp), trades, overtimePosts, notifications,
   auditLog, assignments, scheduleStatus, employeeFilter, activeSurface, activeAdminTab
 loadRemoteState/saveRemoteState branch on usesSchedulerApi(): GET/PUT /api/scheduler/state/ (Bearer token)
-  vs Supabase REST. applyPersistedState: migrateShiftNames + migrateEmployeeTitles + migratePersistedUnitTypes
+  vs Supabase REST. applyPersistedState: migrateShiftNames + migrateEmployeeTitles + migratePersistedUnitTypes,
+  then a KEY-BY-KEY allowlist copy (unnamed keys are dropped — see the pay-code gotcha above).
+  payCodes rides DOWN with the state but is never sent back up.
 
 Dates (America/Chicago, NEVER UTC):
 todayIso() = current Central date, rolled back to previous day before 08:00 (0800-0800 shift day)
