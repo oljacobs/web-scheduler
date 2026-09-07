@@ -145,6 +145,13 @@ PAY CODES (see AI_STATE_MIN.txt for the full contract)
   with the state and deliberately NOT included in serializableState().
 - payCodeBlockHtml() renders the picker under a FILLED seat; empty state.payCodes
   renders nothing at all, which is the intended degrade for Supabase/local mode.
+- PAY_UI.show (localStorage, per viewer, default OFF) gates only the EDITING
+  controls. An already-set code always shows as a read-only chip. #pay-codes-toggle.
+- resolvePerson() returns the ROSTER record and therefore has NO _pay/_payNote/
+  _payFor. Those live on the STORED assignment object. printSeatRows merges them
+  back by hand; anything else that resolves before reading them must do the same.
+- The note/for-who fields flash green or red on save (flashPayFieldSaved), since
+  the board has no Save button and a typed note otherwise gives no feedback.
 
 STAFFING ALERTS
 - getStaffingAlerts(date): uses UNIT_POSITION_REQUIREMENTS when available

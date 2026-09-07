@@ -146,6 +146,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
+    "pay-codes-toggle",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
@@ -215,6 +216,9 @@ function wireEvents() {
     render();
   });
   dom["print-btn"].addEventListener("click", openPrintOptions);
+  loadPayUiPreference();
+  renderPayCodeToggle();
+  dom["pay-codes-toggle"].addEventListener("click", togglePayCodeUi);
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
   // Employee import
@@ -4218,6 +4222,40 @@ function seatDropdownOptions(pos, unit, date) {
 }
 
 // ─── Pay codes ────────────────────────────────────────────────────────────────
+// Whether the EDITING controls are shown. A per-viewer view preference, so it
+// lives in localStorage rather than the shared state -- one supervisor turning
+// codes on must not change what the next person sees.
+const PAY_UI_KEY = "d7fr-scheduler-pay-ui";
+const PAY_UI = { show: false };
+
+function loadPayUiPreference() {
+  try {
+    PAY_UI.show = localStorage.getItem(PAY_UI_KEY) === "1";
+  } catch (e) {
+    PAY_UI.show = false;
+  }
+}
+
+function togglePayCodeUi() {
+  PAY_UI.show = !PAY_UI.show;
+  try {
+    localStorage.setItem(PAY_UI_KEY, PAY_UI.show ? "1" : "0");
+  } catch (e) {
+    // Private window or blocked site data: the toggle still works for this
+    // session, it just will not be remembered. Not worth telling anyone.
+  }
+  renderPayCodeToggle();
+  render();
+}
+
+function renderPayCodeToggle() {
+  const btn = dom["pay-codes-toggle"];
+  if (!btn) return;
+  btn.classList.toggle("is-active", PAY_UI.show);
+  btn.setAttribute("aria-pressed", PAY_UI.show ? "true" : "false");
+  btn.textContent = PAY_UI.show ? "Pay codes ✓" : "Pay codes";
+}
+
 // The department already has a payroll vocabulary (Paycom labor distribution
 // codes). Rather than inventing a parallel "reason" taxonomy, a seat carries the
 // code payroll will actually be billed under. `state.payCodes` is reference data
@@ -4269,7 +4307,9 @@ function payCodeBlockHtml(person, unit, date, isSupervisor) {
   const code = person._pay || "";
   const def = payCodeDef(code);
 
-  if (!isSupervisor) {
+  // Read-only whenever the viewer cannot edit OR has the controls switched off.
+  // A code that IS set always shows: the toggle hides the pickers, never the data.
+  if (!isSupervisor || !PAY_UI.show) {
     if (!code) return "";
     const forWho = person._payFor ? (employeeById(person._payFor)?.name || "") : "";
     return `<div class="seat-pay seat-pay-readonly">
@@ -4327,6 +4367,27 @@ function updateAssignedPerson(date, unitId, personId, patch) {
   return next;
 }
 
+// The board has no Save button by design (see index.html: every edit persists on
+// change). That works for clicks, where the result is visibly on screen, but a
+// typed note gives no feedback at all -- you blur the field and nothing happens.
+// So the FIELD confirms itself, rather than adding a save button that isn't
+// load-bearing anywhere else.
+function flashPayFieldSaved(el, promise) {
+  if (!el) return;
+  el.classList.remove("pay-field-saved", "pay-field-failed");
+  el.classList.add("pay-field-saving");
+  Promise.resolve(promise).finally(() => {
+    el.classList.remove("pay-field-saving");
+    // persistAppState swallows its own errors and falls back to the browser, so
+    // "it resolved" is not the same as "the server has it". The backend field is.
+    const backend = String(state.persistence.backend || "");
+    const reachedServer = backend === "api" || backend === "supabase";
+    el.classList.add(reachedServer ? "pay-field-saved" : "pay-field-failed");
+    el.title = reachedServer ? "Saved" : "NOT saved to the server — saved in this browser only";
+    setTimeout(() => el.classList.remove("pay-field-saved", "pay-field-failed"), 1800);
+  });
+}
+
 function attachPayCodeEvents(scope) {
   const root = scope || document;
 
@@ -4364,7 +4425,7 @@ function attachPayCodeEvents(scope) {
         "pay-note-missing",
         !note && !!payCodeDef(current?._pay)?.commentRequired,
       );
-      persistAppState("Pay code comment updated");
+      flashPayFieldSaved(input, persistAppState("Pay code comment updated"));
     });
   });
 
@@ -4380,7 +4441,7 @@ function attachPayCodeEvents(scope) {
           : `Coverage target cleared for ${who} on ${unitById(unitId)?.name}, ${formatDate(date)}.`,
         currentUserName(),
       );
-      persistAppState("Pay code coverage updated");
+      flashPayFieldSaved(select, persistAppState("Pay code coverage updated"));
     });
   });
 }
@@ -5157,7 +5218,18 @@ function payCodeFor(person) {
 }
 
 function printSeatRows(unit, date) {
-  const people = getAssignments(date, unit.id).map(resolvePerson).filter(Boolean);
+  // resolvePerson() swaps the stored assignment for the live ROSTER record, which
+  // is correct for name/title/certs and WRONG for pay codes: the code lives on the
+  // stored assignment (_pay/_payNote/_payFor), and mapping straight through
+  // resolvePerson silently dropped it. The sheet printed an empty code column no
+  // matter what the board showed -- nothing to do with draft vs published.
+  const people = getAssignments(date, unit.id)
+    .map((stored) => {
+      const live = resolvePerson(stored);
+      if (!live) return null;
+      return { ...live, _pay: stored._pay, _payNote: stored._payNote, _payFor: stored._payFor };
+    })
+    .filter(Boolean);
   const { seats, extra } = assignPeopleToSeats(unit.type, people);
   const rows = seats.map((seat) => ({
     label: seat.label || seat.role,

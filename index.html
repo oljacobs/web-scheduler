@@ -122,6 +122,13 @@
                 <button data-view="month" class="view-button">Month</button>
               </div>
 
+              <!-- Pay codes are a payroll task, not a staffing one: a supervisor
+                   filling seats does not want a dropdown under every name. Off by
+                   default; a seat that ALREADY has a code still shows it as a chip
+                   so nothing is ever hidden, only the editing controls are. -->
+              <button id="pay-codes-toggle" class="button button-secondary" type="button"
+                      aria-pressed="false" title="Show pay code controls on each seat">Pay codes</button>
+
               <div class="status-group">
                 <label>
                   Schedule Status

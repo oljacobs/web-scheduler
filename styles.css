@@ -661,6 +661,30 @@ textarea:disabled {
   color: var(--muted);
 }
 
+/* Toolbar toggle: same visual language as the Day/Week/Month switch, so "on"
+   reads the same way everywhere. */
+#pay-codes-toggle.is-active {
+  background: rgba(77, 163, 255, 0.22);
+  border-color: rgba(77, 163, 255, 0.55);
+  color: #eaf3ff;
+}
+
+/* Field-level save feedback. The board has no Save button, so a typed note has
+   to confirm itself or it looks like nothing happened. */
+.pay-field-saving { opacity: 0.65; }
+
+.pay-field-saved {
+  border-color: var(--success, #3ddc97) !important;
+  box-shadow: 0 0 0 2px rgba(61, 220, 151, 0.22);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.pay-field-failed {
+  border-color: var(--danger, #ff6b6b) !important;
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.25);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
 .person-row {
   padding: 12px;
   border-radius: 14px;

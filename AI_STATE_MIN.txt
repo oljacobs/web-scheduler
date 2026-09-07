@@ -46,12 +46,26 @@ SPA picker: payCodeBlockHtml() hangs a pay block under any FILLED seat row
   and for-who, and stamps the unit-day manual (updateAssignedPerson -> markManual) so a
   template push cannot silently wipe a payroll record. Empty values are DELETED from
   the person object, never stored blank. No payCodes from the server => no UI at all.
+VISIBILITY TOGGLE: PAY_UI.show (localStorage "d7fr-scheduler-pay-ui", per viewer,
+  default OFF) gates the EDITING controls only. #pay-codes-toggle in the toolbar
+  flips it. A seat that already HAS a code always shows the read-only chip, on or
+  off -- the toggle hides pickers, never data. Non-supervisors are read-only regardless.
+FIELD-LEVEL SAVE FEEDBACK: the board has no Save button by design (every edit
+  persists on change), which reads as "nothing happened" for a TYPED note. The note
+  and for-who fields flash via flashPayFieldSaved(): green only when
+  state.persistence.backend is "api"/"supabase", red on any fallback, because
+  persistAppState swallows its own errors and resolving != the server has it.
 GOTCHA THAT ALREADY BIT ONCE: applyPersistedState() is a KEY-BY-KEY ALLOWLIST. The
   API sent payCodes down correctly and the SPA dropped them, so the picker rendered
   nothing everywhere. Any new key in the server payload MUST be added there too, or
   it does not exist client-side. Guarded now by two assertions in the smoke test.
   The copy is conditional (Array.isArray) so a localStorage restore, which has no
   payCodes key, cannot blank a list already loaded from the API.
+SECOND GOTCHA, SAME FAMILY: resolvePerson() returns the live ROSTER record, which
+  has NO _pay/_payNote/_payFor -- those live on the stored assignment. printSeatRows
+  mapped straight through it and printed an empty code column while the board showed
+  codes fine (it reads the stored objects). Anything that resolvePerson()s an
+  assignment before reading transport fields must merge them back explicitly.
 CSS TRAP: the global `input, select, textarea { width: 100% }` rule at styles.css:286
   applies to CHECKBOXES. Any new checkbox row needs an explicit
   `input[type="checkbox"] { width:16px; height:16px; flex-shrink:0 }` or the box
