@@ -147,6 +147,11 @@ PAY CODES (see AI_STATE_MIN.txt for the full contract)
   renders nothing at all, which is the intended degrade for Supabase/local mode.
 - PAY_UI.show (localStorage, per viewer, default OFF) gates only the EDITING
   controls. An already-set code always shows as a read-only chip. #pay-codes-toggle.
+- assignPeopleToSeats() returns { pos, person }. The seat definition is under
+  `pos` -- seat.label/seat.role/seat.required do not exist on the wrapper.
+- unitLabel(id) is the ONLY safe way to name a unit inside audit or notification
+  text: those strings are stored at write time, so `unitById(id)?.name` missing
+  writes a permanent "undefined" into the record.
 - resolvePerson() returns the ROSTER record and therefore has NO _pay/_payNote/
   _payFor. Those live on the STORED assignment object. printSeatRows merges them
   back by hand; anything else that resolves before reading them must do the same.

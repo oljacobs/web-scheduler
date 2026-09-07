@@ -61,6 +61,16 @@ GOTCHA THAT ALREADY BIT ONCE: applyPersistedState() is a KEY-BY-KEY ALLOWLIST. T
   it does not exist client-side. Guarded now by two assertions in the smoke test.
   The copy is conditional (Array.isArray) so a localStorage restore, which has no
   payCodes key, cannot blank a list already loaded from the API.
+THIRD GOTCHA, SAME FAMILY: assignPeopleToSeats() returns { pos, person } -- the
+  seat DEFINITION is nested under `pos`. seat.label / seat.role / seat.required are
+  all undefined on the wrapper. printSeatRows read them off the wrapper and printed
+  "undefined" as every seat label, and since `undefined !== false` it also marked
+  every optional rider seat required. Read seat.pos.label and seatIsRequired(seat.pos).
+AUDIT/NOTIFICATION TEXT IS FROZEN AT WRITE TIME: those strings are stored, not
+  re-rendered, so a lookup that misses bakes the word "undefined" into the record
+  permanently. Use unitLabel(id) (falls back to the raw id), never a bare
+  `unitById(id)?.name`, in anything that becomes stored text. renderAuditLog()
+  escapes actor/message/time -- they carry names and typed notes into innerHTML.
 SECOND GOTCHA, SAME FAMILY: resolvePerson() returns the live ROSTER record, which
   has NO _pay/_payNote/_payFor -- those live on the stored assignment. printSeatRows
   mapped straight through it and printed an empty code column while the board showed

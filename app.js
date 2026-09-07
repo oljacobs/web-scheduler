@@ -943,7 +943,7 @@ function attachTemplateSeatEvents() {
       }
       upsertTemplateSeat(state.templateUnitId, state.templateShift, select.dataset.role, select.value);
       addAudit(
-        `Staffing template updated: ${unitById(state.templateUnitId)?.name} ${state.templateShift} shift.`,
+        `Staffing template updated: ${unitLabel(state.templateUnitId)} ${state.templateShift} shift.`,
         currentUserName()
       );
       renderTemplateEditor();   // re-renders AND re-binds
@@ -1833,7 +1833,7 @@ function renderApprovalQueue() {
           const details =
             item.queueType === "trade"
               ? `${employeeById(item.employeeId)?.name} ↔ ${employeeById(item.partnerId)?.name}`
-              : `${unitById(item.unitId)?.name} • ${item.qualification} needed`;
+              : `${unitLabel(item.unitId)} • ${item.qualification} needed`;
           return `
             <article class="queue-item">
               <div class="unit-card-header">
@@ -1871,9 +1871,9 @@ function renderAuditLog() {
         .map(
           (item) => `
         <article class="queue-item">
-          <strong>${item.actor}</strong>
-          <p>${item.message}</p>
-          <time>${item.time}</time>
+          <strong>${escapeHtml(item.actor || "System")}</strong>
+          <p>${escapeHtml(item.message || "")}</p>
+          <time>${escapeHtml(item.time || "")}</time>
         </article>
       `,
         )
@@ -2032,8 +2032,8 @@ function attachUnitMoveEvents() {
       // A human touched this unit-day: stamp EVERY row on it manual so a future
       // template push skips the whole crew, not just the seat that changed.
       state.assignments[date][unitId] = markManual([...existingAssignments, employee]);
-      addAudit(`${employee.name} added to ${unitById(unitId)?.name} on ${formatDate(date)}.`, currentUserName());
-      createNotification(`${employee.name} assigned to ${unitById(unitId)?.name} for ${formatDate(date)}.`, "email", currentUserName());
+      addAudit(`${employee.name} added to ${unitLabel(unitId)} on ${formatDate(date)}.`, currentUserName());
+      createNotification(`${employee.name} assigned to ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
       render();
       persistAppState("Assignment updated");
     });
@@ -2048,8 +2048,8 @@ function attachUnitMoveEvents() {
       state.assignments[date][unitId] = markManual(
         getAssignments(date, unitId).filter((person) => person.id !== employeeId)
       );
-      addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId)?.name} on ${formatDate(date)}.`, currentUserName());
-      createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitById(unitId)?.name} for ${formatDate(date)}.`, "email", currentUserName());
+      addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} on ${formatDate(date)}.`, currentUserName());
+      createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
       render();
       persistAppState("Assignment removed");
     });
@@ -4016,7 +4016,7 @@ function denyQueueItem(id) {
   const overtime = state.overtimePosts.find((item) => item.id === id);
   if (overtime) {
     overtime.status = "denied";
-    createNotification(`Open shift for ${unitById(overtime.unitId)?.name} on ${formatDate(overtime.date)} was closed without assignment.`, "email", currentUserName());
+    createNotification(`Open shift for ${unitLabel(overtime.unitId)} on ${formatDate(overtime.date)} was closed without assignment.`, "email", currentUserName());
     addAudit(`Overtime ${overtime.id} denied or closed.`, currentUserName());
     render();
     persistAppState("Overtime denied");
@@ -4404,8 +4404,8 @@ function attachPayCodeEvents(scope) {
       const who = employeeById(personId)?.name || "Employee";
       addAudit(
         code
-          ? `${who} coded ${code} on ${unitById(unitId)?.name} for ${formatDate(date)}.`
-          : `Pay code cleared for ${who} on ${unitById(unitId)?.name}, ${formatDate(date)}.`,
+          ? `${who} coded ${code} on ${unitLabel(unitId)} for ${formatDate(date)}.`
+          : `Pay code cleared for ${who} on ${unitLabel(unitId)}, ${formatDate(date)}.`,
         currentUserName(),
       );
       render();
@@ -4437,8 +4437,8 @@ function attachPayCodeEvents(scope) {
       const target = employeeById(select.value)?.name;
       addAudit(
         target
-          ? `${who} covering for ${target} on ${unitById(unitId)?.name}, ${formatDate(date)}.`
-          : `Coverage target cleared for ${who} on ${unitById(unitId)?.name}, ${formatDate(date)}.`,
+          ? `${who} covering for ${target} on ${unitLabel(unitId)}, ${formatDate(date)}.`
+          : `Coverage target cleared for ${who} on ${unitLabel(unitId)}, ${formatDate(date)}.`,
         currentUserName(),
       );
       flashPayFieldSaved(select, persistAppState("Pay code coverage updated"));
@@ -4665,6 +4665,14 @@ function normalizeEmployeeRecord(employee) {
   employee.rideUp = Array.isArray(employee.rideUp) ? employee.rideUp : [];
   employee.status = employee.status === "archived" ? "archived" : "active";
   return employee;
+}
+
+// Never let a missing unit print the word "undefined" into an audit line or a
+// notification. Those strings are stored as TEXT at write time, so a lookup that
+// misses is baked into the record permanently -- there is no re-render that fixes
+// it later. Falls back to the raw id, which at least identifies the truck.
+function unitLabel(id) {
+  return unitById(id)?.name || id || "unknown unit";
 }
 
 function unitById(id) {
@@ -5231,10 +5239,14 @@ function printSeatRows(unit, date) {
     })
     .filter(Boolean);
   const { seats, extra } = assignPeopleToSeats(unit.type, people);
+  // assignPeopleToSeats returns { pos, person } -- the seat definition is nested
+  // under `pos`. Reading seat.label/seat.role/seat.required off the wrapper gave
+  // undefined for every row: the label printed as "undefined" and, because
+  // `undefined !== false`, every optional rider seat printed as required.
   const rows = seats.map((seat) => ({
-    label: seat.label || seat.role,
+    label: seat.pos.label || seat.pos.role || "Seat",
     person: seat.person || null,
-    required: seat.required !== false,
+    required: seatIsRequired(seat.pos),
   }));
   extra.forEach((person) => rows.push({ label: "Rider", person, required: false }));
   return rows;
