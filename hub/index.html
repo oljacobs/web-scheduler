@@ -142,11 +142,14 @@ h1 .h1-sub {
   max-width: 52ch;
 }
 
-.search-block { margin-left: auto; width: min(420px, 100%); }
+/* Widened from 420px: a second masthead button squeezed the search field until
+   its own placeholder was truncated. The row wraps rather than shrinking the
+   input further on a narrow screen. */
+.search-block { margin-left: auto; width: min(560px, 100%); }
 
-.search-row { display: flex; gap: 8px; align-items: stretch; }
+.search-row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
 
-.search-field { position: relative; flex: 1; display: block; }
+.search-field { position: relative; flex: 1 1 15rem; display: block; }
 
 .search-field > svg {
   position: absolute;
@@ -187,6 +190,34 @@ h1 .h1-sub {
 }
 
 .help-btn:hover { background: rgba(255, 159, 67, 0.16); }
+
+/* Secondary to IT help: a bug in an app is not a phone-the-helpdesk emergency,
+   and two equally loud buttons in a masthead make people read neither. */
+.help-btn.is-bug {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.help-btn.is-bug:hover { background: rgba(139, 170, 206, 0.12); color: var(--text); }
+
+.bug-cta {
+  display: inline-block;
+  margin-top: 0.35rem;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  background: var(--gold);
+  color: #241a06;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.bug-cta:hover { background: var(--gold-bright); }
+
+.bug-note, .bug-fallback { font-size: 0.86rem; color: var(--muted); }
+
+.bug-fallback a { color: var(--gold-bright); font-weight: 600; }
+
+.bug-fallback { margin-top: 0.9rem; }
 
 :is(#search, .help-btn, .tile, a):focus-visible {
   outline: 2px solid var(--accent);
@@ -535,6 +566,13 @@ kbd {
           </svg>
           IT help
         </button>
+        <button id="bug-toggle" class="help-btn is-bug" type="button" aria-expanded="false" aria-controls="bug-report">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <path d="M8 3.2a2.6 2.6 0 0 1 2.6 2.6v3.4a2.6 2.6 0 0 1-5.2 0V5.8A2.6 2.6 0 0 1 8 3.2Z" stroke-linejoin="round"/>
+            <path d="M5.4 6.4H2.6M13.4 6.4h-2.8M5.4 9.6H2.8M13.2 9.6h-2.6M8 3.2V1.9M5.9 3.9 4.9 2.9M10.1 3.9l1-1" stroke-linecap="round"/>
+          </svg>
+          Report a bug
+        </button>
       </div>
       <p class="search-hint">Press <kbd>/</kbd> to search. <span id="count"></span></p>
     </div>
@@ -545,6 +583,33 @@ kbd {
 
 
   <!-- ============ IT HELP (toggled from the masthead) ============ -->
+  <!-- ============ REPORT A BUG (toggled from the masthead) ============ -->
+  <section id="bug-report" hidden aria-labelledby="bug-report-title">
+    <div>
+      <h2 id="bug-report-title">Something wrong with one of our apps?</h2>
+      <p>The scheduler, the checklists, the maintenance board or this page — a wrong
+         link, a button that does nothing, a number that looks wrong, anything.</p>
+      <p><a class="bug-cta" href="https://checklist.d7fr.org/maintenance/report/?category=equipment&amp;class=technical&amp;about=App%20bug">Report it on the maintenance board →</a></p>
+      <p class="bug-note">It goes straight to IT with a number and a history you can
+         check, instead of disappearing into somebody's inbox. Tick
+         <em>affects dispatch, CAD, an MDT or a rig in service</em> and it is sent
+         through immediately.</p>
+    </div>
+    <div>
+      <p><strong>Worth including:</strong></p>
+      <ul>
+        <li>Which app, and which page or button</li>
+        <li>What you expected, and what happened instead</li>
+        <li>Whether it happens every time, or happened once</li>
+        <li>A photo of the screen — the form takes photos</li>
+      </ul>
+      <p class="bug-fallback">
+        <strong>If the board itself will not load</strong>, that is the one case it
+        cannot take — reach IT the way you already do.
+      </p>
+    </div>
+  </section>
+
   <section id="it-help" hidden aria-labelledby="it-help-title">
     <div>
       <h2 id="it-help-title">Report an IT problem</h2>
@@ -870,6 +935,24 @@ kbd {
   var count = document.getElementById("count");
   var helpToggle = document.getElementById("help-toggle");
   var helpPanel = document.getElementById("it-help");
+  var bugToggle = document.getElementById("bug-toggle");
+  var bugPanel = document.getElementById("bug-report");
+
+  // One panel at a time — two open at once buries the page.
+  function wirePanel(btn, panel, others) {
+    if (!btn || !panel) return;
+    btn.addEventListener("click", function () {
+      var open = panel.hidden;
+      others.forEach(function (o) {
+        if (o.panel) { o.panel.hidden = true; }
+        if (o.btn) { o.btn.setAttribute("aria-expanded", "false"); }
+      });
+      panel.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) { panel.scrollIntoView({behavior: "smooth", block: "nearest"}); }
+    });
+  }
+  wirePanel(bugToggle, bugPanel, [{btn: helpToggle, panel: helpPanel}]);
   var tiles = Array.prototype.slice.call(document.querySelectorAll(".tile"));
   var sections = Array.prototype.slice.call(document.querySelectorAll("[data-section]"));
 
@@ -923,6 +1006,10 @@ kbd {
 
   helpToggle.addEventListener("click", function () {
     var open = helpPanel.hidden;
+    // Close the bug panel: two open at once pushes the whole page down and
+    // neither gets read.
+    if (bugPanel) { bugPanel.hidden = true; }
+    if (bugToggle) { bugToggle.setAttribute("aria-expanded", "false"); }
     helpPanel.hidden = !open;
     helpToggle.setAttribute("aria-expanded", String(open));
   });
