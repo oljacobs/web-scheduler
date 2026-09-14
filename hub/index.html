@@ -378,13 +378,27 @@ kbd {
   color: var(--muted);
 }
 
-/* The two apps we run get the one visual lift on the page. */
+/* The apps the department RUNS. Everything else on this page is a link to
+   somebody else's website; these four are ours, they are where the work is done,
+   and they are what people are here for nine visits out of ten. They get the one
+   visual lift on the page -- gold border, lifted panel, larger name -- so the eye
+   lands on them before it reads anything. */
 .tile.is-core {
-  border-color: rgba(255, 159, 67, 0.42);
-  background: linear-gradient(180deg, #16304f, #0e2340);
+  border-color: var(--gold);
+  background: linear-gradient(180deg, #1b3255, #102744);
+  box-shadow: 0 2px 0 rgba(224, 174, 49, 0.25);
 }
 
-.tile.is-core .tile-name { color: #fff; }
+.tile.is-core:hover { border-color: var(--gold-bright); }
+
+.tile.is-core .tile-name {
+  color: #fff;
+  font-size: 1.12rem;
+}
+
+.tile.is-core .tile-arrow { color: var(--gold-bright); }
+
+.tile.is-core .tile-desc { color: #cfe0f2; }
 
 /* Information, not a destination — a card that answers instead of navigating.
    No hover lift, no arrow: nothing here to click. */
@@ -588,10 +602,39 @@ kbd {
         <div class="tile-foot"><span class="host">checklist.d7fr.org</span></div>
       </a>
 
-      <a class="tile" href="https://d7fr.sharepoint.com" target="_blank" rel="noopener" data-tags="sharepoint intranet documents files home site">
-        <div class="tile-top"><span class="tile-name">SharePoint home</span><span class="tile-arrow">↗</span></div>
-        <p class="tile-desc">All department sites and document libraries.</p>
-        <div class="tile-foot"><span class="host">d7fr.sharepoint.com</span></div>
+    </div>
+  </section>
+
+<!-- ============ TEAMS & SUPPORT ============ -->
+  <section class="section" data-section>
+    <div class="section-head">
+      <h2>Teams &amp; support</h2>
+      <p>Specialty teams and the people to call.</p>
+    </div>
+    <div class="grid">
+
+      <a class="tile" href="https://d7fr.sharepoint.com/:f:/s/REMRescue/IgDPbA6pKQviRLZUMNNGLagoAcykzzBAFspCV9Nwhg92fFw?e=eiDNTK" target="_blank" rel="noopener" data-tags="technical rescue rem trt rope confined space trench water swift specialty team">
+        <div class="tile-top"><span class="tile-name">REM Rescue team</span><span class="tile-arrow">↗</span></div>
+        <p class="tile-desc">Team documents, training material, and operational references.</p>
+        <div class="tile-foot"><span class="host">d7fr.sharepoint.com</span><span class="who">Team members</span></div>
+      </a>
+
+      <a class="tile" href="https://d7fr.sharepoint.com/:f:/s/WildlandTeam/IgDk4cya5b1oQbN7qWcEDzugATN6Cw28fvglQUFUpoW_7uE?e=b7HJz4" target="_blank" rel="noopener" data-tags="wildland brush grass fire strike team deployment red card specialty">
+        <div class="tile-top"><span class="tile-name">Wildland team</span><span class="tile-arrow">↗</span></div>
+        <p class="tile-desc">Operational and training documents for the wildland team.</p>
+        <div class="tile-foot"><span class="host">d7fr.sharepoint.com</span><span class="who">Team members</span></div>
+      </a>
+
+      <div class="tile is-info" data-info data-tags="peer support cism eap counseling behavioral health wellness debrief yvonne garcia critical incident stress">
+        <div class="tile-top"><span class="tile-name">Peer support &amp; CISM</span></div>
+        <p class="tile-desc">Yvonne Garcia leads our CISM team. Reach her in Teams or by email for peer support, a debrief after a hard call, or help getting to EAP.</p>
+        <div class="tile-foot"><span class="host">contact her in Teams</span></div>
+      </div>
+
+      <a class="tile" href="https://988lifeline.org" target="_blank" rel="noopener" data-tags="988 crisis lifeline suicide mental health support help">
+        <div class="tile-top"><span class="tile-name">988 Lifeline</span><span class="tile-arrow">↗</span></div>
+        <p class="tile-desc">Call or text 988 any time — for you or for someone on your crew.</p>
+        <div class="tile-foot"><span class="host">988lifeline.org</span></div>
       </a>
 
     </div>
@@ -719,40 +762,7 @@ kbd {
     </div>
   </section>
 
-  <!-- ============ TEAMS & SUPPORT ============ -->
-  <section class="section" data-section>
-    <div class="section-head">
-      <h2>Teams &amp; support</h2>
-      <p>Specialty teams and the people to call.</p>
-    </div>
-    <div class="grid">
-
-      <a class="tile" href="https://d7fr.sharepoint.com/:f:/s/REMRescue/IgDPbA6pKQviRLZUMNNGLagoAcykzzBAFspCV9Nwhg92fFw?e=eiDNTK" target="_blank" rel="noopener" data-tags="technical rescue rem trt rope confined space trench water swift specialty team">
-        <div class="tile-top"><span class="tile-name">REM Rescue team</span><span class="tile-arrow">↗</span></div>
-        <p class="tile-desc">Team documents, training material, and operational references.</p>
-        <div class="tile-foot"><span class="host">d7fr.sharepoint.com</span><span class="who">Team members</span></div>
-      </a>
-
-      <a class="tile" href="https://d7fr.sharepoint.com/:f:/s/WildlandTeam/IgDk4cya5b1oQbN7qWcEDzugATN6Cw28fvglQUFUpoW_7uE?e=b7HJz4" target="_blank" rel="noopener" data-tags="wildland brush grass fire strike team deployment red card specialty">
-        <div class="tile-top"><span class="tile-name">Wildland team</span><span class="tile-arrow">↗</span></div>
-        <p class="tile-desc">Operational and training documents for the wildland team.</p>
-        <div class="tile-foot"><span class="host">d7fr.sharepoint.com</span><span class="who">Team members</span></div>
-      </a>
-
-      <div class="tile is-info" data-info data-tags="peer support cism eap counseling behavioral health wellness debrief yvonne garcia critical incident stress">
-        <div class="tile-top"><span class="tile-name">Peer support &amp; CISM</span></div>
-        <p class="tile-desc">Yvonne Garcia leads our CISM team. Reach her in Teams or by email for peer support, a debrief after a hard call, or help getting to EAP.</p>
-        <div class="tile-foot"><span class="host">contact her in Teams</span></div>
-      </div>
-
-      <a class="tile" href="https://988lifeline.org" target="_blank" rel="noopener" data-tags="988 crisis lifeline suicide mental health support help">
-        <div class="tile-top"><span class="tile-name">988 Lifeline</span><span class="tile-arrow">↗</span></div>
-        <p class="tile-desc">Call or text 988 any time — for you or for someone on your crew.</p>
-        <div class="tile-foot"><span class="host">988lifeline.org</span></div>
-      </a>
-
-    </div>
-  </section>
+  
 
   <!-- ============ MICROSOFT 365 ============ -->
   <section class="section" data-section>
@@ -778,6 +788,12 @@ kbd {
         <div class="tile-top"><span class="tile-name">OneDrive</span><span class="tile-arrow">↗</span></div>
         <p class="tile-desc">Your own D7FR file storage.</p>
         <div class="tile-foot"><span class="host">office.com</span></div>
+      </a>
+
+      <a class="tile" href="https://d7fr.sharepoint.com" target="_blank" rel="noopener" data-tags="sharepoint intranet documents files home site">
+        <div class="tile-top"><span class="tile-name">SharePoint home</span><span class="tile-arrow">↗</span></div>
+        <p class="tile-desc">All department sites and document libraries.</p>
+        <div class="tile-foot"><span class="host">d7fr.sharepoint.com</span></div>
       </a>
 
     </div>
