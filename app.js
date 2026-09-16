@@ -1255,7 +1255,7 @@ function renderAdminSchedule(range) {
     }
     const cards = running.map((unit) => {
       const people = getAssignments(date, unit.id);
-      const { seats } = assignPeopleToSeats(unit.type, people, unit);
+      const { seats } = assignPeopleToSeats(unit.type, people, unit, date);
       const rows = seats.map((seat) => seatSectionHtml(seat, unit, date, isSupervisor)).join("");
       const tourLabel = `${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)} · ${durationLabel(unitTourMinutes(unit))}`;
       return `<section class="unit-card" data-apparatus="admin">
@@ -1474,7 +1474,7 @@ function renderUnitCard(unit, date, activeShift) {
   }
 
   // --- Seat-based units (Engine, Ladder, Medic, ...) ---
-  const { seats, extra, off } = assignPeopleToSeats(unit.type, people, unit);
+  const { seats, extra, off } = assignPeopleToSeats(unit.type, people, unit, date);
   const requiredSeats = seats.filter((s) => seatIsRequired(s.pos));
   const optionalSeats = seats.filter((s) => !seatIsRequired(s.pos));
   // Covered, not merely occupied: a required seat with four of twenty-four hours
@@ -2422,9 +2422,6 @@ function wireTimeOffDialog(dlg, { person, personId, unit, unitId, date, blk }) {
     event.preventDefault();
     const reason = dlg.querySelector("#off-reason").value;
     const note = dlg.querySelector("#off-note").value.trim().slice(0, 200);
-    // "Other" with no note is a record nobody can read six months later.
-    if (reason === "OTHER" && !note) return fail("“Other” needs a note saying what it is.");
-
     const whole = dlg.querySelector('[name="off-span"]:checked').value === "full";
     let start = blk.start;
     let end = blk.end;
@@ -3051,7 +3048,7 @@ function postableShiftsFor(employeeId, horizonDays) {
       if (!(people || []).some((p) => p && p.id === employeeId)) return;
       if (posted.has(`${date}|${unitId}`)) return;
       const unit = unitById(unitId);
-      const { seats } = assignPeopleToSeats(unit?.type, people, unit);
+      const { seats } = assignPeopleToSeats(unit?.type, people, unit, date);
       // Search every block in a seat, not just the first: on a split tour the
       // relief is the SECOND name in the seat and would otherwise show as
       // "Rider" on their own shift list.
@@ -3084,7 +3081,7 @@ function tradeCrewIsLegal(trade, accepter) {
     .filter((p) => p && p.id !== trade.employeeId)
     .map((p) => resolvePerson(p) || p)
     .concat([accepter]);
-  const { seats } = assignPeopleToSeats(unit.type, crew, unit);
+  const { seats } = assignPeopleToSeats(unit.type, crew, unit, trade.date);
   // Covered, not occupied: a trade that leaves twenty hours of a required seat
   // open is not a legal crew just because someone's name is on the row.
   return seats.filter((st) => seatIsRequired(st.pos)).every((st) => st.covered);
@@ -3884,7 +3881,7 @@ function coverageGaps(startDate, days) {
       const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
       if (!positions) return;
       const dayPeople = getAssignments(date, unit.id);
-      const { seats } = assignPeopleToSeats(unit.type, dayPeople, unit);
+      const { seats } = assignPeopleToSeats(unit.type, dayPeople, unit, date);
       // Hours a chief deliberately left short. The seat still shows open on the
       // board -- staffing is staffing -- but nobody gets called in for them.
       const tourLen = unitTourMinutes(unit);
@@ -4658,7 +4655,7 @@ function getStaffingAlerts(date) {
       const people = getAssignments(date, unit.id);
       const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
       if (positions) {
-        return checkPositionStaffing(unit, people, positions);
+        return checkPositionStaffing(unit, people, positions, date);
       }
       // Fallback: generic minStaff + cert check for any unlisted type
       const alerts = [];
@@ -4687,9 +4684,9 @@ function getStaffingAlerts(date) {
 // A partially covered required seat is STILL SHORT. A rig with someone on the
 // first four hours and nobody on the other twenty is not staffed, and the alert
 // says which hours are open rather than just "unfilled".
-function checkPositionStaffing(unit, people, positions) {
+function checkPositionStaffing(unit, people, positions, date) {
   const alerts = [];
-  const { seats } = assignPeopleToSeats(unit.type, people, unit);
+  const { seats } = assignPeopleToSeats(unit.type, people, unit, date);
   seats.forEach((seat) => {
     if (seat.covered || !seatIsRequired(seat.pos)) return;
     const need = seatNeedLabel(seat.pos);
@@ -4771,21 +4768,45 @@ function unitTourStartHour(unit) {
 // absence block keeps its hours and covers nothing -- which is what makes
 // minimum staffing honest. The rig shows the hours OPEN, and the board shows
 // separately who is off and why.
+// The three a supervisor records on the board. PTO, sick and FMLA are staffing
+// facts a chief enters; nothing else belongs in this dropdown.
 const ABSENCE_REASONS = [
   { code: "PTO", label: "PTO" },
   { code: "SICK", label: "Sick leave" },
   { code: "FMLA", label: "FMLA" },
-  { code: "LTD", label: "Long-term disability" },
-  { code: "LIGHT", label: "Light duty" },
-  { code: "OTHER", label: "Other — see note" },
 ];
+
+// LTD is LIGHT DUTY. It is never picked from the dropdown -- it is derived from
+// the member's light-duty date range, and admin enters its payroll, not this app.
+// It shows on the board for one reason: so a rig cannot read as staffed by
+// somebody who is on light duty for the next two months.
+const ABSENCE_LIGHT_DUTY = "LTD";
+const ABSENCE_LABELS = {
+  ...Object.fromEntries(ABSENCE_REASONS.map((r) => [r.code, r.label])),
+  [ABSENCE_LIGHT_DUTY]: "Light duty",
+};
 
 function isAbsent(person) {
   return !!person?._off;
 }
 
 function absenceLabel(code) {
-  return ABSENCE_REASONS.find((r) => r.code === code)?.label || code || "";
+  return ABSENCE_LABELS[code] || code || "";
+}
+
+// A member already on the schedule who then goes on light duty does NOT stop
+// being on the board -- their future tours are still sitting there. Deriving the
+// absence here, rather than rewriting those rows, means the range can be changed
+// or closed and every affected tour follows immediately.
+function lightDutyBlockFor(person, unit, date) {
+  if (!date || isAdminUnit(unit)) return null;         // light duty IS the admin week
+  if (isAbsent(person)) return null;                    // already accounted for
+  const emp = employeeById(person?.id);
+  if (!onLightDuty(emp, date)) return null;
+  return { ...person, _off: ABSENCE_LIGHT_DUTY, _offNote: emp.lightDutyNote || "",
+           // Nobody is called in for light duty: the member is still being paid,
+           // and admin owns that. Posting it to the overtime board would be wrong.
+           _noFill: "1", _derivedLightDuty: true };
 }
 
 function isAdminUnit(unit) {
@@ -5023,9 +5044,12 @@ function assignedEmployeeIdsForDate(date) {
 // `person` is the first block holder and exists so every older call site that
 // reads seat.person still works; `covered` is the honest answer to "is this seat
 // done", and for a full-tour assignment the two say the same thing.
-function assignPeopleToSeats(unitType, people, unit) {
+function assignPeopleToSeats(unitType, people, unit, date) {
   const positions = UNIT_POSITION_REQUIREMENTS[unitType];
-  if (!positions) return { seats: [], extra: people.filter((p) => !isAbsent(p)), off: people.filter(isAbsent) };
+  if (!positions) {
+    const r = people.map((p) => lightDutyBlockFor(p, unit, date) || p);
+    return { seats: [], extra: r.filter((p) => !isAbsent(p)), off: r.filter(isAbsent) };
+  }
   // The tour is the UNIT's, not a constant: a 10-hour admin day is fully covered
   // at 600 minutes, where a rig would still have fourteen hours open.
   const tour = unitTourMinutes(unit);
@@ -5033,8 +5057,9 @@ function assignPeopleToSeats(unitType, people, unit) {
   // before any seat is considered, is what makes the gap and the staffing alert
   // tell the truth -- rather than a rig reading "Staffed" because a name is on
   // the row while the person is at home.
-  const off = people.filter(isAbsent);
-  const working = people.filter((p) => !isAbsent(p));
+  const resolved = people.map((p) => lightDutyBlockFor(p, unit, date) || p);
+  const off = resolved.filter(isAbsent);
+  const working = resolved.filter((p) => !isAbsent(p));
   // Earliest block first, so a seat fills from the start of the tour forward.
   const pool = [...working].sort((a, b) => blockOf(a, tour).start - blockOf(b, tour).start);
   const seats = positions.map((pos) => {
@@ -5350,10 +5375,11 @@ function offRosterHtml(off, unit, date, isSupervisor) {
         <span class="off-chip">${escapeHtml(person._off)}</span>
         <span class="off-who"><strong>${escapeHtml(person.name)}</strong>
           <small>${escapeHtml(absenceLabel(person._off))} · ${span}${note}</small></span>
-        ${isSupervisor ? `<button class="button button-secondary button-small"
+        ${isSupervisor && !person._derivedLightDuty ? `<button class="button button-secondary button-small"
           data-remove-assignment="${person.id}" data-remove-date="${date}"
           data-remove-unit="${unit.id}" data-remove-start="${blk.start}"
           aria-label="Clear time off for ${escapeHtml(person.name)}">×</button>` : ""}
+        ${person._derivedLightDuty ? `<small class="off-derived">set by their light-duty dates</small>` : ""}
       </div>`;
   }).join("");
   return `<div class="off-roster">
@@ -6252,7 +6278,7 @@ function printSeatRows(unit, date) {
                _start: stored._start, _end: stored._end };
     })
     .filter(Boolean);
-  const { seats, extra } = assignPeopleToSeats(unit.type, people, unit);
+  const { seats, extra } = assignPeopleToSeats(unit.type, people, unit, date);
   // assignPeopleToSeats returns { pos, person } -- the seat definition is nested
   // under `pos`. Reading seat.label/seat.role/seat.required off the wrapper gave
   // undefined for every row: the label printed as "undefined" and, because

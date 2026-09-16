@@ -646,6 +646,10 @@ textarea:disabled {
 }
 
 .off-who { flex: 1 1 auto; min-width: 0; }
+
+/* A light-duty row is derived from the member's dates, not entered here, so it
+   gets no × -- this says why instead of leaving a dead gap where one would be. */
+.off-derived { flex: 0 0 auto; color: var(--muted); font-size: 0.7rem; }
 .off-who small { display: block; color: var(--muted); }
 
 /* --- Dialogs --- */
