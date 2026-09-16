@@ -47,6 +47,12 @@ const baseDate = "2026-04-13";
 // A: 4/13–4/14, B: 4/15–4/16, C: 4/17–4/18, then repeats
 const ROTATION_BASE_DATE = "2026-04-13";
 const rotationPattern = ["A", "A", "B", "B", "C", "C"];
+// The three platoons that actually rotate. ADMIN is a roster grouping, NOT a
+// rotation: it never comes on duty by date, and the 72-hour rule and the
+// mandatory-overtime pool must never consider it.
+const ROTATION_PLATOONS = ["A", "B", "C"];
+const PLATOON_ADMIN = "ADMIN";
+const ALL_PLATOONS = [...ROTATION_PLATOONS, PLATOON_ADMIN];
 // Bump key so old AA/BB/CC data doesn't load and break the renamed shifts
 const LOCAL_STORAGE_KEY = "d7fr-scheduler-state-v3";
 const REMOTE_STATE_ID = "primary";
@@ -60,11 +66,19 @@ const lastNames = [
   "Keller", "Lawson", "Morris", "Norris", "Owens", "Price", "Ramirez", "Stewart", "Turner", "Ward",
 ];
 
-const employeeRoles = ["paramedic", "emt", "engineer", "officer"];
+// "admin" is a QUALIFICATION, not a rank: granted in-app when somebody moves to
+// light duty or an admin post, and required by every seat on an Admin unit. It is
+// what keeps the whole department out of those pick lists.
+const CAP_ADMIN = "admin";
+const employeeRoles = ["paramedic", "emt", "engineer", "officer", CAP_ADMIN];
 // Medical LICENSES are held by the person, not granted by rank. The roster
 // spreadsheet only knows rank, so a re-import must never strip a license that
 // was granted in-app (e.g. an Engineer who is also a paramedic).
 const LICENSE_CAPABILITIES = ["paramedic", "emt"];
+// Everything a PERSON holds rather than a rank grants. The roster spreadsheet
+// knows only rank, so each of these must be merged forward on a re-import or an
+// in-app grant is silently wiped -- the admin qualification included.
+const PERSON_HELD_CAPABILITIES = [...LICENSE_CAPABILITIES, CAP_ADMIN];
 // "Admin" is last because it is not an apparatus: it is the 10hr Mon-Thu
 // admin / light-duty position type. See UNIT_POSITION_REQUIREMENTS.Admin.
 const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue", "Admin"];
@@ -106,7 +120,7 @@ const UNIT_POSITION_REQUIREMENTS = {
   // must never raise a danger alert the way an unstaffed rig does. Six slots
   // because several people can be on light duty at once.
   Admin: Array.from({ length: 6 }, (_, i) => ({
-    role: `ADM${i + 1}`, label: `Admin ${i + 1}`, cap: null, required: false,
+    role: `ADM${i + 1}`, label: `Admin ${i + 1}`, cap: CAP_ADMIN, required: false,
   })),
   // Engine: 2 required seats (Officer + Engineer), then up to 3 optional riders
   // of any rank -- minimum 2 filled, staff up to 5.
@@ -131,7 +145,8 @@ const UNIT_POSITION_REQUIREMENTS = {
 };
 
 // Readable names for capabilities, used in staffing-alert messages.
-const CAPABILITY_LABELS = { officer: "officer", engineer: "driver/engineer", paramedic: "paramedic", emt: "EMT" };
+const CAPABILITY_LABELS = { officer: "officer", engineer: "driver/engineer",
+  paramedic: "paramedic", emt: "EMT", [CAP_ADMIN]: "admin qualified" };
 // Which capabilities can be granted as ride-up (medical licenses cannot).
 const RIDE_UP_CAPABILITIES = ["officer", "engineer"];
 
@@ -1796,7 +1811,8 @@ function renderEmployeeEditor() {
           Shift
           <select id="employee-edit-shift">
             <option value="" ${!draft.shift ? "selected" : ""}>Unassigned</option>
-            ${["A", "B", "C"].map((shiftOption) => `<option value="${shiftOption}" ${draft.shift === shiftOption ? "selected" : ""}>${shiftOption} Shift</option>`).join("")}
+            ${ROTATION_PLATOONS.map((shiftOption) => `<option value="${shiftOption}" ${draft.shift === shiftOption ? "selected" : ""}>${shiftOption} Shift</option>`).join("")}
+            <option value="${PLATOON_ADMIN}" ${draft.shift === PLATOON_ADMIN ? "selected" : ""}>Admin / light duty</option>
           </select>
         </label>
         <label>
@@ -1976,8 +1992,8 @@ function saveEmployeeDraft() {
     showToast("Employee name is required.", "error");
     return;
   }
-  if (state.employeeDraft.shift && !["A", "B", "C"].includes(state.employeeDraft.shift)) {
-    showToast("Employee shift must be A, B, or C.", "error");
+  if (state.employeeDraft.shift && !ALL_PLATOONS.includes(state.employeeDraft.shift)) {
+    showToast("Employee shift must be A, B, C, or Admin.", "error");
     return;
   }
   if (!["active", "archived"].includes(state.employeeDraft.status)) {
@@ -2890,7 +2906,9 @@ function renderCoveragePanel() {
   // signed-in user instead of sticking to whoever looked first.
   if (state.coverageShift === undefined) state.coverageShift = myShift ? "mine" : "all";
   const filter = state.coverageShift;
-  const wantShift = filter === "mine" ? myShift : (["A", "B", "C"].includes(filter) ? filter : null);
+  const wantShift = filter === "mine"
+    ? (ROTATION_PLATOONS.includes(myShift) ? myShift : null)
+    : (ROTATION_PLATOONS.includes(filter) ? filter : null);
   renderCoverageShiftOptions(myShift);
 
   const allGaps = coverageGaps(todayIso(), days);
@@ -3614,7 +3632,9 @@ function mandatoryEligibleShift(date) {
   const onDuty = getShiftForDate(date);
   const prev = getShiftForDate(addDays(date, -1));
   const next = getShiftForDate(addDays(date, 1));
-  const candidates = ["A", "B", "C"].filter((sh) => sh !== onDuty && sh !== prev && sh !== next);
+  // ROTATION_PLATOONS, not every platoon: the admin group never rotates, never
+  // comes on duty, and must never be forced onto a rig by the 72-hour rule.
+  const candidates = ROTATION_PLATOONS.filter((sh) => sh !== onDuty && sh !== prev && sh !== next);
   return candidates.length === 1 ? candidates[0] : null;
 }
 
@@ -4436,8 +4456,8 @@ function applyRosterImport() {
       // Roster is authoritative for RANK-derived certs (officer/engineer), but
       // medical licenses are person-held — merge them forward so an in-app
       // paramedic grant survives every roster re-import.
-      const heldLicenses = (existing.certs || []).filter((c) => LICENSE_CAPABILITIES.includes(c));
-      existing.certs       = Array.from(new Set([...emp.certs, ...heldLicenses]));
+      const personHeld = (existing.certs || []).filter((c) => PERSON_HELD_CAPABILITIES.includes(c));
+      existing.certs       = Array.from(new Set([...emp.certs, ...personHeld]));
       existing.isSupervisor = emp.isSupervisor;
       existing.badge       = emp.badge;
       if (emp.shift) existing.shift = emp.shift; // preserve null for admin/new hires
@@ -5157,16 +5177,25 @@ function seatDropdownOptions(pos, unit, date, window) {
     const acting = !seatAllowsAny(pos) && !(e.certs || []).some((c) => (Array.isArray(pos.cap) ? pos.cap : [pos.cap]).includes(c));
     return `<option value="${e.id}">${escapeHtml(e.name)} — ${escapeHtml(e.title || "—")}${acting ? " (acting)" : ""}</option>`;
   };
-  const order = [onDuty, ...["A", "B", "C"].filter((sh) => sh !== onDuty)];
+  // On an admin position the admin platoon comes first and nothing is
+  // "overtime" -- an admin day is not a rotation shift, and labelling a rig's
+  // platoon as overtime here would be nonsense.
+  const admin = isAdminUnit(unit);
+  const order = admin
+    ? [PLATOON_ADMIN, ...ROTATION_PLATOONS]
+    : [onDuty, ...ROTATION_PLATOONS.filter((sh) => sh !== onDuty)];
   const groups = order
     .map((sh) => {
       const members = candidates.filter((e) => e.shift === sh).sort((a, b) => a.name.localeCompare(b.name));
       if (!members.length) return "";
-      const label = sh === onDuty ? `${sh} shift — on duty` : `${sh} shift — off duty (overtime)`;
+      let label;
+      if (sh === PLATOON_ADMIN) label = "Admin / light duty";
+      else if (admin) label = `${sh} shift`;
+      else label = sh === onDuty ? `${sh} shift — on duty` : `${sh} shift — off duty (overtime)`;
       return `<optgroup label="${label}">${members.map(optionFor).join("")}</optgroup>`;
     })
     .join("");
-  const unassigned = candidates.filter((e) => !["A", "B", "C"].includes(e.shift))
+  const unassigned = candidates.filter((e) => !ALL_PLATOONS.includes(e.shift))
     .sort((a, b) => a.name.localeCompare(b.name));
   return groups + (unassigned.length
     ? `<optgroup label="No platoon assigned">${unassigned.map(optionFor).join("")}</optgroup>`
@@ -5684,7 +5713,11 @@ function eligibleEmployeesForDate(date) {
   const onDuty = getShiftForDate(date);
   return state.currentRole === "supervisor"
     ? activeEmployees()
-    : activeEmployees().filter((e) => e.shift === onDuty);
+    // The admin platoon is never "on duty" by rotation, so scoping a
+    // non-supervisor strictly to the on-duty platoon would hide them from every
+    // admin position. They are always in scope; the seat's admin qualification
+    // is what actually narrows the list.
+    : activeEmployees().filter((e) => e.shift === onDuty || e.shift === PLATOON_ADMIN);
 }
 
 function visibleUnitsAll() {
@@ -5933,7 +5966,7 @@ function validateEmployeeImport(rows) {
       status,
     };
     if (!normalized.name) { errors.push({ message: `Row ${line}: missing name.` }); return; }
-    if (!["A", "B", "C"].includes(normalized.shift)) { errors.push({ message: `Row ${line}: shift must be A, B, or C.` }); return; }
+    if (!ALL_PLATOONS.includes(normalized.shift)) { errors.push({ message: `Row ${line}: shift must be A, B, C, or ADMIN.` }); return; }
     if (!["active", "archived"].includes(normalized.status)) { errors.push({ message: `Row ${line}: status must be active or archived.` }); return; }
     if (!normalized.email) warnings.push({ message: `Row ${line}: no email address.` });
     const invalidCerts = certs.filter((cert) => !employeeRoles.includes(cert));
