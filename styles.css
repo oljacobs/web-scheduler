@@ -608,6 +608,109 @@ textarea:disabled {
   width: 100%;
 }
 
+/* --- Off this tour ---
+   Under the seats on purpose. An absence is not a seat, and rendering it as one
+   is exactly how a rig ends up reading "Staffed" with somebody at home. */
+.off-roster {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(141, 175, 214, 0.06);
+  border-top: 1px dashed rgba(141, 175, 214, 0.2);
+}
+
+.off-roster h4 {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.off-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.off-chip {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(255, 190, 92, 0.16);
+  color: #ffbe5c;
+}
+
+.off-who { flex: 1 1 auto; min-width: 0; }
+.off-who small { display: block; color: var(--muted); }
+
+/* --- Dialogs --- */
+.app-dialog {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid rgba(141, 175, 214, 0.22);
+  border-radius: 16px;
+  background: var(--surface, #111a27);
+  color: inherit;
+}
+
+.app-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+
+.dialog-body {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  /* A tall dialog on a phone has to scroll INSIDE itself; otherwise the footer
+     buttons sit below the fold with no way to reach them. */
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+
+.dialog-body h3 { margin: 0; }
+
+.dialog-group {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(141, 175, 214, 0.16);
+  border-radius: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.dialog-group legend {
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* The backfill choice is the one thing in here a chief must actually decide, so
+   it is marked rather than left to blend in with the rest of the form. */
+.dialog-decision { border-color: rgba(77, 163, 255, 0.35); }
+
+.dialog-times {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-times label { flex: 1 1 10rem; min-width: 0; }
+.dialog-times input[type="time"] { flex: 0 1 8rem; min-width: 0; }
+
+.dialog-error { color: var(--danger, #ff6b6b); }
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* --- Admin & light duty board --- */
 .admin-board { display: grid; gap: 14px; }
 
@@ -1459,11 +1562,17 @@ textarea:disabled {
   cursor: pointer;
 }
 
-.check-tile input[type="checkbox"] {
+.check-tile input[type="checkbox"],
+.check-tile input[type="radio"] {
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
   margin: 0;
 }
+
+/* Label text sits next to its control and fills the rest of the row, rather
+   than being pushed to the opposite edge. */
+.check-tile > span { flex: 1 1 auto; min-width: 0; }
 
 .editor-footer {
   display: flex;

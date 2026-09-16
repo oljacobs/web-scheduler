@@ -1474,7 +1474,7 @@ function renderUnitCard(unit, date, activeShift) {
   }
 
   // --- Seat-based units (Engine, Ladder, Medic, ...) ---
-  const { seats, extra } = assignPeopleToSeats(unit.type, people, unit);
+  const { seats, extra, off } = assignPeopleToSeats(unit.type, people, unit);
   const requiredSeats = seats.filter((s) => seatIsRequired(s.pos));
   const optionalSeats = seats.filter((s) => !seatIsRequired(s.pos));
   // Covered, not merely occupied: a required seat with four of twenty-four hours
@@ -1506,6 +1506,9 @@ function renderUnitCard(unit, date, activeShift) {
   extra.forEach((p) => {
     rowsHtml += seatRowHtml({ label: "Extra", cap: null }, p, unit, date, isSupervisor, false, "Extra rider");
   });
+  // Who is OFF, and why. Below the seats on purpose: an officer reading the card
+  // should see minimum staffing answered first, then the reason a slot is open.
+  rowsHtml += offRosterHtml(off, unit, date, isSupervisor);
 
   const totalSeats = positions.length;
   return `
@@ -2317,8 +2320,219 @@ function attachUnitMoveEvents() {
 // Editing a person's hours on a seat row. Like every other edit on this board
 // there is no Save button: the change persists on `change`, and the field itself
 // reports whether it reached the server (flashPayFieldSaved).
+// ─── Time off ────────────────────────────────────────────────────────────────
+// Recording PTO does two separate things, and conflating them is the mistake this
+// dialog exists to prevent:
+//   1. The member comes off the seat. Always. The rig is short and says so.
+//   2. Whether to CALL SOMEONE IN for those hours is a decision a chief makes,
+//      never something the app does on its own (BACKLOG.md §1). Answering "no"
+//      leaves the seat visibly short but keeps the hours off the overtime board.
+function openTimeOffDialog({ personId, unitId, date, startMinute }) {
+  const unit = unitById(unitId);
+  const tour = unitTourMinutes(unit);
+  const person = getAssignments(date, unitId)
+    .find((p) => p.id === personId && blockOf(p, tour).start === Number(startMinute));
+  if (!person || !unit) return;
+  const blk = blockOf(person, tour);
+
+  document.getElementById("time-off-dialog")?.remove();
+  const dlg = document.createElement("dialog");
+  dlg.id = "time-off-dialog";
+  dlg.className = "app-dialog";
+  dlg.innerHTML = timeOffDialogHtml(person, unit, date, blk);
+  document.body.appendChild(dlg);
+  wireTimeOffDialog(dlg, { person, personId, unit, unitId, date, blk });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
+}
+
+function timeOffDialogHtml(person, unit, date, blk) {
+  const tour = unitTourMinutes(unit);
+  return `
+    <form method="dialog" class="dialog-body">
+      <h3>Time off — ${escapeHtml(person.name)}</h3>
+      <p class="helper-text">${escapeHtml(unit.name)} · ${formatDate(date)} ·
+        currently ${windowLabel(blk, unit)} (${durationLabel(blk.end - blk.start)})</p>
+
+      <label>Reason
+        <select id="off-reason">
+          ${ABSENCE_REASONS.map((r) => `<option value="${r.code}">${escapeHtml(r.label)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Note <input id="off-note" type="text" maxlength="200"
+        placeholder="Required for “Other”"></label>
+
+      <fieldset class="dialog-group">
+        <legend>Hours off</legend>
+        <label class="check-tile"><input type="radio" name="off-span" value="full" checked>
+          <span>The whole ${durationLabel(blk.end - blk.start)}</span></label>
+        <label class="check-tile"><input type="radio" name="off-span" value="part">
+          <span>Part of it</span></label>
+        <div id="off-part" class="dialog-times hidden">
+          <input id="off-start" type="time" step="1800" value="${minuteToTimeValue(blk.start, unit)}"
+            aria-label="Time off starts">
+          <span aria-hidden="true">–</span>
+          <input id="off-end" type="time" step="1800" value="${minuteToTimeValue(blk.end, unit)}"
+            aria-label="Time off ends">
+        </div>
+      </fieldset>
+
+      <fieldset class="dialog-group">
+        <legend>Dates</legend>
+        <div class="dialog-times">
+          <label>From <input id="off-from" type="date" value="${date}"></label>
+          <label>Through <input id="off-to" type="date" value="${date}"></label>
+        </div>
+        <p class="helper-text">Only tours this member is already scheduled on
+          ${escapeHtml(unit.name)} are changed — a date they were never on is skipped.</p>
+      </fieldset>
+
+      <fieldset class="dialog-group dialog-decision">
+        <legend>Open these hours for backfill?</legend>
+        <p class="helper-text">The seat shows short either way. This decides whether
+          the hours go to the overtime board to be filled.</p>
+        <label class="check-tile"><input type="radio" name="off-fill" value="yes">
+          <span>Yes — post to the overtime board</span></label>
+        <label class="check-tile"><input type="radio" name="off-fill" value="no">
+          <span>No — leave it short, don’t call anyone in</span></label>
+      </fieldset>
+
+      <p id="off-error" class="helper-text dialog-error hidden"></p>
+      <div class="dialog-footer">
+        <button value="cancel" class="button button-secondary">Cancel</button>
+        <button id="off-save" value="save" class="button button-primary">Record time off</button>
+      </div>
+    </form>`;
+}
+
+function wireTimeOffDialog(dlg, { person, personId, unit, unitId, date, blk }) {
+  const tour = unitTourMinutes(unit);
+  const partBox = dlg.querySelector("#off-part");
+  dlg.querySelectorAll('[name="off-span"]').forEach((radio) => {
+    radio.addEventListener("change", () => partBox.classList.toggle("hidden", radio.value !== "part"));
+  });
+
+  const fail = (msg) => {
+    const el = dlg.querySelector("#off-error");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  };
+
+  dlg.querySelector("#off-save").addEventListener("click", (event) => {
+    event.preventDefault();
+    const reason = dlg.querySelector("#off-reason").value;
+    const note = dlg.querySelector("#off-note").value.trim().slice(0, 200);
+    // "Other" with no note is a record nobody can read six months later.
+    if (reason === "OTHER" && !note) return fail("“Other” needs a note saying what it is.");
+
+    const whole = dlg.querySelector('[name="off-span"]:checked').value === "full";
+    let start = blk.start;
+    let end = blk.end;
+    if (!whole) {
+      start = timeValueToMinute(dlg.querySelector("#off-start").value, { unit });
+      end = timeValueToMinute(dlg.querySelector("#off-end").value, { preferEnd: true, unit });
+      if (start === null || end === null) return fail("Enter both times on the half hour.");
+      if (start >= end) return fail("Time off has to end after it starts.");
+      if (start < blk.start || end > blk.end) {
+        return fail(`They are only on this unit ${windowLabel(blk, unit)}. Time off has to sit inside that.`);
+      }
+    }
+
+    // No default on purpose: a chief has to actually answer this one.
+    const fillChoice = dlg.querySelector('[name="off-fill"]:checked');
+    if (!fillChoice) return fail("Say whether to open these hours for backfill.");
+    const openForBackfill = fillChoice.value === "yes";
+
+    const from = dlg.querySelector("#off-from").value || date;
+    const to = dlg.querySelector("#off-to").value || from;
+    if (to < from) return fail("The end date is before the start date.");
+
+    const result = applyTimeOff({
+      personId, unitId, from, to, start, end, reason, note, openForBackfill,
+    });
+    dlg.close();
+    dlg.remove();
+    if (!result.applied) {
+      window.alert(`Nothing changed.\n\n${employeeById(personId)?.name || "That member"} is not ` +
+        `scheduled on ${unitLabel(unitId)} for any date in that range.`);
+      return;
+    }
+    const skipped = result.skipped
+      ? `\n\n${result.skipped} date${result.skipped === 1 ? "" : "s"} in the range skipped — not scheduled on this unit.`
+      : "";
+    showToast(`${reason} recorded for ${result.applied} tour${result.applied === 1 ? "" : "s"}.${skipped}`, "success");
+    render();
+    persistAppState("Time off recorded");
+  });
+}
+
+// Write the absence across a date range. Each shift day is its own row, so a 48
+// stays two rows and payroll reads the hours right.
+function applyTimeOff({ personId, unitId, from, to, start, end, reason, note, openForBackfill }) {
+  const unit = unitById(unitId);
+  const tour = unitTourMinutes(unit);
+  let applied = 0;
+  let skipped = 0;
+
+  for (let day = from; day <= to; day = addDays(day, 1)) {
+    const list = getAssignments(day, unitId);
+    // PTO applies to tours they were actually scheduled for. A date they were
+    // never on has nothing to take off, and inventing a row there would put them
+    // on a rig they were not assigned to.
+    const idx = list.findIndex((p) => p.id === personId && !isAbsent(p)
+      && blockOf(p, tour).start <= start && blockOf(p, tour).end >= end);
+    if (idx === -1) { skipped += 1; continue; }
+
+    const existing = list[idx];
+    const eb = blockOf(existing, tour);
+    const stamp = (block, extra) => {
+      const next = { ...existing, ...extra };
+      if (block.start === 0 && block.end === tour) { delete next._start; delete next._end; }
+      else { next._start = block.start; next._end = block.end; }
+      return next;
+    };
+
+    const offPart = stamp({ start, end }, {
+      _off: reason,
+      _offNote: note || "",
+      // The absence carries the decision, so the overtime board can honour it
+      // without a second place to look.
+      ...(openForBackfill ? { _noFill: undefined } : { _noFill: "1" }),
+      // Pay coding belongs to the hours actually worked, not to the hours off.
+      _pay: undefined, _payNote: undefined, _payFor: undefined,
+    });
+    Object.keys(offPart).forEach((k) => { if (offPart[k] === undefined) delete offPart[k]; });
+
+    const rebuilt = list.filter((_, i) => i !== idx);
+    // Whatever of the original block they still WORK stays as its own row.
+    if (eb.start < start) rebuilt.push(stamp({ start: eb.start, end: start }, {}));
+    rebuilt.push(offPart);
+    if (end < eb.end) rebuilt.push(stamp({ start: end, end: eb.end }, {}));
+
+    if (!state.assignments[day]) state.assignments[day] = {};
+    state.assignments[day][unitId] = markManual(rebuilt);
+    applied += 1;
+
+    addAudit(
+      `${employeeById(personId)?.name || "Employee"} off ${reason} on ${unitLabel(unitId)} ` +
+      `${formatDate(day)} ${windowLabel({ start, end }, unit)} (${durationLabel(end - start)})` +
+      `${openForBackfill ? " — posted for backfill" : " — left short, no backfill"}` +
+      `${note ? `: ${note}` : ""}.`,
+      currentUserName(),
+    );
+  }
+  return { applied, skipped };
+}
+
 function attachSeatTimeEvents(scope) {
   const root = scope || document;
+
+  [...root.querySelectorAll(".seat-off")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const { offPerson: personId, offUnit: unitId, offDate: date, offStart: startMinute } = button.dataset;
+      openTimeOffDialog({ personId, unitId, date, startMinute });
+    });
+  });
 
   // "Split" turns a whole-tour assignment into a partial one. It defaults to
   // 12 on / 12 off because that is the case this exists for; the chief then
@@ -3669,9 +3883,17 @@ function coverageGaps(startDate, days) {
     unitsForDate(date).forEach((unit) => {
       const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
       if (!positions) return;
-      const { seats } = assignPeopleToSeats(unit.type, getAssignments(date, unit.id), unit);
+      const dayPeople = getAssignments(date, unit.id);
+      const { seats } = assignPeopleToSeats(unit.type, dayPeople, unit);
+      // Hours a chief deliberately left short. The seat still shows open on the
+      // board -- staffing is staffing -- but nobody gets called in for them.
+      const tourLen = unitTourMinutes(unit);
+      const noFill = dayPeople.filter((p) => isAbsent(p) && p._noFill)
+        .map((p) => blockOf(p, tourLen));
       seats.forEach((seat) => {
         if (seat.covered || !seatIsRequired(seat.pos)) return;
+        const fillable = seat.gaps.filter((g) => !noFill.some((n) => blocksOverlap(n, g)));
+        if (seat.people.length && !fillable.length) return;
         // Already awarded = filled. Without this the row lingers with an
         // "Awarded" badge, which is exactly the clutter the list should shed.
         const existingPost = overtimePostForGap(unit.id, date, seat.pos.role);
@@ -3682,10 +3904,10 @@ function coverageGaps(startDate, days) {
           role: seat.pos.role,
           // A half-covered seat posts the hours that are actually open, so
           // nobody signs up for overtime and finds someone already in the seat.
-          label: seat.people.length
-            ? `${seat.pos.label} (${seat.gaps.map((g) => windowLabel(g, unit)).join(", ")})`
+          label: fillable.length && fillable.length !== 0 && seat.people.length
+            ? `${seat.pos.label} (${fillable.map((g) => windowLabel(g, unit)).join(", ")})`
             : seat.pos.label,
-          hours: seat.gaps,
+          hours: fillable.length ? fillable : seat.gaps,
           cap: seat.pos.cap, need: seatNeedLabel(seat.pos),
           post: existingPost,
         });
@@ -4543,6 +4765,29 @@ function unitTourStartHour(unit) {
   return Number.isFinite(n) && n >= 0 && n <= 23 ? n : TOUR_START_HOUR;
 }
 
+// ─── Absence ─────────────────────────────────────────────────────────────────
+// A member on PTO for part of a tour still holds a block: the hours are a payroll
+// fact and have to reach the export. But they are NOT covering the seat. So an
+// absence block keeps its hours and covers nothing -- which is what makes
+// minimum staffing honest. The rig shows the hours OPEN, and the board shows
+// separately who is off and why.
+const ABSENCE_REASONS = [
+  { code: "PTO", label: "PTO" },
+  { code: "SICK", label: "Sick leave" },
+  { code: "FMLA", label: "FMLA" },
+  { code: "LTD", label: "Long-term disability" },
+  { code: "LIGHT", label: "Light duty" },
+  { code: "OTHER", label: "Other — see note" },
+];
+
+function isAbsent(person) {
+  return !!person?._off;
+}
+
+function absenceLabel(code) {
+  return ABSENCE_REASONS.find((r) => r.code === code)?.label || code || "";
+}
+
 function isAdminUnit(unit) {
   return unit?.scheduleClass === "admin";
 }
@@ -4780,12 +5025,18 @@ function assignedEmployeeIdsForDate(date) {
 // done", and for a full-tour assignment the two say the same thing.
 function assignPeopleToSeats(unitType, people, unit) {
   const positions = UNIT_POSITION_REQUIREMENTS[unitType];
-  if (!positions) return { seats: [], extra: [...people] };
+  if (!positions) return { seats: [], extra: people.filter((p) => !isAbsent(p)), off: people.filter(isAbsent) };
   // The tour is the UNIT's, not a constant: a 10-hour admin day is fully covered
   // at 600 minutes, where a rig would still have fourteen hours open.
   const tour = unitTourMinutes(unit);
+  // Somebody on PTO is NOT available to the seat filler. Pulling them out here,
+  // before any seat is considered, is what makes the gap and the staffing alert
+  // tell the truth -- rather than a rig reading "Staffed" because a name is on
+  // the row while the person is at home.
+  const off = people.filter(isAbsent);
+  const working = people.filter((p) => !isAbsent(p));
   // Earliest block first, so a seat fills from the start of the tour forward.
-  const pool = [...people].sort((a, b) => blockOf(a, tour).start - blockOf(b, tour).start);
+  const pool = [...working].sort((a, b) => blockOf(a, tour).start - blockOf(b, tour).start);
   const seats = positions.map((pos) => {
     const claimed = [];
     for (;;) {
@@ -4803,7 +5054,7 @@ function assignPeopleToSeats(unitType, people, unit) {
       covered: claimed.length > 0 && tourCovered(claimed, tour),
     };
   });
-  return { seats, extra: pool };
+  return { seats, extra: pool, off };
 }
 
 // Options for one seat's dropdown: active, rank-eligible for the seat, and NOT
@@ -4944,7 +5195,8 @@ function payCodeBlockHtml(person, unit, date, isSupervisor) {
       </div>`;
   }
 
-  const attrs = `data-pay-date="${date}" data-pay-unit="${unit.id}" data-pay-person="${person.id}"`;
+  const attrs = `data-pay-date="${date}" data-pay-unit="${unit.id}" data-pay-person="${person.id}"`
+    + ` data-pay-start="${blockOf(person, unitTourMinutes(unit)).start}"`;
   let extra = "";
   if (def && def.wantsPerson) {
     extra += `<select class="pay-for" ${attrs} aria-label="Covering for">
@@ -5023,19 +5275,23 @@ function attachPayCodeEvents(scope) {
 
   [...root.querySelectorAll(".pay-select")].forEach((select) => {
     select.addEventListener("change", () => {
-      const { payDate: date, payUnit: unitId, payPerson: personId } = select.dataset;
+      const { payDate: date, payUnit: unitId, payPerson: personId, payStart } = select.dataset;
       const code = select.value;
       // Changing (or clearing) the code drops the old comment and the old
       // "for who" -- they belonged to the previous code and would be misleading.
       const person = updateAssignedPerson(date, unitId, personId, {
         _pay: code, _payNote: "", _payFor: "",
-      });
+      }, payStart);
       if (!person) return;
       const who = employeeById(personId)?.name || "Employee";
+      // Name the hours when there are hours to name -- a code on half a tour is
+      // a different payroll fact from a code on all of it.
+      const hrs = blockLabel(person, unitById(unitId));
+      const span = hrs ? ` (${hrs})` : "";
       addAudit(
         code
-          ? `${who} coded ${code} on ${unitLabel(unitId)} for ${formatDate(date)}.`
-          : `Pay code cleared for ${who} on ${unitLabel(unitId)}, ${formatDate(date)}.`,
+          ? `${who} coded ${code} on ${unitLabel(unitId)}${span} for ${formatDate(date)}.`
+          : `Pay code cleared for ${who} on ${unitLabel(unitId)}${span}, ${formatDate(date)}.`,
         currentUserName(),
       );
       render();
@@ -5047,10 +5303,12 @@ function attachPayCodeEvents(scope) {
   // yanks the caret out of a half-typed comment.
   [...root.querySelectorAll(".pay-note")].forEach((input) => {
     input.addEventListener("change", () => {
-      const { payDate: date, payUnit: unitId, payPerson: personId } = input.dataset;
+      const { payDate: date, payUnit: unitId, payPerson: personId, payStart } = input.dataset;
       const note = input.value.trim().slice(0, 300);
-      if (!updateAssignedPerson(date, unitId, personId, { _payNote: note })) return;
-      const current = getAssignments(date, unitId).find((p) => p.id === personId);
+      if (!updateAssignedPerson(date, unitId, personId, { _payNote: note }, payStart)) return;
+      const tourLen = unitTourMinutes(unitById(unitId));
+      const current = getAssignments(date, unitId).find((p) => p.id === personId
+        && String(blockOf(p, tourLen).start) === String(payStart));
       input.classList.toggle(
         "pay-note-missing",
         !note && !!payCodeDef(current?._pay)?.commentRequired,
@@ -5061,8 +5319,8 @@ function attachPayCodeEvents(scope) {
 
   [...root.querySelectorAll(".pay-for")].forEach((select) => {
     select.addEventListener("change", () => {
-      const { payDate: date, payUnit: unitId, payPerson: personId } = select.dataset;
-      if (!updateAssignedPerson(date, unitId, personId, { _payFor: select.value })) return;
+      const { payDate: date, payUnit: unitId, payPerson: personId, payStart } = select.dataset;
+      if (!updateAssignedPerson(date, unitId, personId, { _payFor: select.value }, payStart)) return;
       const who = employeeById(personId)?.name || "Employee";
       const target = employeeById(select.value)?.name;
       addAudit(
@@ -5074,6 +5332,33 @@ function attachPayCodeEvents(scope) {
       flashPayFieldSaved(select, persistAppState("Pay code coverage updated"));
     });
   });
+}
+
+// Who is off this tour, for how long, and why. Rendered under the seats rather
+// than inside them: an absence is not a seat, and showing it as one is how a rig
+// ends up reading "Staffed" with somebody at home.
+function offRosterHtml(off, unit, date, isSupervisor) {
+  if (!off || !off.length) return "";
+  const tour = unitTourMinutes(unit);
+  const rows = off.map((person) => {
+    const blk = blockOf(person, tour);
+    const span = isFullTour(person, tour)
+      ? `the full tour (${durationLabel(tour)})`
+      : `${windowLabel(blk, unit)} · ${durationLabel(blk.end - blk.start)}`;
+    const note = person._offNote ? ` — ${escapeHtml(person._offNote)}` : "";
+    return `<div class="off-row">
+        <span class="off-chip">${escapeHtml(person._off)}</span>
+        <span class="off-who"><strong>${escapeHtml(person.name)}</strong>
+          <small>${escapeHtml(absenceLabel(person._off))} · ${span}${note}</small></span>
+        ${isSupervisor ? `<button class="button button-secondary button-small"
+          data-remove-assignment="${person.id}" data-remove-date="${date}"
+          data-remove-unit="${unit.id}" data-remove-start="${blk.start}"
+          aria-label="Clear time off for ${escapeHtml(person.name)}">×</button>` : ""}
+      </div>`;
+  }).join("");
+  return `<div class="off-roster">
+      <h4>Off this tour</h4>${rows}
+    </div>`;
 }
 
 // A whole seat: every person covering part of the tour, then a pick row for each
@@ -5144,9 +5429,16 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
     } else if (isSupervisor) {
       timeEditor = `<button class="button button-secondary button-small seat-split" data-split-person="${person.id}" data-split-date="${date}" data-split-unit="${unit.id}" title="Split this tour — ${escapeHtml(person.name)} works part of it">Split</button>`;
     }
+    const markOff = isSupervisor
+      ? `<button class="button button-secondary button-small seat-off"
+          data-off-person="${person.id}" data-off-date="${date}" data-off-unit="${unit.id}"
+          data-off-start="${blk.start}"
+          title="Record PTO or other time off for ${escapeHtml(person.name)}">Time off</button>`
+      : "";
     control = `<div class="seat-person">
         <span><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"} shift</small>${hours}</span>
         ${timeEditor}
+        ${markOff}
         ${isSupervisor ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" data-remove-start="${blk.start}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
       </div>`;
   } else if (isSupervisor) {
