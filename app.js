@@ -729,9 +729,9 @@ function canAccessAdmin() {
 
 function renderSummary() {
   const range = getDateRange();
-  const visibleUnitList = visibleUnits();
+  const visibleUnitList = operationsUnits();
   const activeShift = getShiftForDate(state.currentDate);
-  const offUnits = state.units.length - visibleUnitList.length;
+  const offUnits = state.units.filter((u) => !isAdminUnit(u)).length - visibleUnitList.length;
   const uncovered = range.flatMap((date) => getStaffingAlerts(date)).filter((alert) => alert.level === "danger").length;
 
   dom["summary-grid"].innerHTML = `
@@ -809,7 +809,8 @@ function renderAlerts() {
 
 function renderSchedule() {
   const range = getDateRange();
-  const viewLabels = { day: "Daily Schedule", week: "Weekly Schedule", month: "Monthly Schedule" };
+  const viewLabels = { day: "Daily Schedule", week: "Weekly Schedule",
+    month: "Monthly Schedule", admin: "Admin & Light Duty" };
   dom["schedule-title"].textContent = viewLabels[state.currentView] || "Schedule View";
   dom["schedule-subtitle"].textContent = `${formatDate(range[0])}${range.length > 1 ? ` through ${formatDate(range[range.length - 1])}` : ""}`;
 
@@ -822,7 +823,9 @@ function renderSchedule() {
     return;
   }
 
-  if (state.currentView === "day") {
+  if (state.currentView === "admin") {
+    dom["schedule-container"].innerHTML = renderAdminSchedule(range);
+  } else if (state.currentView === "day") {
     dom["schedule-container"].innerHTML = renderTimelineCard(range[0]);
   } else if (state.currentView === "week") {
     dom["schedule-container"].innerHTML = renderWeekCalendar(range);
@@ -867,16 +870,25 @@ function renderTemplateEditor() {
     ? state.templateUnitId
     : units[0]?.id || "";
   state.templateUnitId = selectedUnit;
-  const shift = state.templateShift || "A";
-  state.templateShift = shift;
+  const unit = unitById(selectedUnit);
+  const adminUnit = isAdminUnit(unit);
+  // An admin position has no platoon, so the platoon picker is meaningless there
+  // -- and leaving it live would let someone build three near-identical "A/B/C"
+  // admin crews that can never all be right.
+  const shift = adminUnit ? TEMPLATE_KEY_ADMIN : (state.templateShift || "A");
+  if (!adminUnit) state.templateShift = shift;
 
   unitSelect.innerHTML = units
     .map((u) => `<option value="${u.id}" ${u.id === selectedUnit ? "selected" : ""}>
-      ${escapeHtml(u.name)}${u.onDemand ? " (reserve)" : ""}</option>`)
+      ${escapeHtml(u.name)}${isAdminUnit(u) ? " (admin)" : u.onDemand ? " (reserve)" : ""}</option>`)
     .join("");
-  if (dom["template-shift"]) dom["template-shift"].value = shift;
-
-  const unit = unitById(selectedUnit);
+  if (dom["template-shift"]) {
+    dom["template-shift"].value = adminUnit ? (state.templateShift || "A") : shift;
+    dom["template-shift"].disabled = adminUnit;
+    dom["template-shift"].title = adminUnit
+      ? "Admin positions have no platoon — one standing crew covers Mon-Thu."
+      : "";
+  }
   const positions = UNIT_POSITION_REQUIREMENTS[unit?.type];
   if (!unit || !positions) {
     seatsEl.innerHTML = `<div class="empty-state">No seat layout defined for this unit type.</div>`;
@@ -886,7 +898,10 @@ function renderTemplateEditor() {
   const tpl = templateFor(selectedUnit, shift);
   // Only people on THIS platoon — a standing crew is by definition the platoon's
   // own people. Overtime and cross-staffing stay one-off edits on the board.
-  const pool = activeEmployees().filter((e) => e.shift === shift);
+  // A rig's standing crew is by definition the platoon's own people; overtime
+  // and cross-staffing stay one-off edits on the board. An admin position draws
+  // from everybody, because that is where light duty goes regardless of platoon.
+  const pool = adminUnit ? activeEmployees() : activeEmployees().filter((e) => e.shift === shift);
 
   seatsEl.innerHTML = positions
     .map((pos) => {
@@ -908,8 +923,9 @@ function renderTemplateEditor() {
 
   const filled = positions.filter((pos) => tpl?.seats?.[pos.role]).length;
   if (dom["template-push-summary"]) {
-    dom["template-push-summary"].textContent =
-      `${unit.name} · ${shift} shift — ${filled} of ${positions.length} seats set.`;
+    dom["template-push-summary"].textContent = adminUnit
+      ? `${unit.name} · Mon-Thu admin crew (${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)}, ${durationLabel(unitTourMinutes(unit))}) — ${filled} of ${positions.length} seats set.`
+      : `${unit.name} · ${shift} shift — ${filled} of ${positions.length} seats set.`;
   }
 
   // Setting innerHTML above DESTROYED the previous selects and their listeners.
@@ -942,9 +958,12 @@ function attachTemplateSeatEvents() {
         showToast("Supervisor sign-in required to edit templates.", "error");
         return;
       }
-      upsertTemplateSeat(state.templateUnitId, state.templateShift, select.dataset.role, select.value);
+      const tplUnit = unitById(state.templateUnitId);
+      const key = isAdminUnit(tplUnit) ? TEMPLATE_KEY_ADMIN : state.templateShift;
+      upsertTemplateSeat(state.templateUnitId, key, select.dataset.role, select.value);
       addAudit(
-        `Staffing template updated: ${unitLabel(state.templateUnitId)} ${state.templateShift} shift.`,
+        `Staffing template updated: ${unitLabel(state.templateUnitId)} ` +
+        `${key === TEMPLATE_KEY_ADMIN ? "Mon-Thu admin crew" : `${key} shift`}.`,
         currentUserName()
       );
       renderTemplateEditor();   // re-renders AND re-binds
@@ -981,10 +1000,22 @@ function upsertTemplateSeat(unitId, shift, role, employeeId) {
 // Build the crew a template implies for one date. Archived or deleted people are
 // DROPPED rather than seated, so the seat reads as an open gap and raises a normal
 // staffing alert instead of looking covered by someone who no longer works here.
+// A template is keyed by unit AND by which crew it is. For a rig that is the
+// platoon on duty; an admin position has no platoon -- its standing crew is the
+// same every Monday through Thursday -- so it uses one sentinel key. Keeping the
+// two in one keyspace is what stops a 48hr platoon crew and a 10hr admin crew
+// from ever being mistaken for each other on a push.
+const TEMPLATE_KEY_ADMIN = "ADMIN";
+
+function templateKeyForUnit(unit, date) {
+  return isAdminUnit(unit) ? TEMPLATE_KEY_ADMIN : getShiftForDate(date);
+}
+
 function crewFromTemplate(unitId, date) {
-  const tpl = templateFor(unitId, getShiftForDate(date));
+  const unit = unitById(unitId);
+  const tpl = templateFor(unitId, templateKeyForUnit(unit, date));
   if (!tpl) return [];
-  const positions = UNIT_POSITION_REQUIREMENTS[unitById(unitId)?.type] || [];
+  const positions = UNIT_POSITION_REQUIREMENTS[unit?.type] || [];
   const crew = [];
   positions.forEach((pos) => {
     const empId = tpl.seats?.[pos.role];
@@ -1004,7 +1035,9 @@ function previewTemplatePush(days = TEMPLATE_PUSH_DEFAULT_DAYS) {
   for (let offset = 0; offset < days; offset += 1) {
     const date = addDays(todayIso(), offset);
     let touched = false;
-    unitsForDate(date).forEach((unit) => {
+    // Operations rigs run every shift day; admin positions run Mon-Thu. Both
+    // push, each on its own calendar, and neither can write to the other's.
+    [...unitsForDate(date), ...adminUnitsForDate(date)].forEach((unit) => {
       const crew = crewFromTemplate(unit.id, date);
       if (!crew.length) { result.noTemplate += 1; return; }
       const existing = getAssignments(date, unit.id);
@@ -1184,6 +1217,66 @@ function attachUnitServiceEvents(root) {
       deactivateUnitForDate(btn.dataset.deactivateUnit, btn.dataset.deactivateDate);
     });
   });
+}
+
+// Admin & light duty. A separate board on purpose: these positions are constant,
+// run a 10hr Monday-Thursday week, and follow none of the operations rules --
+// no platoon, no mandatory overtime, no PTO tour limits. They are excluded from
+// the daily board, the wall sheet, staffing alerts and the overtime and trade
+// boards so they cannot clog operations scheduling.
+function renderAdminSchedule(range) {
+  const positions = adminUnits();
+  if (!positions.length) {
+    return `<div class="empty-state">No admin positions yet. Add a unit under
+      Manage → Units and set its schedule to <strong>Admin / light duty</strong>.</div>`;
+  }
+
+  const onLight = (state.employees || []).filter((e) => e.status !== "archived"
+    && range.some((d) => onLightDuty(e, d)));
+  const roster = onLight.length
+    ? `<div class="admin-roster">
+        <h4>On light duty this week</h4>
+        <ul>${onLight.map((e) => {
+          const until = e.lightDutyEnd ? `through ${formatDate(e.lightDutyEnd)}` : "no return date set";
+          const note = e.lightDutyNote ? ` — ${escapeHtml(e.lightDutyNote)}` : "";
+          return `<li><strong>${escapeHtml(e.name)}</strong> <small>${until}${note}</small></li>`;
+        }).join("")}</ul>
+      </div>`
+    : `<div class="admin-roster"><h4>On light duty this week</h4>
+        <p class="helper-text">Nobody. Set the dates on a member under Manage → Employees.</p></div>`;
+
+  const isSupervisor = state.currentRole === "supervisor";
+  const days = range.map((date) => {
+    const running = adminUnitsForDate(date);
+    if (!running.length) {
+      return `<article class="timeline-card admin-day admin-day-off">
+        <div class="timeline-head"><div><h3>${formatDate(date)}</h3>
+        <p class="helper-text">Not an admin day.</p></div></div></article>`;
+    }
+    const cards = running.map((unit) => {
+      const people = getAssignments(date, unit.id);
+      const { seats } = assignPeopleToSeats(unit.type, people, unit);
+      const rows = seats.map((seat) => seatSectionHtml(seat, unit, date, isSupervisor)).join("");
+      const tourLabel = `${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)} · ${durationLabel(unitTourMinutes(unit))}`;
+      return `<section class="unit-card" data-apparatus="admin">
+          <div class="unit-card-header">
+            <div><h3>${escapeHtml(unit.name)}</h3>
+              <div class="unit-meta"><span>Admin</span><span>${tourLabel}</span></div></div>
+          </div>
+          <div class="seat-list">${rows || '<div class="empty-state">No seats defined for this position.</div>'}</div>
+        </section>`;
+    }).join("");
+    return `<article class="timeline-card admin-day">
+      <div class="timeline-head"><div><h3>${formatDate(date)}</h3>
+      <p class="helper-text">10-hour admin day</p></div></div>
+      <div class="timeline-grid">${cards}</div></article>`;
+  }).join("");
+
+  return `<div class="admin-board">
+    <p class="helper-text">Admin and light-duty positions are kept off the daily
+    operations board, the printed sheet, and the overtime and trade boards. They
+    do not count toward mandatory overtime or PTO tour limits.</p>
+    ${roster}${days}</div>`;
 }
 
 // Day view: full timeline card with unit details
@@ -1381,7 +1474,7 @@ function renderUnitCard(unit, date, activeShift) {
   }
 
   // --- Seat-based units (Engine, Ladder, Medic, ...) ---
-  const { seats, extra } = assignPeopleToSeats(unit.type, people);
+  const { seats, extra } = assignPeopleToSeats(unit.type, people, unit);
   const requiredSeats = seats.filter((s) => seatIsRequired(s.pos));
   const optionalSeats = seats.filter((s) => !seatIsRequired(s.pos));
   // Covered, not merely occupied: a required seat with four of twenty-four hours
@@ -1454,8 +1547,13 @@ function renderUnitControls() {
               ? `<p class="helper-text">${unit.type} • ${unit.onDemand ? "on demand" : "runs daily"}</p>`
               : `<select class="unit-type-select" data-unit-type="${unit.id}" title="Edit unit type">
                   ${unitTypes.map((t) => `<option value="${t}" ${t === unit.type ? "selected" : ""}>${t}</option>`).join("")}
+                </select>
+                <select class="unit-type-select" data-unit-class="${unit.id}" title="48hr rotation, or a 10hr Mon-Thu admin position">
+                  <option value="operations" ${isAdminUnit(unit) ? "" : "selected"}>Operations — 48hr rotation</option>
+                  <option value="admin" ${isAdminUnit(unit) ? "selected" : ""}>Admin / light duty — 10hr Mon-Thu</option>
                 </select>`
           }
+          ${isAdminUnit(unit) ? `<p class="helper-text">${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)} · ${durationLabel(unitTourMinutes(unit))} · Mon-Thu — kept off the operations board.</p>` : ""}
         </div>
         <input type="checkbox" data-unit-toggle="${unit.id}" ${unit.visible ? "checked" : ""} ${supervisorLocked ? "disabled" : ""} aria-label="Show ${unit.name}" />
       </div>
@@ -1484,6 +1582,33 @@ function renderUnitControls() {
       unit.type = select.value;
       addAudit(`${unit.name} type changed from ${oldType} to ${unit.type}.`, currentUserName());
       persistAppState("Unit type updated");
+    });
+  });
+
+  // Operations vs admin. Switching to admin also sets the 10hr Mon-Thu shape, so
+  // a half-configured admin unit -- one that reads as admin but still runs a
+  // 24-hour tour every day -- is not something a supervisor can create by
+  // accident. Switching back restores the operations tour.
+  [...document.querySelectorAll("[data-unit-class]")].forEach((select) => {
+    select.addEventListener("change", () => {
+      const unit = state.units.find((item) => item.id === select.dataset.unitClass);
+      if (!unit) return;
+      const toAdmin = select.value === "admin";
+      if (toAdmin && !window.confirm(
+        `Make ${unit.name} an admin / light-duty position?\n\n` +
+        `It becomes a 10-hour Monday-Thursday day and is removed from the daily ` +
+        `operations board, the printed sheet, staffing alerts, and the overtime ` +
+        `and trade boards. Any assignments already on it stay put.`)) {
+        select.value = "operations";
+        return;
+      }
+      unit.scheduleClass = toAdmin ? "admin" : "operations";
+      unit.tourMinutes = toAdmin ? ADMIN_TOUR_MINUTES : TOUR_MINUTES;
+      unit.tourStartHour = TOUR_START_HOUR;
+      unit.weekdays = toAdmin ? [...WEEKDAYS_MON_THU] : [];
+      addAudit(`${unit.name} moved to the ${toAdmin ? "admin / light duty" : "operations"} schedule.`, currentUserName());
+      render();
+      persistAppState("Unit schedule class updated");
     });
   });
 }
@@ -1651,6 +1776,31 @@ function renderEmployeeEditor() {
           `).join("")}
         </div>
       </div>
+      <div class="editor-section">
+        <strong>Light duty</strong>
+        <p class="helper-text" style="margin:0 0 6px">Dates only. While this range
+          is open they cannot be placed on an apparatus and a supervisor who tries
+          is told why — they stay available for admin positions.
+          <strong>Do not record a medical detail here.</strong></p>
+        <div class="editor-grid">
+          <label>
+            From
+            <input id="employee-edit-ld-start" type="date" value="${escapeHtml(draft.lightDutyStart || "")}" />
+          </label>
+          <label>
+            Through
+            <input id="employee-edit-ld-end" type="date" value="${escapeHtml(draft.lightDutyEnd || "")}" />
+          </label>
+        </div>
+        <label>
+          Note (optional)
+          <input id="employee-edit-ld-note" type="text" maxlength="200"
+                 placeholder="e.g. Admin week until re-cert"
+                 value="${escapeHtml(draft.lightDutyNote || "")}" />
+        </label>
+        <p class="helper-text" style="margin:6px 0 0">Leaving <em>Through</em> blank keeps
+          it open-ended: they stay off the rigs until someone closes it.</p>
+      </div>
       <label class="check-tile">
         <input id="employee-edit-supervisor" type="checkbox" ${draft.isSupervisor ? "checked" : ""} />
         <span>Supervisor access</span>
@@ -1730,6 +1880,14 @@ function attachEmployeeEditorEvents() {
   certInputs.forEach((i) => i.addEventListener("change", syncDraft));
   rideUpInputs.forEach((i) => i.addEventListener("change", syncDraft));
 
+  [["employee-edit-ld-start", "lightDutyStart"],
+   ["employee-edit-ld-end", "lightDutyEnd"],
+   ["employee-edit-ld-note", "lightDutyNote"]].forEach(([id, key]) => {
+    document.getElementById(id)?.addEventListener("input", (event) => {
+      if (state.employeeDraft) state.employeeDraft[key] = event.target.value;
+    });
+  });
+
   document.getElementById("save-employee-btn")?.addEventListener("click", saveEmployeeDraft);
   document.getElementById("cancel-employee-btn")?.addEventListener("click", () => {
     const employee = employeeById(state.selectedEmployeeId);
@@ -1750,6 +1908,9 @@ function createEmployeeDraft(employee) {
     isSupervisor: normalized.isSupervisor,
     certs: [...normalized.certs],
     rideUp: [...(normalized.rideUp || [])],
+    lightDutyStart: normalized.lightDutyStart || "",
+    lightDutyEnd: normalized.lightDutyEnd || "",
+    lightDutyNote: normalized.lightDutyNote || "",
   };
 }
 
@@ -1773,8 +1934,21 @@ function saveEmployeeDraft() {
     showToast("Select at least one credential.", "error");
     return;
   }
+  // A backwards range would silently never match, so the member would look
+  // available while the record says otherwise. Bounce it instead.
+  const ldStart = state.employeeDraft.lightDutyStart || "";
+  const ldEnd = state.employeeDraft.lightDutyEnd || "";
+  if (ldEnd && !ldStart) {
+    showToast("Light duty needs a start date, not just an end date.", "error");
+    return;
+  }
+  if (ldStart && ldEnd && ldEnd < ldStart) {
+    showToast("Light duty cannot end before it starts.", "error");
+    return;
+  }
   const employee = employeeById(state.selectedEmployeeId);
   if (!employee) return;
+  const wasOnLightDuty = onLightDuty(employee, state.currentDate);
   Object.assign(employee, {
     ...state.employeeDraft,
     certs: Array.from(new Set(state.employeeDraft.certs)),
@@ -1788,6 +1962,17 @@ function saveEmployeeDraft() {
     showToast("The signed-in supervisor cannot archive their own account.", "error");
   }
   state.employeeDraft = createEmployeeDraft(employee);
+  // Light duty changes who may be put on a rig, so it is its own audit line
+  // rather than being buried in a generic "profile updated".
+  const nowOnLightDuty = onLightDuty(employee, state.currentDate);
+  if (nowOnLightDuty !== wasOnLightDuty) {
+    addAudit(
+      nowOnLightDuty
+        ? `${employee.name} placed on light duty ${employee.lightDutyStart} to ${employee.lightDutyEnd || "(open-ended)"} — off apparatus assignment.`
+        : `${employee.name} returned to full duty — available for apparatus assignment.`,
+      currentUserName(),
+    );
+  }
   addAudit(`${employee.name} updated in employee directory.`, currentUserName());
   createNotification(`${employee.name} profile updated in employee directory.`, "email", currentUserName());
   render();
@@ -2054,24 +2239,35 @@ function attachUnitMoveEvents() {
       const employee = employeeById(select.value);
       if (!employee) return;
       const existingAssignments = getAssignments(date, unitId);
+      const unit = unitById(unitId);
+      const tour = unitTourMinutes(unit);
+
+      // Light duty is a hard stop on an operations rig, and the chief is told
+      // why rather than left wondering where the name went.
+      if (!employeeAvailableForUnit(employee, unit, date)) {
+        window.alert(`${lightDutyReason(employee, date)}\n\nThey can be placed on an admin position instead.`);
+        select.value = "";
+        return;
+      }
+
       // The picker may have been rendered for a specific uncovered window (the
       // "OPEN 1200-0800" row). Absent that, a pick means the whole tour.
-      const start = Number.isFinite(Number(select.dataset.start)) && select.dataset.start !== undefined
-        ? Number(select.dataset.start) : 0;
+      const start = select.dataset.start !== undefined && Number.isFinite(Number(select.dataset.start))
+        ? snapToSlot(Number(select.dataset.start)) : 0;
       const end = select.dataset.end !== undefined && Number.isFinite(Number(select.dataset.end))
-        ? Number(select.dataset.end) : TOUR_MINUTES;
+        ? snapToSlot(Number(select.dataset.end)) : tour;
       const win = { start, end };
 
       // The same employee may hold more than one block on this unit, but the
       // blocks must not overlap -- nobody is in two places for the same hour.
       if (existingAssignments.some((person) => person.id === employee.id
-        && blocksOverlap(blockOf(person), win))) {
+        && blocksOverlap(blockOf(person, tour), win))) {
         select.value = "";
         return;
       }
       // Nor may they be covering that window on another rig.
-      if (isBookedDuring(date, employee.id, win, unitId)) {
-        window.alert(`${employee.name} is already assigned elsewhere during ${windowLabel(win)}.`);
+      if (isBookedDuring(date, employee.id, win, unitId, unit)) {
+        window.alert(`${employee.name} is already assigned elsewhere during ${windowLabel(win, unit)}.`);
         select.value = "";
         return;
       }
@@ -2079,7 +2275,7 @@ function attachUnitMoveEvents() {
       const placed = { ...employee };
       // Only stamp the block when it is NOT a full tour, so an ordinary
       // assignment is byte-for-byte what it was before partial shifts existed.
-      if (!(start === 0 && end === TOUR_MINUTES)) {
+      if (!(start === 0 && end === tour)) {
         placed._start = start;
         placed._end = end;
       }
@@ -2088,7 +2284,7 @@ function attachUnitMoveEvents() {
       // A human touched this unit-day: stamp EVERY row on it manual so a future
       // template push skips the whole crew, not just the seat that changed.
       state.assignments[date][unitId] = markManual([...existingAssignments, placed]);
-      const forWindow = (start === 0 && end === TOUR_MINUTES) ? "" : ` (${windowLabel(win)})`;
+      const forWindow = (start === 0 && end === tour) ? "" : ` (${windowLabel(win, unit)})`;
       addAudit(`${employee.name} added to ${unitLabel(unitId)} on ${formatDate(date)}${forWindow}.`, currentUserName());
       createNotification(`${employee.name} assigned to ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
       render();
@@ -2107,7 +2303,8 @@ function attachUnitMoveEvents() {
       const removeStart = button.dataset.removeStart;
       state.assignments[date][unitId] = markManual(
         getAssignments(date, unitId).filter((person) => !(person.id === employeeId
-          && (removeStart === undefined || blockOf(person).start === Number(removeStart))))
+          && (removeStart === undefined
+              || blockOf(person, unitTourMinutes(unitById(unitId))).start === Number(removeStart))))
       );
       addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} on ${formatDate(date)}.`, currentUserName());
       createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
@@ -2130,10 +2327,12 @@ function attachSeatTimeEvents(scope) {
   [...root.querySelectorAll(".seat-split")].forEach((button) => {
     button.addEventListener("click", () => {
       const { splitPerson: personId, splitDate: date, splitUnit: unitId } = button.dataset;
-      const half = TOUR_MINUTES / 2;
+      const unit = unitById(unitId);
+      // Half of THIS unit's tour: 12 hours on a rig, 5 on a 10-hour admin day.
+      const half = snapToSlot(unitTourMinutes(unit) / 2);
       updateAssignedPerson(date, unitId, personId, { _start: 0, _end: half }, 0);
       addAudit(
-        `${employeeById(personId)?.name || "Employee"} on ${unitLabel(unitId)} ${formatDate(date)} split to ${windowLabel({ start: 0, end: half })}; the rest of the tour is open.`,
+        `${employeeById(personId)?.name || "Employee"} on ${unitLabel(unitId)} ${formatDate(date)} split to ${windowLabel({ start: 0, end: half }, unit)}; the rest of the tour is open.`,
         currentUserName(),
       );
       render();
@@ -2150,10 +2349,12 @@ function attachSeatTimeEvents(scope) {
       const startEl = host.querySelector('[data-block-field="start"]');
       const endEl = host.querySelector('[data-block-field="end"]');
 
-      const start = timeValueToMinute(startEl?.value);
-      const end = timeValueToMinute(endEl?.value, { preferEnd: true });
+      const unit = unitById(unitId);
+      const tour = unitTourMinutes(unit);
+      const start = timeValueToMinute(startEl?.value, { unit });
+      const end = timeValueToMinute(endEl?.value, { preferEnd: true, unit });
       const current = getAssignments(date, unitId)
-        .find((p) => p.id === personId && blockOf(p).start === wasStart);
+        .find((p) => p.id === personId && blockOf(p, tour).start === wasStart);
       if (!current) return;
 
       // Reject rather than silently "fix": a chief who typed the wrong end time
@@ -2162,21 +2363,25 @@ function attachSeatTimeEvents(scope) {
         window.alert(msg);
         render();
       };
-      if (start === null || end === null) return revert("Enter both times as HH:MM.");
+      if (start === null || end === null) return revert("Enter both times on the half hour, as HH:MM.");
+      const tourWindow = windowLabel({ start: 0, end: tour }, unit);
       if (start >= end) {
-        return revert("The end of a block has to come after its start, within the same 0800-0800 tour.");
+        return revert(`The end of a block has to come after its start, inside this unit's ${tourWindow} tour.`);
+      }
+      if (end > tour) {
+        return revert(`This unit's tour is ${tourWindow} (${durationLabel(tour)}). A block can't run past the end of it.`);
       }
       const win = { start, end };
       // Same person, another block on this rig.
       const clashHere = getAssignments(date, unitId).some((p) => p.id === personId
-        && blockOf(p).start !== wasStart && blocksOverlap(blockOf(p), win));
+        && blockOf(p, tour).start !== wasStart && blocksOverlap(blockOf(p, tour), win));
       if (clashHere) return revert(`That overlaps another block ${employeeById(personId)?.name || "this person"} already holds on ${unitLabel(unitId)}.`);
       // Same person, another rig.
-      if (isBookedDuring(date, personId, win, unitId)) {
-        return revert(`${employeeById(personId)?.name || "This person"} is assigned elsewhere during ${windowLabel(win)}.`);
+      if (isBookedDuring(date, personId, win, unitId, unit)) {
+        return revert(`${employeeById(personId)?.name || "This person"} is assigned elsewhere during ${windowLabel(win, unit)}.`);
       }
 
-      const full = start === 0 && end === TOUR_MINUTES;
+      const full = start === 0 && end === tour;
       updateAssignedPerson(date, unitId, personId, {
         // "" deletes the key, which is what a full tour should look like on the
         // wire: exactly what the board sent before partial shifts existed.
@@ -2184,7 +2389,7 @@ function attachSeatTimeEvents(scope) {
         _end: full ? "" : end,
       }, wasStart);
       addAudit(
-        `${employeeById(personId)?.name || "Employee"} on ${unitLabel(unitId)} ${formatDate(date)} set to ${full ? "the full tour" : windowLabel(win)}.`,
+        `${employeeById(personId)?.name || "Employee"} on ${unitLabel(unitId)} ${formatDate(date)} set to ${full ? "the full tour" : `${windowLabel(win, unit)} (${durationLabel(end - start)})`}.`,
         currentUserName(),
       );
       const saving = persistAppState("Shift hours updated");
@@ -2632,13 +2837,13 @@ function postableShiftsFor(employeeId, horizonDays) {
       if (!(people || []).some((p) => p && p.id === employeeId)) return;
       if (posted.has(`${date}|${unitId}`)) return;
       const unit = unitById(unitId);
-      const { seats } = assignPeopleToSeats(unit?.type, people);
+      const { seats } = assignPeopleToSeats(unit?.type, people, unit);
       // Search every block in a seat, not just the first: on a split tour the
       // relief is the SECOND name in the seat and would otherwise show as
       // "Rider" on their own shift list.
       const mine = seats.find((st) => st.people.some((pp) => pp && pp.id === employeeId));
       const myBlock = (people || []).find((pp) => pp && pp.id === employeeId);
-      const hours = myBlock ? blockLabel(myBlock) : "";
+      const hours = myBlock ? blockLabel(myBlock, unit) : "";
       out.push({
         date, unitId,
         unitName: unit?.name || unitId,
@@ -2665,7 +2870,7 @@ function tradeCrewIsLegal(trade, accepter) {
     .filter((p) => p && p.id !== trade.employeeId)
     .map((p) => resolvePerson(p) || p)
     .concat([accepter]);
-  const { seats } = assignPeopleToSeats(unit.type, crew);
+  const { seats } = assignPeopleToSeats(unit.type, crew, unit);
   // Covered, not occupied: a trade that leaves twenty hours of a required seat
   // open is not a legal crew just because someone's name is on the row.
   return seats.filter((st) => seatIsRequired(st.pos)).every((st) => st.covered);
@@ -3464,7 +3669,7 @@ function coverageGaps(startDate, days) {
     unitsForDate(date).forEach((unit) => {
       const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
       if (!positions) return;
-      const { seats } = assignPeopleToSeats(unit.type, getAssignments(date, unit.id));
+      const { seats } = assignPeopleToSeats(unit.type, getAssignments(date, unit.id), unit);
       seats.forEach((seat) => {
         if (seat.covered || !seatIsRequired(seat.pos)) return;
         // Already awarded = filled. Without this the row lingers with an
@@ -3478,7 +3683,7 @@ function coverageGaps(startDate, days) {
           // A half-covered seat posts the hours that are actually open, so
           // nobody signs up for overtime and finds someone already in the seat.
           label: seat.people.length
-            ? `${seat.pos.label} (${seat.gaps.map(windowLabel).join(", ")})`
+            ? `${seat.pos.label} (${seat.gaps.map((g) => windowLabel(g, unit)).join(", ")})`
             : seat.pos.label,
           hours: seat.gaps,
           cap: seat.pos.cap, need: seatNeedLabel(seat.pos),
@@ -4210,6 +4415,11 @@ function getDateRange() {
   if (state.currentView === "day") {
     return [state.currentDate];
   }
+  // The admin week IS the unit of work here -- a 10hr Mon-Thu position is read a
+  // week at a time, not a day at a time like a rig at shift change.
+  if (state.currentView === "admin") {
+    return Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(state.currentDate), index));
+  }
   if (state.currentView === "week") {
     return Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(state.currentDate), index));
   }
@@ -4257,12 +4467,12 @@ function getStaffingAlerts(date) {
 // says which hours are open rather than just "unfilled".
 function checkPositionStaffing(unit, people, positions) {
   const alerts = [];
-  const { seats } = assignPeopleToSeats(unit.type, people);
+  const { seats } = assignPeopleToSeats(unit.type, people, unit);
   seats.forEach((seat) => {
     if (seat.covered || !seatIsRequired(seat.pos)) return;
     const need = seatNeedLabel(seat.pos);
     const open = seat.people.length
-      ? ` — open ${seat.gaps.map(windowLabel).join(", ")}`
+      ? ` — open ${seat.gaps.map((g) => windowLabel(g, unit)).join(", ")}`
       : "";
     const state_ = seat.people.length ? "partially covered" : "unfilled";
     alerts.push({
@@ -4301,11 +4511,51 @@ function checkPositionStaffing(unit, people, positions) {
 // A person object with no _start/_end is a full tour. That is what every row
 // written before partial shifts existed means, and what the server still sends
 // for a whole-day assignment.
+// The operations default. A unit may say otherwise: an admin / light-duty
+// position is a 10-hour Monday-Thursday day, and its minutes are measured from
+// its own tour start. Nothing below hard-codes 1440 any more -- it asks the unit.
 const TOUR_MINUTES = 1440;
 const TOUR_START_HOUR = 8;
+const ADMIN_TOUR_MINUTES = 600;          // 0800-1800
+const WEEKDAYS_MON_THU = [0, 1, 2, 3];   // Mon=0, matching Date#getDay() shifted
 
-function blockOf(person) {
-  const FULL = { start: 0, end: TOUR_MINUTES };
+// Everything is scheduled in half hours -- an hour or an hour and a half at a
+// minimum -- so a time that isn't on :00 or :30 is a typo, not a shift.
+const SLOT_MINUTES = 30;
+
+function snapToSlot(minute) {
+  return Math.round(minute / SLOT_MINUTES) * SLOT_MINUTES;
+}
+
+// "4h", "1.5h", "20h" -- how a chief says it, not 240 minutes.
+function durationLabel(minutes) {
+  const h = minutes / 60;
+  return `${Number.isInteger(h) ? h : h.toFixed(1)}h`;
+}
+
+function unitTourMinutes(unit) {
+  const n = Number(unit?.tourMinutes);
+  return Number.isFinite(n) && n > 0 && n <= TOUR_MINUTES ? n : TOUR_MINUTES;
+}
+
+function unitTourStartHour(unit) {
+  const n = Number(unit?.tourStartHour);
+  return Number.isFinite(n) && n >= 0 && n <= 23 ? n : TOUR_START_HOUR;
+}
+
+function isAdminUnit(unit) {
+  return unit?.scheduleClass === "admin";
+}
+
+// Mon=0 .. Sun=6, so it lines up with the server's date.weekday().
+function isoWeekday(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  return (d.getDay() + 6) % 7;
+}
+
+function blockOf(person, tour) {
+  const TOUR = Number.isFinite(tour) && tour > 0 ? tour : TOUR_MINUTES;
+  const FULL = { start: 0, end: TOUR };
   const rawStart = person?._start;
   const rawEnd = person?._end;
   if (rawStart === undefined && rawEnd === undefined) return FULL;
@@ -4314,56 +4564,65 @@ function blockOf(person) {
   // is present and unusable, the whole block is untrustworthy -- fall back to
   // the full tour, which is also what the server does with the same payload.
   const start = rawStart === undefined ? 0 : rawStart;
-  const end = rawEnd === undefined ? TOUR_MINUTES : rawEnd;
+  const end = rawEnd === undefined ? TOUR : rawEnd;
   if (!Number.isFinite(start) || !Number.isFinite(end)) return FULL;
   // Backwards or out of range reads as a full tour rather than as a zero-length
   // one: a garbled field must never make someone silently vanish from a seat
-  // that the board then reports as covered.
-  if (!(start >= 0 && start < end && end <= TOUR_MINUTES)) return FULL;
+  // that the board then reports as covered. A 14-hour block on a 10-hour admin
+  // day is out of range for exactly this reason.
+  if (!(start >= 0 && start < end && end <= TOUR)) return FULL;
   return { start, end };
 }
 
-function isFullTour(person) {
-  const b = blockOf(person);
-  return b.start === 0 && b.end === TOUR_MINUTES;
+function isFullTour(person, tour) {
+  const TOUR = Number.isFinite(tour) && tour > 0 ? tour : TOUR_MINUTES;
+  const b = blockOf(person, TOUR);
+  return b.start === 0 && b.end === TOUR;
 }
 
 // 240 -> "1200". Wall clock, because that is what a chief writes on the board.
-function minuteToClock(minute) {
-  const total = ((TOUR_START_HOUR * 60 + minute) % 1440 + 1440) % 1440;
+function minuteToClock(minute, startHour) {
+  const base = Number.isFinite(startHour) ? startHour : TOUR_START_HOUR;
+  const total = ((base * 60 + minute) % 1440 + 1440) % 1440;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}${String(total % 60).padStart(2, "0")}`;
 }
 
-function blockLabel(person) {
-  if (isFullTour(person)) return "";
-  const b = blockOf(person);
-  return `${minuteToClock(b.start)}-${minuteToClock(b.end)}`;
+function blockLabel(person, unit) {
+  const tour = unitTourMinutes(unit);
+  if (isFullTour(person, tour)) return "";
+  const b = blockOf(person, tour);
+  const h = unitTourStartHour(unit);
+  return `${minuteToClock(b.start, h)}-${minuteToClock(b.end, h)}`;
 }
 
 // <input type="time"> speaks "HH:MM" wall clock; everything else here speaks
 // minutes from 0800. These two are the only place that translation happens.
-function minuteToTimeValue(minute) {
-  const clock = minuteToClock(minute);
+function minuteToTimeValue(minute, unit) {
+  const clock = minuteToClock(minute, unitTourStartHour(unit));
   return `${clock.slice(0, 2)}:${clock.slice(2)}`;
 }
 
 // "12:00" -> 240. A wall time at or before 0800 belongs to the BACK of the tour
 // (the next morning), which is why 0800 itself reads as the end, not the start,
 // unless it is the field's existing value.
-function timeValueToMinute(value, { preferEnd = false } = {}) {
+function timeValueToMinute(value, { preferEnd = false, unit = null } = {}) {
+  const startHour = unitTourStartHour(unit);
+  const tour = unitTourMinutes(unit);
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(value || "").trim());
   if (!m) return null;
   const hour = Number(m[1]);
   const min = Number(m[2]);
   if (!(hour >= 0 && hour < 24 && min >= 0 && min < 60)) return null;
-  let minute = (hour * 60 + min) - TOUR_START_HOUR * 60;
-  if (minute < 0) minute += TOUR_MINUTES;
-  if (minute === 0 && preferEnd) minute = TOUR_MINUTES;
+  let minute = (hour * 60 + min) - startHour * 60;
+  if (minute < 0) minute += 1440;
+  minute = snapToSlot(minute);
+  if (minute === 0 && preferEnd) minute = tour;
   return minute;
 }
 
-function windowLabel(win) {
-  return `${minuteToClock(win.start)}-${minuteToClock(win.end)}`;
+function windowLabel(win, unit) {
+  const h = unitTourStartHour(unit);
+  return `${minuteToClock(win.start, h)}-${minuteToClock(win.end, h)}`;
 }
 
 // Half-open: a relief that starts exactly when the outgoing block ends is a
@@ -4375,8 +4634,9 @@ function blocksOverlap(a, b) {
 // The parts of the tour NOT covered by these people. Returns [] when the tour is
 // fully covered. This is what makes "partially covered still reads as short"
 // true: the seat is only done when this list is empty.
-function coverageGaps(people) {
-  const blocks = (people || []).filter(Boolean).map(blockOf)
+function tourGaps(people, tour) {
+  const TOUR = Number.isFinite(tour) && tour > 0 ? tour : TOUR_MINUTES;
+  const blocks = (people || []).filter(Boolean).map((p) => blockOf(p, TOUR))
     .sort((a, b) => a.start - b.start);
   const gaps = [];
   let cursor = 0;
@@ -4384,12 +4644,12 @@ function coverageGaps(people) {
     if (b.start > cursor) gaps.push({ start: cursor, end: b.start });
     cursor = Math.max(cursor, b.end);
   });
-  if (cursor < TOUR_MINUTES) gaps.push({ start: cursor, end: TOUR_MINUTES });
+  if (cursor < TOUR) gaps.push({ start: cursor, end: TOUR });
   return gaps;
 }
 
-function isFullyCovered(people) {
-  return coverageGaps(people).length === 0;
+function tourCovered(people, tour) {
+  return tourGaps(people, tour).length === 0;
 }
 
 // ─── Per-seat staffing helpers ────────────────────────────────────────────────
@@ -4432,28 +4692,71 @@ function seatNeedLabel(pos) {
 // keep someone from being double-booked -- but a person who works 0800-1200 on
 // one rig is genuinely free for 1200-0800 on another, so this has to be read as
 // OVERLAP, not "are they on the schedule today at all".
+// Comparing two units' blocks means comparing MINUTES FROM MIDNIGHT, not each
+// unit's own offset. Today a rig and an admin position both start at 0800 so the
+// numbers happen to agree -- but the moment one of them doesn't, an unconverted
+// comparison silently declares someone free when they are not.
+function absoluteBlock(person, unit) {
+  const b = blockOf(person, unitTourMinutes(unit));
+  const base = unitTourStartHour(unit) * 60;
+  return { start: base + b.start, end: base + b.end };
+}
+
 function assignedBlocksForDate(date) {
   // Only count assignments to units that still EXIST, so leftover/orphaned
   // assignments to deleted apparatus can never make someone read as booked.
   const byEmployee = new Map();
-  const existingUnitIds = new Set(state.units.map((u) => u.id));
+  const byId = new Map(state.units.map((u) => [u.id, u]));
   const byUnit = state.assignments?.[date] || {};
   Object.entries(byUnit).forEach(([unitId, people]) => {
-    if (!existingUnitIds.has(unitId)) return;
+    const unit = byId.get(unitId);
+    if (!unit) return;
     (people || []).forEach((p) => {
       if (!p) return;
       if (!byEmployee.has(p.id)) byEmployee.set(p.id, []);
-      byEmployee.get(p.id).push({ ...blockOf(p), unitId });
+      byEmployee.get(p.id).push({ ...absoluteBlock(p, unit), unitId });
     });
   });
   return byEmployee;
 }
 
-// Is this person already committed during `window` on this date?
-function isBookedDuring(date, employeeId, window, ignoreUnitId) {
+// Is this person already committed during `window` on this date? `window` is in
+// `unit`'s own minutes; it is converted before comparing.
+function isBookedDuring(date, employeeId, window, ignoreUnitId, unit) {
+  const base = unitTourStartHour(unit) * 60;
+  const abs = { start: base + window.start, end: base + window.end };
   const blocks = assignedBlocksForDate(date).get(employeeId) || [];
   return blocks.some((b) => (ignoreUnitId ? b.unitId !== ignoreUnitId : true)
-    && blocksOverlap(b, window));
+    && blocksOverlap(b, abs));
+}
+
+// ─── Light duty ──────────────────────────────────────────────────────────────
+// An injured member comes off the 48hr rotation for a stretch and works a 10hr
+// admin week instead. This is a DATE RANGE, because the board is built weeks
+// ahead: a chief staffing three weeks out has to be stopped then, not only today.
+function onLightDuty(emp, date) {
+  const start = emp?.lightDutyStart;
+  if (!start) return false;
+  if (date < start) return false;
+  // No end date stays open on purpose. "Nobody set a return date" must not read
+  // as "back to full duty".
+  return !emp.lightDutyEnd || date <= emp.lightDutyEnd;
+}
+
+function lightDutyReason(emp, date) {
+  if (!onLightDuty(emp, date)) return "";
+  const until = emp.lightDutyEnd ? `through ${formatDate(emp.lightDutyEnd)}` : "(no return date set)";
+  const note = emp.lightDutyNote ? ` — ${emp.lightDutyNote}` : "";
+  return `${emp.name} is on light duty ${until}${note}.`;
+}
+
+// Who may be placed on THIS unit on this date. Light duty takes someone off the
+// rigs, not off the schedule: they remain available for admin positions, which
+// is the entire point of having one.
+function employeeAvailableForUnit(emp, unit, date) {
+  if (!emp || emp.status === "archived") return false;
+  if (isAdminUnit(unit)) return true;
+  return !onLightDuty(emp, date);
 }
 
 // Every employee id assigned to ANY unit on a date, ignoring blocks entirely.
@@ -4475,17 +4778,20 @@ function assignedEmployeeIdsForDate(date) {
 // `person` is the first block holder and exists so every older call site that
 // reads seat.person still works; `covered` is the honest answer to "is this seat
 // done", and for a full-tour assignment the two say the same thing.
-function assignPeopleToSeats(unitType, people) {
+function assignPeopleToSeats(unitType, people, unit) {
   const positions = UNIT_POSITION_REQUIREMENTS[unitType];
   if (!positions) return { seats: [], extra: [...people] };
+  // The tour is the UNIT's, not a constant: a 10-hour admin day is fully covered
+  // at 600 minutes, where a rig would still have fourteen hours open.
+  const tour = unitTourMinutes(unit);
   // Earliest block first, so a seat fills from the start of the tour forward.
-  const pool = [...people].sort((a, b) => blockOf(a).start - blockOf(b).start);
+  const pool = [...people].sort((a, b) => blockOf(a, tour).start - blockOf(b, tour).start);
   const seats = positions.map((pos) => {
     const claimed = [];
     for (;;) {
-      if (isFullyCovered(claimed)) break;
+      if (tourCovered(claimed, tour)) break;
       const idx = pool.findIndex((p) => seatAccepts(pos, resolvePerson(p))
-        && !claimed.some((c) => blocksOverlap(blockOf(c), blockOf(p))));
+        && !claimed.some((c) => blocksOverlap(blockOf(c, tour), blockOf(p, tour))));
       if (idx === -1) break;
       claimed.push(pool.splice(idx, 1)[0]);
     }
@@ -4493,8 +4799,8 @@ function assignPeopleToSeats(unitType, people) {
       pos,
       person: claimed[0] || null,
       people: claimed,
-      gaps: claimed.length ? coverageGaps(claimed) : [{ start: 0, end: TOUR_MINUTES }],
-      covered: claimed.length > 0 && isFullyCovered(claimed),
+      gaps: claimed.length ? tourGaps(claimed, tour) : [{ start: 0, end: tour }],
+      covered: claimed.length > 0 && tourCovered(claimed, tour),
     };
   });
   return { seats, extra: pool };
@@ -4507,11 +4813,14 @@ function seatDropdownOptions(pos, unit, date, window) {
   // The window this pick is meant to fill. Defaults to the whole tour, so a
   // normal pick behaves exactly as before; when a seat is half covered we pass
   // the gap, and someone already working the OTHER half stays selectable.
-  const win = window || { start: 0, end: TOUR_MINUTES };
+  const win = window || { start: 0, end: unitTourMinutes(unit) };
   const base = eligibleEmployeesForDate(date);
   const onDuty = getShiftForDate(date);
   const candidates = base
-    .filter((e) => !isBookedDuring(date, e.id, win))
+    // Light duty takes someone off the RIGS, not off the schedule -- they stay
+    // pickable for admin positions, which is the whole reason one exists.
+    .filter((e) => employeeAvailableForUnit(e, unit, date))
+    .filter((e) => !isBookedDuring(date, e.id, win, null, unit))
     .filter((e) => seatAccepts(pos, e));
 
   // Grouped by platoon, the on-duty one first — that is who a supervisor is
@@ -4673,7 +4982,8 @@ function updateAssignedPerson(date, unitId, personId, patch, startMinute) {
   // for the last two). Matching on id alone would patch whichever came first.
   const idx = startMinute === undefined || startMinute === null
     ? list.findIndex((p) => p.id === personId)
-    : list.findIndex((p) => p.id === personId && blockOf(p).start === Number(startMinute));
+    : list.findIndex((p) => p.id === personId
+        && blockOf(p, unitTourMinutes(unitById(unitId))).start === Number(startMinute));
   if (idx === -1) return null;
   const next = { ...list[idx] };
   Object.entries(patch).forEach(([k, v]) => {
@@ -4771,7 +5081,8 @@ function attachPayCodeEvents(scope) {
 // row, no times -- so the common case gains no clutter.
 function seatSectionHtml(seat, unit, date, isSupervisor) {
   const required = seatIsRequired(seat.pos);
-  const split = seat.people.length > 1 || seat.people.some((p) => !isFullTour(p));
+  const tour = unitTourMinutes(unit);
+  const split = seat.people.length > 1 || seat.people.some((p) => !isFullTour(p, tour));
 
   if (!seat.people.length) {
     return seatRowHtml(seat.pos, null, unit, date, isSupervisor, required);
@@ -4788,7 +5099,7 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
   // half of a tour is one click from the gap it belongs to rather than a guess.
   if (split) {
     seat.gaps.forEach((gap) => {
-      const label = `${seat.pos.label} — OPEN ${windowLabel(gap)}`;
+      const label = `${seat.pos.label} — OPEN ${windowLabel(gap, unit)} (${durationLabel(gap.end - gap.start)})`;
       html += isSupervisor
         ? `<div class="seat-row seat-gap">
             <span class="seat-label">${escapeHtml(label)}</span>
@@ -4809,12 +5120,15 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
   const label = labelOverride || `${pos.label}${required ? "" : " (optional)"}`;
   let control;
   if (person) {
-    const blk = blockOf(person);
-    const partial = !isFullTour(person);
+    const tourLen = unitTourMinutes(unit);
+    const blk = blockOf(person, tourLen);
+    const partial = !isFullTour(person, tourLen);
     // The hours are shown on the row only when they are not the whole tour:
-    // stamping "0800-0800" on every normal assignment is noise.
+    // stamping "0800-0800" on every normal assignment is noise. The duration
+    // rides along because "0800-1230" is not something you read as 4.5h at a
+    // glance at 3am.
     const hours = partial
-      ? `<span class="seat-block" title="${((blk.end - blk.start) / 60).toFixed(2).replace(/\.?0+$/, "")} hours">${blockLabel(person)}</span>`
+      ? `<span class="seat-block">${blockLabel(person, unit)} · ${durationLabel(blk.end - blk.start)}</span>`
       : "";
     // Most assignments are the whole tour, and putting two time pickers on every
     // one of those rows would add a lot of chrome to the normal case for nothing.
@@ -4823,9 +5137,9 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
     let timeEditor = "";
     if (isSupervisor && partial) {
       timeEditor = `<span class="seat-times" data-block-person="${person.id}" data-block-date="${date}" data-block-unit="${unit.id}" data-block-start="${blk.start}">
-          <input type="time" class="seat-time" data-block-field="start" value="${minuteToTimeValue(blk.start)}" aria-label="Start time for ${escapeHtml(person.name)}">
+          <input type="time" step="1800" class="seat-time" data-block-field="start" value="${minuteToTimeValue(blk.start, unit)}" aria-label="Start time for ${escapeHtml(person.name)}">
           <span aria-hidden="true">–</span>
-          <input type="time" class="seat-time" data-block-field="end" value="${minuteToTimeValue(blk.end)}" aria-label="End time for ${escapeHtml(person.name)}">
+          <input type="time" step="1800" class="seat-time" data-block-field="end" value="${minuteToTimeValue(blk.end, unit)}" aria-label="End time for ${escapeHtml(person.name)}">
         </span>`;
     } else if (isSupervisor) {
       timeEditor = `<button class="button button-secondary button-small seat-split" data-split-person="${person.id}" data-split-date="${date}" data-split-unit="${unit.id}" title="Split this tour — ${escapeHtml(person.name)} works part of it">Split</button>`;
@@ -4856,6 +5170,29 @@ function visibleUnits() {
   return state.units.filter((unit) => unit.visible);
 }
 
+// Admin and light-duty positions are DELIBERATELY not operations units. They are
+// constant, they run a 10-hour Monday-Thursday week, and they follow none of the
+// operations rules -- no platoon, no mandatory overtime, no PTO tour limits.
+// Mixing them into the daily board and the wall sheet clogs the thing crews
+// actually read at shift change, so `visibleUnits` is split at the source and
+// everything operational goes through the operations half.
+function operationsUnits() {
+  return visibleUnits().filter((unit) => !isAdminUnit(unit));
+}
+
+function adminUnits() {
+  return visibleUnits().filter(isAdminUnit).sort(byBoardOrder);
+}
+
+// Admin positions run on their own weekdays (Mon-Thu), not on the 48hr rotation.
+function adminUnitsForDate(date) {
+  const weekday = isoWeekday(date);
+  return adminUnits().filter((unit) => {
+    const days = Array.isArray(unit.weekdays) ? unit.weekdays : [];
+    return days.length === 0 || days.includes(weekday);
+  });
+}
+
 // An apparatus is a physical truck: it does NOT belong to a platoon. Whichever
 // platoon (A/B/C) is on duty that date staffs it. Front-line units therefore run
 // EVERY shift day. On-demand units (Brush, Tender, reserve) only run on dates a
@@ -4878,14 +5215,14 @@ function byBoardOrder(a, b) {
 
 // The units in service on a given date (replaces the old `unit.shift === shift`).
 function unitsForDate(date) {
-  return visibleUnits().filter((unit) => unitRunsOn(unit, date)).sort(byBoardOrder);
+  return operationsUnits().filter((unit) => unitRunsOn(unit, date)).sort(byBoardOrder);
 }
 
 // On-demand units NOT in service on this date. These are hidden from the normal
 // schedule (they aren't running), so supervisors need a separate tray to put one
 // in service — otherwise there's no way to ever activate them.
 function inactiveOnDemandUnits(date) {
-  return visibleUnits().filter((unit) => unit.onDemand && !unitRunsOn(unit, date)).sort(byBoardOrder);
+  return operationsUnits().filter((unit) => unit.onDemand && !unitRunsOn(unit, date)).sort(byBoardOrder);
 }
 
 // Put an on-demand unit in service for a single date.
@@ -5584,7 +5921,9 @@ function setPersistenceStatus(message, level) {
 const PRINT_STATE = { start: null, days: 2, units: null };
 
 function printableUnits() {
-  return visibleUnits().slice().sort(byBoardOrder);
+  // The printed sheet goes on the wall at shift change. Admin positions are
+  // constant and belong nowhere near it.
+  return operationsUnits().slice().sort(byBoardOrder);
 }
 
 function printSheetDates() {
@@ -5621,7 +5960,7 @@ function printSeatRows(unit, date) {
                _start: stored._start, _end: stored._end };
     })
     .filter(Boolean);
-  const { seats, extra } = assignPeopleToSeats(unit.type, people);
+  const { seats, extra } = assignPeopleToSeats(unit.type, people, unit);
   // assignPeopleToSeats returns { pos, person } -- the seat definition is nested
   // under `pos`. Reading seat.label/seat.role/seat.required off the wrapper gave
   // undefined for every row: the label printed as "undefined" and, because
@@ -5639,12 +5978,12 @@ function printSeatRows(unit, date) {
     seat.people.forEach((person, i) => {
       rows.push({
         label: i === 0 ? label : `${label} (cont.)`,
-        person, required, hours: blockLabel(person),
+        person, required, hours: blockLabel(person, unit),
       });
     });
     if (!seat.covered) {
       seat.gaps.forEach((gap) => {
-        rows.push({ label: `${label} — OPEN ${windowLabel(gap)}`, person: null, required });
+        rows.push({ label: `${label} — OPEN ${windowLabel(gap, unit)}`, person: null, required });
       });
     }
   });

@@ -608,6 +608,23 @@ textarea:disabled {
   width: 100%;
 }
 
+/* --- Admin & light duty board --- */
+.admin-board { display: grid; gap: 14px; }
+
+.admin-roster {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(141, 175, 214, 0.07);
+}
+
+.admin-roster h4 { margin: 0 0 6px; font-size: 0.85rem; }
+.admin-roster ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.admin-roster small { color: var(--muted); }
+
+/* A day the admin week doesn't run (Fri-Sun) is shown, not hidden -- an empty
+   slot you can see beats a week that silently has three days missing. */
+.admin-day-off { opacity: 0.55; }
+
 /* --- Partial-tour blocks ---
    A tour is 0800-0800. Most assignments are the whole thing, so none of this
    shows up on an ordinary row: the hours badge and the "OPEN" row only appear

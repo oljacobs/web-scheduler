@@ -118,6 +118,10 @@
                 <button data-view="day" class="view-button is-active">Day</button>
                 <button data-view="week" class="view-button">Week</button>
                 <button data-view="month" class="view-button">Month</button>
+                <!-- Admin/light duty is a separate board on purpose: 10hr Mon-Thu
+                     positions follow none of the operations rules and must not
+                     clog the daily board. See renderAdminSchedule(). -->
+                <button data-view="admin" class="view-button">Admin</button>
               </div>
 
               <!-- Pay codes are a payroll task, not a staffing one: a supervisor
