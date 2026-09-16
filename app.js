@@ -65,7 +65,9 @@ const employeeRoles = ["paramedic", "emt", "engineer", "officer"];
 // spreadsheet only knows rank, so a re-import must never strip a license that
 // was granted in-app (e.g. an Engineer who is also a paramedic).
 const LICENSE_CAPABILITIES = ["paramedic", "emt"];
-const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue"];
+// "Admin" is last because it is not an apparatus: it is the 10hr Mon-Thu
+// admin / light-duty position type. See UNIT_POSITION_REQUIREMENTS.Admin.
+const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue", "Admin"];
 const employeeTitleOptions = ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "Engineer", "MOF", "FF/EMTP", "FF/EMT"];
 
 // Titles that grant supervisor access in this app
@@ -99,6 +101,13 @@ const UNIT_POSITION_REQUIREMENTS = {
   MOF: [
     { role: "MOF", label: "MOF", cap: "officer" },
   ],
+  // Admin / light duty. EVERY seat is optional and rank-free, on purpose: an
+  // admin position with nobody on it is normal, not a staffing failure, and it
+  // must never raise a danger alert the way an unstaffed rig does. Six slots
+  // because several people can be on light duty at once.
+  Admin: Array.from({ length: 6 }, (_, i) => ({
+    role: `ADM${i + 1}`, label: `Admin ${i + 1}`, cap: null, required: false,
+  })),
   // Engine: 2 required seats (Officer + Engineer), then up to 3 optional riders
   // of any rank -- minimum 2 filled, staff up to 5.
   Engine: [
@@ -1257,8 +1266,16 @@ function renderAdminSchedule(range) {
     }
     const cards = running.map((unit) => {
       const people = getAssignments(date, unit.id);
-      const { seats } = assignPeopleToSeats(unit.type, people, unit, date);
-      const rows = seats.map((seat) => seatSectionHtml(seat, unit, date, isSupervisor)).join("");
+      const { seats, off } = assignPeopleToSeats(unit.type, people, unit, date);
+      const filled = seats.filter((seat) => seat.people.length);
+      let rows = filled.map((seat) => seatSectionHtml(seat, unit, date, isSupervisor)).join("");
+      // One open slot, not one per empty seat: six stacked dropdowns on every
+      // day of the week is noise, and there is always another slot behind it.
+      const nextOpen = seats.find((seat) => !seat.people.length);
+      if (isSupervisor && nextOpen) {
+        rows += seatRowHtml(nextOpen, null, unit, date, isSupervisor, false, "Add person");
+      }
+      rows += offRosterHtml(off, unit, date, isSupervisor);
       const tourLabel = `${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)} · ${durationLabel(unitTourMinutes(unit))}`;
       return `<section class="unit-card" data-apparatus="admin">
           <div class="unit-card-header">
@@ -5495,7 +5512,11 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
 
 // One seat row: shows the assigned person (with Remove) or a pick dropdown.
 function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverride) {
-  const label = labelOverride || `${pos.label}${required ? "" : " (optional)"}`;
+  // "(optional)" earns its place on a rig, where it distinguishes a rider seat
+  // from one that must be filled. On an admin position EVERY seat is optional,
+  // so the suffix says nothing and just makes the label longer.
+  const optionalSuffix = required || isAdminUnit(unit) ? "" : " (optional)";
+  const label = labelOverride || `${pos.label}${optionalSuffix}`;
   let control;
   if (person) {
     const tourLen = unitTourMinutes(unit);
