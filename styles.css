@@ -608,6 +608,75 @@ textarea:disabled {
   width: 100%;
 }
 
+/* --- Partial-tour blocks ---
+   A tour is 0800-0800. Most assignments are the whole thing, so none of this
+   shows up on an ordinary row: the hours badge and the "OPEN" row only appear
+   once a seat is actually split. */
+.seat-block {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: rgba(141, 175, 214, 0.14);
+  white-space: nowrap;
+}
+
+.seat-times {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.seat-time {
+  /* Width, not height: this sits in a ROW, so flex-basis is the horizontal
+     axis. A `flex: 1 1 ...` here would stretch these across the card. */
+  width: 6.2rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  padding: 3px 6px;
+}
+
+/* An uncovered stretch of a required seat is a hole in the staffing, and reads
+   like one -- not like a spare optional rider slot. */
+.seat-row.seat-gap {
+  background: rgba(255, 107, 107, 0.09);
+  border: 1px dashed rgba(255, 107, 107, 0.32);
+}
+
+.seat-row.seat-gap .seat-label {
+  color: var(--danger, #ff6b6b);
+}
+
+/* Phones: the card is already a single narrow column, so the seat row stacks and
+   the time pair gets the full width instead of being crushed next to the name. */
+@media (max-width: 640px) {
+  .seat-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .seat-person {
+    flex-wrap: wrap;
+  }
+
+  .seat-times {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .seat-time {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 8rem;
+  }
+}
+
 /* --- Pay code block ---
    Hangs under a filled seat as a second grid line spanning both columns, so the
    name/role alignment of the seat list above it is untouched. */
@@ -2330,6 +2399,9 @@ textarea:disabled {
   }
   .print-unit td { padding: 0.5pt 0; vertical-align: top; }
   .print-open { font-weight: 700; }
+  /* Split-tour hours on the wall sheet. Only printed when a seat is actually
+     split, so an ordinary row still reads as just a name. */
+  .print-hours { font-size: 0.72em; font-weight: 600; white-space: nowrap; }
   .print-code { font-weight: 700; letter-spacing: 0.02em; }
   .print-note { color: #444; }
 

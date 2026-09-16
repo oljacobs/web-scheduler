@@ -831,6 +831,7 @@ function renderSchedule() {
   }
 
   attachUnitMoveEvents();
+  attachSeatTimeEvents(dom["schedule-container"]);
   attachPayCodeEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
   attachUnitServiceEvents(dom["schedule-container"]);
@@ -1383,7 +1384,9 @@ function renderUnitCard(unit, date, activeShift) {
   const { seats, extra } = assignPeopleToSeats(unit.type, people);
   const requiredSeats = seats.filter((s) => seatIsRequired(s.pos));
   const optionalSeats = seats.filter((s) => !seatIsRequired(s.pos));
-  const requiredFilled = requiredSeats.filter((s) => s.person).length;
+  // Covered, not merely occupied: a required seat with four of twenty-four hours
+  // filled does not count toward "Staffed".
+  const requiredFilled = requiredSeats.filter((s) => s.covered).length;
   const requiredCount = requiredSeats.length;
   const optionalFilled = optionalSeats.filter((s) => s.person).length;
   const fullyStaffed = requiredFilled >= requiredCount;
@@ -1396,7 +1399,7 @@ function renderUnitCard(unit, date, activeShift) {
   let rowsHtml = "";
   seats.forEach((s) => {
     if (seatIsRequired(s.pos) || s.person) {
-      rowsHtml += seatRowHtml(s.pos, s.person, unit, date, isSupervisor, seatIsRequired(s.pos));
+      rowsHtml += seatSectionHtml(s, unit, date, isSupervisor);
     }
   });
   const optionalLeft = optionalSeats.length - optionalFilled;
@@ -2051,16 +2054,42 @@ function attachUnitMoveEvents() {
       const employee = employeeById(select.value);
       if (!employee) return;
       const existingAssignments = getAssignments(date, unitId);
-      // Prevent adding the same employee to the same unit twice, but allow them on multiple units
-      if (existingAssignments.find((person) => person.id === employee.id)) {
+      // The picker may have been rendered for a specific uncovered window (the
+      // "OPEN 1200-0800" row). Absent that, a pick means the whole tour.
+      const start = Number.isFinite(Number(select.dataset.start)) && select.dataset.start !== undefined
+        ? Number(select.dataset.start) : 0;
+      const end = select.dataset.end !== undefined && Number.isFinite(Number(select.dataset.end))
+        ? Number(select.dataset.end) : TOUR_MINUTES;
+      const win = { start, end };
+
+      // The same employee may hold more than one block on this unit, but the
+      // blocks must not overlap -- nobody is in two places for the same hour.
+      if (existingAssignments.some((person) => person.id === employee.id
+        && blocksOverlap(blockOf(person), win))) {
         select.value = "";
         return;
       }
+      // Nor may they be covering that window on another rig.
+      if (isBookedDuring(date, employee.id, win, unitId)) {
+        window.alert(`${employee.name} is already assigned elsewhere during ${windowLabel(win)}.`);
+        select.value = "";
+        return;
+      }
+
+      const placed = { ...employee };
+      // Only stamp the block when it is NOT a full tour, so an ordinary
+      // assignment is byte-for-byte what it was before partial shifts existed.
+      if (!(start === 0 && end === TOUR_MINUTES)) {
+        placed._start = start;
+        placed._end = end;
+      }
+
       if (!state.assignments[date]) state.assignments[date] = {};
       // A human touched this unit-day: stamp EVERY row on it manual so a future
       // template push skips the whole crew, not just the seat that changed.
-      state.assignments[date][unitId] = markManual([...existingAssignments, employee]);
-      addAudit(`${employee.name} added to ${unitLabel(unitId)} on ${formatDate(date)}.`, currentUserName());
+      state.assignments[date][unitId] = markManual([...existingAssignments, placed]);
+      const forWindow = (start === 0 && end === TOUR_MINUTES) ? "" : ` (${windowLabel(win)})`;
+      addAudit(`${employee.name} added to ${unitLabel(unitId)} on ${formatDate(date)}${forWindow}.`, currentUserName());
       createNotification(`${employee.name} assigned to ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
       render();
       persistAppState("Assignment updated");
@@ -2073,13 +2102,94 @@ function attachUnitMoveEvents() {
       const unitId = button.dataset.removeUnit;
       const employeeId = button.dataset.removeAssignment;
       if (!state.assignments[date]) return;
+      // Remove the ONE block this × belongs to. Without the start check, removing
+      // someone's morning half would also silently delete their evening half.
+      const removeStart = button.dataset.removeStart;
       state.assignments[date][unitId] = markManual(
-        getAssignments(date, unitId).filter((person) => person.id !== employeeId)
+        getAssignments(date, unitId).filter((person) => !(person.id === employeeId
+          && (removeStart === undefined || blockOf(person).start === Number(removeStart))))
       );
       addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} on ${formatDate(date)}.`, currentUserName());
       createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
       render();
       persistAppState("Assignment removed");
+    });
+  });
+}
+
+// Editing a person's hours on a seat row. Like every other edit on this board
+// there is no Save button: the change persists on `change`, and the field itself
+// reports whether it reached the server (flashPayFieldSaved).
+function attachSeatTimeEvents(scope) {
+  const root = scope || document;
+
+  // "Split" turns a whole-tour assignment into a partial one. It defaults to
+  // 12 on / 12 off because that is the case this exists for; the chief then
+  // drags the handoff to wherever it actually is. Setting the end back to 0800
+  // makes it a full tour again, so nothing here is one-way.
+  [...root.querySelectorAll(".seat-split")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const { splitPerson: personId, splitDate: date, splitUnit: unitId } = button.dataset;
+      const half = TOUR_MINUTES / 2;
+      updateAssignedPerson(date, unitId, personId, { _start: 0, _end: half }, 0);
+      addAudit(
+        `${employeeById(personId)?.name || "Employee"} on ${unitLabel(unitId)} ${formatDate(date)} split to ${windowLabel({ start: 0, end: half })}; the rest of the tour is open.`,
+        currentUserName(),
+      );
+      render();
+      persistAppState("Shift split");
+    });
+  });
+
+  [...root.querySelectorAll(".seat-time")].forEach((input) => {
+    input.addEventListener("change", () => {
+      const host = input.closest("[data-block-person]");
+      if (!host) return;
+      const { blockPerson: personId, blockDate: date, blockUnit: unitId } = host.dataset;
+      const wasStart = Number(host.dataset.blockStart);
+      const startEl = host.querySelector('[data-block-field="start"]');
+      const endEl = host.querySelector('[data-block-field="end"]');
+
+      const start = timeValueToMinute(startEl?.value);
+      const end = timeValueToMinute(endEl?.value, { preferEnd: true });
+      const current = getAssignments(date, unitId)
+        .find((p) => p.id === personId && blockOf(p).start === wasStart);
+      if (!current) return;
+
+      // Reject rather than silently "fix": a chief who typed the wrong end time
+      // needs to see it bounce, not find a shift they never meant to create.
+      const revert = (msg) => {
+        window.alert(msg);
+        render();
+      };
+      if (start === null || end === null) return revert("Enter both times as HH:MM.");
+      if (start >= end) {
+        return revert("The end of a block has to come after its start, within the same 0800-0800 tour.");
+      }
+      const win = { start, end };
+      // Same person, another block on this rig.
+      const clashHere = getAssignments(date, unitId).some((p) => p.id === personId
+        && blockOf(p).start !== wasStart && blocksOverlap(blockOf(p), win));
+      if (clashHere) return revert(`That overlaps another block ${employeeById(personId)?.name || "this person"} already holds on ${unitLabel(unitId)}.`);
+      // Same person, another rig.
+      if (isBookedDuring(date, personId, win, unitId)) {
+        return revert(`${employeeById(personId)?.name || "This person"} is assigned elsewhere during ${windowLabel(win)}.`);
+      }
+
+      const full = start === 0 && end === TOUR_MINUTES;
+      updateAssignedPerson(date, unitId, personId, {
+        // "" deletes the key, which is what a full tour should look like on the
+        // wire: exactly what the board sent before partial shifts existed.
+        _start: full ? "" : start,
+        _end: full ? "" : end,
+      }, wasStart);
+      addAudit(
+        `${employeeById(personId)?.name || "Employee"} on ${unitLabel(unitId)} ${formatDate(date)} set to ${full ? "the full tour" : windowLabel(win)}.`,
+        currentUserName(),
+      );
+      const saving = persistAppState("Shift hours updated");
+      flashPayFieldSaved(input, saving);
+      Promise.resolve(saving).finally(() => render());
     });
   });
 }
@@ -2523,12 +2633,18 @@ function postableShiftsFor(employeeId, horizonDays) {
       if (posted.has(`${date}|${unitId}`)) return;
       const unit = unitById(unitId);
       const { seats } = assignPeopleToSeats(unit?.type, people);
-      const mine = seats.find((st) => st.person && st.person.id === employeeId);
+      // Search every block in a seat, not just the first: on a split tour the
+      // relief is the SECOND name in the seat and would otherwise show as
+      // "Rider" on their own shift list.
+      const mine = seats.find((st) => st.people.some((pp) => pp && pp.id === employeeId));
+      const myBlock = (people || []).find((pp) => pp && pp.id === employeeId);
+      const hours = myBlock ? blockLabel(myBlock) : "";
       out.push({
         date, unitId,
         unitName: unit?.name || unitId,
         role: mine?.pos?.role || "",
-        label: mine?.pos?.label || "Rider",
+        label: (mine?.pos?.label || "Rider") + (hours ? ` (${hours})` : ""),
+        hours,
       });
     });
     date = addDays(date, 1);
@@ -2550,7 +2666,9 @@ function tradeCrewIsLegal(trade, accepter) {
     .map((p) => resolvePerson(p) || p)
     .concat([accepter]);
   const { seats } = assignPeopleToSeats(unit.type, crew);
-  return seats.filter((st) => seatIsRequired(st.pos)).every((st) => st.person);
+  // Covered, not occupied: a trade that leaves twenty hours of a required seat
+  // open is not a legal crew just because someone's name is on the row.
+  return seats.filter((st) => seatIsRequired(st.pos)).every((st) => st.covered);
 }
 
 function canAcceptTrade(trade, employeeId) {
@@ -3348,7 +3466,7 @@ function coverageGaps(startDate, days) {
       if (!positions) return;
       const { seats } = assignPeopleToSeats(unit.type, getAssignments(date, unit.id));
       seats.forEach((seat) => {
-        if (seat.person || !seatIsRequired(seat.pos)) return;
+        if (seat.covered || !seatIsRequired(seat.pos)) return;
         // Already awarded = filled. Without this the row lingers with an
         // "Awarded" badge, which is exactly the clutter the list should shed.
         const existingPost = overtimePostForGap(unit.id, date, seat.pos.role);
@@ -3356,7 +3474,13 @@ function coverageGaps(startDate, days) {
         gaps.push({
           key: gapKey(unit.id, date, seat.pos.role),
           unitId: unit.id, unitName: unit.name, date,
-          role: seat.pos.role, label: seat.pos.label,
+          role: seat.pos.role,
+          // A half-covered seat posts the hours that are actually open, so
+          // nobody signs up for overtime and finds someone already in the seat.
+          label: seat.people.length
+            ? `${seat.pos.label} (${seat.gaps.map(windowLabel).join(", ")})`
+            : seat.pos.label,
+          hours: seat.gaps,
           cap: seat.pos.cap, need: seatNeedLabel(seat.pos),
           post: existingPost,
         });
@@ -4125,28 +4249,147 @@ function getStaffingAlerts(date) {
     });
 }
 
-// Greedy position-fill check: most-restrictive positions are listed first in the
-// UNIT_POSITION_REQUIREMENTS definition so they get their preferred candidates.
+// Position-fill check, delegated to the same greedy seat-filler the board draws
+// from so the alerts and the card can never disagree.
+//
+// A partially covered required seat is STILL SHORT. A rig with someone on the
+// first four hours and nobody on the other twenty is not staffed, and the alert
+// says which hours are open rather than just "unfilled".
 function checkPositionStaffing(unit, people, positions) {
   const alerts = [];
-  const unmatched = [...people];
-  positions.forEach((pos) => {
-    const idx = unmatched.findIndex((p) => seatAccepts(pos, resolvePerson(p)));
-    if (idx !== -1) {
-      unmatched.splice(idx, 1);
-    } else if (seatIsRequired(pos)) {
-      // Only required seats raise a staffing alert; optional rider seats don't.
-      const need = seatNeedLabel(pos);
-      alerts.push({
-        level: "danger",
-        unitId: unit.id,
-        unitName: unit.name,
-        need,
-        message: `${unit.name} — ${pos.label} unfilled${need ? ` (needs: ${need})` : ""}.`,
-      });
-    }
+  const { seats } = assignPeopleToSeats(unit.type, people);
+  seats.forEach((seat) => {
+    if (seat.covered || !seatIsRequired(seat.pos)) return;
+    const need = seatNeedLabel(seat.pos);
+    const open = seat.people.length
+      ? ` — open ${seat.gaps.map(windowLabel).join(", ")}`
+      : "";
+    const state_ = seat.people.length ? "partially covered" : "unfilled";
+    alerts.push({
+      level: "danger",
+      unitId: unit.id,
+      unitName: unit.name,
+      need,
+      message: `${unit.name} — ${seat.pos.label} ${state_}${open}${need ? ` (needs: ${need})` : ""}.`,
+    });
   });
+  // Fall back to the old per-position scan for a unit type the seat-filler
+  // doesn't know, so an unlisted apparatus is never silently reported as fine.
+  if (!UNIT_POSITION_REQUIREMENTS[unit.type]) {
+    const unmatched = [...people];
+    positions.forEach((pos) => {
+      const idx = unmatched.findIndex((p) => seatAccepts(pos, resolvePerson(p)));
+      if (idx !== -1) {
+        unmatched.splice(idx, 1);
+      } else if (seatIsRequired(pos)) {
+        const need = seatNeedLabel(pos);
+        alerts.push({
+          level: "danger", unitId: unit.id, unitName: unit.name, need,
+          message: `${unit.name} — ${pos.label} unfilled${need ? ` (needs: ${need})` : ""}.`,
+        });
+      }
+    });
+  }
   return alerts;
+}
+
+// ─── Time blocks within a tour ────────────────────────────────────────────────
+// A tour is 0800-0800. Every block is measured in MINUTES FROM 0800, so a full
+// tour is 0..1440 and nothing ever has to reason about wrapping midnight.
+// "I work the first 4, another chief works the last 20" is 0..240 and 240..1440.
+//
+// A person object with no _start/_end is a full tour. That is what every row
+// written before partial shifts existed means, and what the server still sends
+// for a whole-day assignment.
+const TOUR_MINUTES = 1440;
+const TOUR_START_HOUR = 8;
+
+function blockOf(person) {
+  const FULL = { start: 0, end: TOUR_MINUTES };
+  const rawStart = person?._start;
+  const rawEnd = person?._end;
+  if (rawStart === undefined && rawEnd === undefined) return FULL;
+  // Defaulting the two fields INDEPENDENTLY is a trap: a junk _start next to a
+  // real _end quietly produces a four-hour block nobody typed. If either field
+  // is present and unusable, the whole block is untrustworthy -- fall back to
+  // the full tour, which is also what the server does with the same payload.
+  const start = rawStart === undefined ? 0 : rawStart;
+  const end = rawEnd === undefined ? TOUR_MINUTES : rawEnd;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return FULL;
+  // Backwards or out of range reads as a full tour rather than as a zero-length
+  // one: a garbled field must never make someone silently vanish from a seat
+  // that the board then reports as covered.
+  if (!(start >= 0 && start < end && end <= TOUR_MINUTES)) return FULL;
+  return { start, end };
+}
+
+function isFullTour(person) {
+  const b = blockOf(person);
+  return b.start === 0 && b.end === TOUR_MINUTES;
+}
+
+// 240 -> "1200". Wall clock, because that is what a chief writes on the board.
+function minuteToClock(minute) {
+  const total = ((TOUR_START_HOUR * 60 + minute) % 1440 + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}${String(total % 60).padStart(2, "0")}`;
+}
+
+function blockLabel(person) {
+  if (isFullTour(person)) return "";
+  const b = blockOf(person);
+  return `${minuteToClock(b.start)}-${minuteToClock(b.end)}`;
+}
+
+// <input type="time"> speaks "HH:MM" wall clock; everything else here speaks
+// minutes from 0800. These two are the only place that translation happens.
+function minuteToTimeValue(minute) {
+  const clock = minuteToClock(minute);
+  return `${clock.slice(0, 2)}:${clock.slice(2)}`;
+}
+
+// "12:00" -> 240. A wall time at or before 0800 belongs to the BACK of the tour
+// (the next morning), which is why 0800 itself reads as the end, not the start,
+// unless it is the field's existing value.
+function timeValueToMinute(value, { preferEnd = false } = {}) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(value || "").trim());
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const min = Number(m[2]);
+  if (!(hour >= 0 && hour < 24 && min >= 0 && min < 60)) return null;
+  let minute = (hour * 60 + min) - TOUR_START_HOUR * 60;
+  if (minute < 0) minute += TOUR_MINUTES;
+  if (minute === 0 && preferEnd) minute = TOUR_MINUTES;
+  return minute;
+}
+
+function windowLabel(win) {
+  return `${minuteToClock(win.start)}-${minuteToClock(win.end)}`;
+}
+
+// Half-open: a relief that starts exactly when the outgoing block ends is a
+// handoff, not a conflict.
+function blocksOverlap(a, b) {
+  return a.start < b.end && b.start < a.end;
+}
+
+// The parts of the tour NOT covered by these people. Returns [] when the tour is
+// fully covered. This is what makes "partially covered still reads as short"
+// true: the seat is only done when this list is empty.
+function coverageGaps(people) {
+  const blocks = (people || []).filter(Boolean).map(blockOf)
+    .sort((a, b) => a.start - b.start);
+  const gaps = [];
+  let cursor = 0;
+  blocks.forEach((b) => {
+    if (b.start > cursor) gaps.push({ start: cursor, end: b.start });
+    cursor = Math.max(cursor, b.end);
+  });
+  if (cursor < TOUR_MINUTES) gaps.push({ start: cursor, end: TOUR_MINUTES });
+  return gaps;
+}
+
+function isFullyCovered(people) {
+  return coverageGaps(people).length === 0;
 }
 
 // ─── Per-seat staffing helpers ────────────────────────────────────────────────
@@ -4185,32 +4428,74 @@ function seatNeedLabel(pos) {
   return need.map((c) => CAPABILITY_LABELS[c] || c).join(" or ");
 }
 
-// Every employee id assigned to ANY unit on a date -- used to keep someone from
-// appearing in another unit's pick list once they're on the schedule that day.
-function assignedEmployeeIdsForDate(date) {
+// Every block a person already holds on a date, keyed by employee id. Used to
+// keep someone from being double-booked -- but a person who works 0800-1200 on
+// one rig is genuinely free for 1200-0800 on another, so this has to be read as
+// OVERLAP, not "are they on the schedule today at all".
+function assignedBlocksForDate(date) {
   // Only count assignments to units that still EXIST, so leftover/orphaned
   // assignments to deleted apparatus can never make someone read as booked.
-  const ids = new Set();
+  const byEmployee = new Map();
   const existingUnitIds = new Set(state.units.map((u) => u.id));
   const byUnit = state.assignments?.[date] || {};
   Object.entries(byUnit).forEach(([unitId, people]) => {
     if (!existingUnitIds.has(unitId)) return;
-    (people || []).forEach((p) => p && ids.add(p.id));
+    (people || []).forEach((p) => {
+      if (!p) return;
+      if (!byEmployee.has(p.id)) byEmployee.set(p.id, []);
+      byEmployee.get(p.id).push({ ...blockOf(p), unitId });
+    });
   });
-  return ids;
+  return byEmployee;
+}
+
+// Is this person already committed during `window` on this date?
+function isBookedDuring(date, employeeId, window, ignoreUnitId) {
+  const blocks = assignedBlocksForDate(date).get(employeeId) || [];
+  return blocks.some((b) => (ignoreUnitId ? b.unitId !== ignoreUnitId : true)
+    && blocksOverlap(b, window));
+}
+
+// Every employee id assigned to ANY unit on a date, ignoring blocks entirely.
+// Kept for the untyped-unit picker and anywhere "on the schedule at all" is the
+// real question. Seat pickers must use isBookedDuring instead.
+function assignedEmployeeIdsForDate(date) {
+  return new Set(assignedBlocksForDate(date).keys());
 }
 
 // Greedily seat a unit's assigned people. Specific/required seats are listed
 // first, so they claim their eligible people before the any-rank rider seats.
-// Returns { seats: [{ pos, person|null }], extra: [leftover people] }.
+//
+// A seat is covered by a LIST of people, not one: split coverage (first 4 hours,
+// then a relief for the last 20) is one seat filled by two people. A seat keeps
+// pulling non-overlapping eligible people out of the pool until the tour is
+// covered or nobody is left.
+//
+// Returns { seats: [{ pos, person|null, people: [], gaps: [], covered }], extra }.
+// `person` is the first block holder and exists so every older call site that
+// reads seat.person still works; `covered` is the honest answer to "is this seat
+// done", and for a full-tour assignment the two say the same thing.
 function assignPeopleToSeats(unitType, people) {
   const positions = UNIT_POSITION_REQUIREMENTS[unitType];
   if (!positions) return { seats: [], extra: [...people] };
-  const pool = [...people];
+  // Earliest block first, so a seat fills from the start of the tour forward.
+  const pool = [...people].sort((a, b) => blockOf(a).start - blockOf(b).start);
   const seats = positions.map((pos) => {
-    const idx = pool.findIndex((p) => seatAccepts(pos, resolvePerson(p)));
-    const person = idx !== -1 ? pool.splice(idx, 1)[0] : null;
-    return { pos, person };
+    const claimed = [];
+    for (;;) {
+      if (isFullyCovered(claimed)) break;
+      const idx = pool.findIndex((p) => seatAccepts(pos, resolvePerson(p))
+        && !claimed.some((c) => blocksOverlap(blockOf(c), blockOf(p))));
+      if (idx === -1) break;
+      claimed.push(pool.splice(idx, 1)[0]);
+    }
+    return {
+      pos,
+      person: claimed[0] || null,
+      people: claimed,
+      gaps: claimed.length ? coverageGaps(claimed) : [{ start: 0, end: TOUR_MINUTES }],
+      covered: claimed.length > 0 && isFullyCovered(claimed),
+    };
   });
   return { seats, extra: pool };
 }
@@ -4218,12 +4503,15 @@ function assignPeopleToSeats(unitType, people) {
 // Options for one seat's dropdown: active, rank-eligible for the seat, and NOT
 // already assigned anywhere that day (no double-booking). Non-supervisors are
 // scoped to the unit's shift (supervisors may cross-staff for overtime).
-function seatDropdownOptions(pos, unit, date) {
-  const booked = assignedEmployeeIdsForDate(date);
+function seatDropdownOptions(pos, unit, date, window) {
+  // The window this pick is meant to fill. Defaults to the whole tour, so a
+  // normal pick behaves exactly as before; when a seat is half covered we pass
+  // the gap, and someone already working the OTHER half stays selectable.
+  const win = window || { start: 0, end: TOUR_MINUTES };
   const base = eligibleEmployeesForDate(date);
   const onDuty = getShiftForDate(date);
   const candidates = base
-    .filter((e) => !booked.has(e.id))
+    .filter((e) => !isBookedDuring(date, e.id, win))
     .filter((e) => seatAccepts(pos, e));
 
   // Grouped by platoon, the on-duty one first — that is who a supervisor is
@@ -4379,9 +4667,13 @@ function payCodeBlockHtml(person, unit, date, isSupervisor) {
 //
 // The whole unit-day is stamped manual: a pay code is a payroll record a human
 // entered, and a later template push must not silently wipe it.
-function updateAssignedPerson(date, unitId, personId, patch) {
+function updateAssignedPerson(date, unitId, personId, patch, startMinute) {
   const list = getAssignments(date, unitId);
-  const idx = list.findIndex((p) => p.id === personId);
+  // A person can legitimately hold two blocks on one rig (first four hours, back
+  // for the last two). Matching on id alone would patch whichever came first.
+  const idx = startMinute === undefined || startMinute === null
+    ? list.findIndex((p) => p.id === personId)
+    : list.findIndex((p) => p.id === personId && blockOf(p).start === Number(startMinute));
   if (idx === -1) return null;
   const next = { ...list[idx] };
   Object.entries(patch).forEach(([k, v]) => {
@@ -4474,14 +4766,74 @@ function attachPayCodeEvents(scope) {
   });
 }
 
+// A whole seat: every person covering part of the tour, then a pick row for each
+// hour still open. A fully covered seat looks exactly as it always did -- one
+// row, no times -- so the common case gains no clutter.
+function seatSectionHtml(seat, unit, date, isSupervisor) {
+  const required = seatIsRequired(seat.pos);
+  const split = seat.people.length > 1 || seat.people.some((p) => !isFullTour(p));
+
+  if (!seat.people.length) {
+    return seatRowHtml(seat.pos, null, unit, date, isSupervisor, required);
+  }
+
+  let html = seat.people.map((person, i) => seatRowHtml(
+    seat.pos, person, unit, date, isSupervisor, required,
+    // Continuation rows name the seat too -- an arrow alone is unreadable once
+    // the card is scrolled and the first row is off screen.
+    i === 0 ? undefined : `↳ ${seat.pos.label}`,
+  )).join("");
+
+  // Every hour still open gets its own labelled pick row, so filling the back
+  // half of a tour is one click from the gap it belongs to rather than a guess.
+  if (split) {
+    seat.gaps.forEach((gap) => {
+      const label = `${seat.pos.label} — OPEN ${windowLabel(gap)}`;
+      html += isSupervisor
+        ? `<div class="seat-row seat-gap">
+            <span class="seat-label">${escapeHtml(label)}</span>
+            <select class="assignment-select" data-date="${date}" data-unit="${unit.id}"
+                    data-start="${gap.start}" data-end="${gap.end}">
+              <option value="">— choose —</option>${seatDropdownOptions(seat.pos, unit, date, gap)}
+            </select>
+          </div>`
+        : `<div class="seat-row seat-gap"><span class="seat-label">${escapeHtml(label)}</span>
+            <span class="seat-empty">${required ? "Unfilled" : "—"}</span></div>`;
+    });
+  }
+  return html;
+}
+
 // One seat row: shows the assigned person (with Remove) or a pick dropdown.
 function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverride) {
   const label = labelOverride || `${pos.label}${required ? "" : " (optional)"}`;
   let control;
   if (person) {
+    const blk = blockOf(person);
+    const partial = !isFullTour(person);
+    // The hours are shown on the row only when they are not the whole tour:
+    // stamping "0800-0800" on every normal assignment is noise.
+    const hours = partial
+      ? `<span class="seat-block" title="${((blk.end - blk.start) / 60).toFixed(2).replace(/\.?0+$/, "")} hours">${blockLabel(person)}</span>`
+      : "";
+    // Most assignments are the whole tour, and putting two time pickers on every
+    // one of those rows would add a lot of chrome to the normal case for nothing.
+    // So: a full-tour row gets a Split button, and the pickers appear once the
+    // row is actually partial.
+    let timeEditor = "";
+    if (isSupervisor && partial) {
+      timeEditor = `<span class="seat-times" data-block-person="${person.id}" data-block-date="${date}" data-block-unit="${unit.id}" data-block-start="${blk.start}">
+          <input type="time" class="seat-time" data-block-field="start" value="${minuteToTimeValue(blk.start)}" aria-label="Start time for ${escapeHtml(person.name)}">
+          <span aria-hidden="true">–</span>
+          <input type="time" class="seat-time" data-block-field="end" value="${minuteToTimeValue(blk.end)}" aria-label="End time for ${escapeHtml(person.name)}">
+        </span>`;
+    } else if (isSupervisor) {
+      timeEditor = `<button class="button button-secondary button-small seat-split" data-split-person="${person.id}" data-split-date="${date}" data-split-unit="${unit.id}" title="Split this tour — ${escapeHtml(person.name)} works part of it">Split</button>`;
+    }
     control = `<div class="seat-person">
-        <span><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"} shift</small></span>
-        ${isSupervisor ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
+        <span><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"} shift</small>${hours}</span>
+        ${timeEditor}
+        ${isSupervisor ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" data-remove-start="${blk.start}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
       </div>`;
   } else if (isSupervisor) {
     control = `<select class="assignment-select" data-date="${date}" data-unit="${unit.id}">
@@ -5263,7 +5615,10 @@ function printSeatRows(unit, date) {
     .map((stored) => {
       const live = resolvePerson(stored);
       if (!live) return null;
-      return { ...live, _pay: stored._pay, _payNote: stored._payNote, _payFor: stored._payFor };
+      // _start/_end ride along too: without them every printed row reads as a
+      // full tour and the sheet on the wall disagrees with the board.
+      return { ...live, _pay: stored._pay, _payNote: stored._payNote, _payFor: stored._payFor,
+               _start: stored._start, _end: stored._end };
     })
     .filter(Boolean);
   const { seats, extra } = assignPeopleToSeats(unit.type, people);
@@ -5271,11 +5626,28 @@ function printSeatRows(unit, date) {
   // under `pos`. Reading seat.label/seat.role/seat.required off the wrapper gave
   // undefined for every row: the label printed as "undefined" and, because
   // `undefined !== false`, every optional rider seat printed as required.
-  const rows = seats.map((seat) => ({
-    label: seat.pos.label || seat.pos.role || "Seat",
-    person: seat.person || null,
-    required: seatIsRequired(seat.pos),
-  }));
+  // One printed row per block holder, so a split tour prints as the two names
+  // and hours it actually is rather than only whoever happened to be first.
+  const rows = [];
+  seats.forEach((seat) => {
+    const label = seat.pos.label || seat.pos.role || "Seat";
+    const required = seatIsRequired(seat.pos);
+    if (!seat.people.length) {
+      rows.push({ label, person: null, required });
+      return;
+    }
+    seat.people.forEach((person, i) => {
+      rows.push({
+        label: i === 0 ? label : `${label} (cont.)`,
+        person, required, hours: blockLabel(person),
+      });
+    });
+    if (!seat.covered) {
+      seat.gaps.forEach((gap) => {
+        rows.push({ label: `${label} — OPEN ${windowLabel(gap)}`, person: null, required });
+      });
+    }
+  });
   extra.forEach((person) => rows.push({ label: "Rider", person, required: false }));
   return rows;
 }
@@ -5303,8 +5675,10 @@ function renderPrintSheet() {
         const pay = row.person ? payCodeFor(row.person) : null;
         // An unfilled REQUIRED seat is the thing an officer is scanning for, so it
         // gets the ink. Optional rider seats left empty are not news.
+        // The hours print next to the name only on a split seat -- a whole-tour
+        // row keeps the clean single-name look the wall sheet has always had.
         const name = row.person
-          ? row.person.name
+          ? row.person.name + (row.hours ? ` <span class="print-hours">${row.hours}</span>` : "")
           : (row.required ? '<span class="print-open">OPEN</span>' : "—");
         const codeCell = pay
           ? `<span class="print-code">${pay.code}</span>` +
