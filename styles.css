@@ -608,6 +608,19 @@ textarea:disabled {
   width: 100%;
 }
 
+/* Board-order arrows in Unit Management. Stacked so the pair takes one column
+   instead of stretching the row. */
+.unit-order {
+  display: grid;
+  gap: 2px;
+}
+
+.unit-order .button {
+  padding: 0 8px;
+  line-height: 1.5;
+  min-width: 2rem;
+}
+
 /* --- Off this tour ---
    Under the seats on purpose. An absence is not a seat, and rendering it as one
    is exactly how a rig ends up reading "Staffed" with somebody at home. */
@@ -1510,7 +1523,7 @@ textarea:disabled {
 /* ── Unit type select in toggle list ──────────────────────────────────────── */
 
 .unit-edit-row {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
 }
 

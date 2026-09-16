@@ -146,7 +146,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "pay-codes-toggle",
+    "pay-codes-toggle", "hours-toggle",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
@@ -218,7 +218,9 @@ function wireEvents() {
   dom["print-btn"].addEventListener("click", openPrintOptions);
   loadPayUiPreference();
   renderPayCodeToggle();
+  renderHoursToggle();
   dom["pay-codes-toggle"].addEventListener("click", togglePayCodeUi);
+  dom["hours-toggle"]?.addEventListener("click", toggleHoursUi);
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
   // Employee import
@@ -1539,10 +1541,23 @@ function renderUnitCard(unit, date, activeShift) {
 function renderUnitControls() {
   const supervisorLocked = !state.isAuthenticated || state.currentRole !== "supervisor";
 
-  dom["unit-toggle-list"].innerHTML = state.units
+  // Listed in the order they appear on the board, because that is the thing
+  // being edited. Showing them in some other order and then offering "move up"
+  // is how you end up moving the wrong truck.
+  const ordered = [...state.units].sort(byBoardOrder);
+
+  dom["unit-toggle-list"].innerHTML = ordered
     .map(
-      (unit) => `
+      (unit, index) => `
       <div class="toggle-item unit-edit-row">
+        <div class="unit-order">
+          <button class="button button-secondary button-small" data-unit-up="${unit.id}"
+            ${index === 0 || supervisorLocked ? "disabled" : ""}
+            aria-label="Move ${escapeHtml(unit.name)} up">↑</button>
+          <button class="button button-secondary button-small" data-unit-down="${unit.id}"
+            ${index === ordered.length - 1 || supervisorLocked ? "disabled" : ""}
+            aria-label="Move ${escapeHtml(unit.name)} down">↓</button>
+        </div>
         <div class="unit-edit-info">
           <strong>${unit.name}</strong>
           ${
@@ -1563,6 +1578,25 @@ function renderUnitControls() {
     `,
     )
     .join("");
+
+  // Board order. Moving a unit RENUMBERS the whole list 1..N rather than nudging
+  // one number, so two units can never end up sharing a sort_order and falling
+  // back to alphabetical -- which is what buried MOF115 at the bottom.
+  const moveUnit = (unitId, delta) => {
+    const list = [...state.units].sort(byBoardOrder);
+    const from = list.findIndex((u) => u.id === unitId);
+    const to = from + delta;
+    if (from === -1 || to < 0 || to >= list.length) return;
+    list.splice(to, 0, list.splice(from, 1)[0]);
+    list.forEach((u, i) => { u.sortOrder = i + 1; });
+    addAudit(`${unitLabel(unitId)} moved to position ${to + 1} on the board.`, currentUserName());
+    render();
+    persistAppState("Board order updated");
+  };
+  [...document.querySelectorAll("[data-unit-up]")].forEach((b) =>
+    b.addEventListener("click", () => moveUnit(b.dataset.unitUp, -1)));
+  [...document.querySelectorAll("[data-unit-down]")].forEach((b) =>
+    b.addEventListener("click", () => moveUnit(b.dataset.unitDown, 1)));
 
   // Visibility toggles
   [...document.querySelectorAll("[data-unit-toggle]")].forEach((checkbox) => {
@@ -5129,12 +5163,45 @@ function seatDropdownOptions(pos, unit, date, window) {
 const PAY_UI_KEY = "d7fr-scheduler-pay-ui";
 const PAY_UI = { show: false };
 
+// Same idea for the hours controls. Most of the time a supervisor is filling
+// seats, not splitting tours, and a Split + Time off button under every name is
+// clutter on a board read at shift change. Off by default; hours a seat ALREADY
+// has still show as a chip, and the "Off this tour" roster still shows, so
+// nothing is ever hidden -- only the editing controls are.
+const HOURS_UI_KEY = "d7fr-scheduler-hours-ui";
+const HOURS_UI = { show: false };
+
 function loadPayUiPreference() {
   try {
     PAY_UI.show = localStorage.getItem(PAY_UI_KEY) === "1";
   } catch (e) {
     PAY_UI.show = false;
   }
+  try {
+    HOURS_UI.show = localStorage.getItem(HOURS_UI_KEY) === "1";
+  } catch (e) {
+    HOURS_UI.show = false;
+  }
+}
+
+function toggleHoursUi() {
+  HOURS_UI.show = !HOURS_UI.show;
+  try {
+    localStorage.setItem(HOURS_UI_KEY, HOURS_UI.show ? "1" : "0");
+  } catch (e) {
+    // Private window or blocked site data: the toggle still works for this
+    // session, it just will not be remembered. Not worth telling anyone.
+  }
+  renderHoursToggle();
+  render();
+}
+
+function renderHoursToggle() {
+  const btn = dom["hours-toggle"];
+  if (!btn) return;
+  btn.classList.toggle("is-active", HOURS_UI.show);
+  btn.setAttribute("aria-pressed", HOURS_UI.show ? "true" : "false");
+  btn.textContent = HOURS_UI.show ? "Hours & time off ✓" : "Hours & time off";
 }
 
 function togglePayCodeUi() {
@@ -5446,16 +5513,17 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
     // So: a full-tour row gets a Split button, and the pickers appear once the
     // row is actually partial.
     let timeEditor = "";
-    if (isSupervisor && partial) {
+    const canEditHours = isSupervisor && HOURS_UI.show;
+    if (canEditHours && partial) {
       timeEditor = `<span class="seat-times" data-block-person="${person.id}" data-block-date="${date}" data-block-unit="${unit.id}" data-block-start="${blk.start}">
           <input type="time" step="1800" class="seat-time" data-block-field="start" value="${minuteToTimeValue(blk.start, unit)}" aria-label="Start time for ${escapeHtml(person.name)}">
           <span aria-hidden="true">–</span>
           <input type="time" step="1800" class="seat-time" data-block-field="end" value="${minuteToTimeValue(blk.end, unit)}" aria-label="End time for ${escapeHtml(person.name)}">
         </span>`;
-    } else if (isSupervisor) {
+    } else if (canEditHours) {
       timeEditor = `<button class="button button-secondary button-small seat-split" data-split-person="${person.id}" data-split-date="${date}" data-split-unit="${unit.id}" title="Split this tour — ${escapeHtml(person.name)} works part of it">Split</button>`;
     }
-    const markOff = isSupervisor
+    const markOff = canEditHours
       ? `<button class="button button-secondary button-small seat-off"
           data-off-person="${person.id}" data-off-date="${date}" data-off-unit="${unit.id}"
           data-off-start="${blk.start}"

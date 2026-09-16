@@ -131,6 +131,13 @@
               <button id="pay-codes-toggle" class="button button-secondary" type="button"
                       aria-pressed="false" title="Show pay code controls on each seat">Pay codes</button>
 
+              <!-- Same reasoning for splitting tours and recording time off: most
+                   of the time a supervisor is filling seats, not editing hours.
+                   Hours a seat already has, and anyone already off, still show. -->
+              <button id="hours-toggle" class="button button-secondary" type="button"
+                      aria-pressed="false"
+                      title="Show Split and Time off controls on each seat">Hours &amp; time off</button>
+
               <div class="status-group">
                 <label>
                   Schedule Status
