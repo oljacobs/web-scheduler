@@ -915,7 +915,7 @@ function renderTemplateEditor() {
       ? "Admin positions have no platoon — one standing crew covers Mon-Thu."
       : "";
   }
-  const positions = UNIT_POSITION_REQUIREMENTS[unit?.type];
+  const positions = positionsForUnit(unit);
   if (!unit || !positions) {
     seatsEl.innerHTML = `<div class="empty-state">No seat layout defined for this unit type.</div>`;
     return;   // no selects rendered, nothing to bind
@@ -1041,7 +1041,7 @@ function crewFromTemplate(unitId, date) {
   const unit = unitById(unitId);
   const tpl = templateFor(unitId, templateKeyForUnit(unit, date));
   if (!tpl) return [];
-  const positions = UNIT_POSITION_REQUIREMENTS[unit?.type] || [];
+  const positions = positionsForUnit(unit) || [];
   const crew = [];
   positions.forEach((pos) => {
     const empId = tpl.seats?.[pos.role];
@@ -1477,7 +1477,7 @@ function renderUnitCard(unit, date, activeShift) {
   // The truck is in service on any date it's shown; the platoon on duty staffs it.
   const isActive = unitRunsOn(unit, date);
   const isSupervisor = state.currentRole === "supervisor";
-  const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
+  const positions = positionsForUnit(unit);
 
   // --- Unlisted unit type: keep the simple single-dropdown + list behavior. ---
   if (!positions) {
@@ -1604,6 +1604,21 @@ function renderUnitControls() {
                 </select>`
           }
           ${isAdminUnit(unit) ? `<p class="helper-text">${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)} · ${durationLabel(unitTourMinutes(unit))} · Mon-Thu — kept off the operations board.</p>` : ""}
+          ${crewBounds(unit) && !isAdminUnit(unit) ? (supervisorLocked ? "" : `
+          <div class="crew-size-row" style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:0.35rem">
+            <label style="display:flex;gap:0.35rem;align-items:center;white-space:nowrap">Min crew
+              <input type="number" min="1" max="${CREW_LIMIT}" step="1" inputmode="numeric"
+                style="width:4.5rem;min-width:0;flex:0 0 auto"
+                data-unit-crew="${unit.id}" data-crew-field="min"
+                value="${crewNumber(unit.crewMin) ?? ""}" placeholder="${crewBounds(unit).defaultMin}"
+                aria-label="Minimum crew for ${escapeHtml(unit.name)}" /></label>
+            <label style="display:flex;gap:0.35rem;align-items:center;white-space:nowrap">Max crew
+              <input type="number" min="1" max="${CREW_LIMIT}" step="1" inputmode="numeric"
+                style="width:4.5rem;min-width:0;flex:0 0 auto"
+                data-unit-crew="${unit.id}" data-crew-field="max"
+                value="${crewNumber(unit.crewMax) ?? ""}" placeholder="${crewBounds(unit).defaultMax}"
+                aria-label="Maximum crew for ${escapeHtml(unit.name)}" /></label>
+          </div>`) + `<p class="helper-text">${crewSummary(unit)}${supervisorLocked ? "" : " · blank = type default"}</p>` : ""}
         </div>
         <input type="checkbox" data-unit-toggle="${unit.id}" ${unit.visible ? "checked" : ""} ${supervisorLocked ? "disabled" : ""} aria-label="Show ${unit.name}" />
       </div>
@@ -1651,6 +1666,47 @@ function renderUnitControls() {
       unit.type = select.value;
       addAudit(`${unit.name} type changed from ${oldType} to ${unit.type}.`, currentUserName());
       persistAppState("Unit type updated");
+    });
+  });
+
+  // Crew size. Blank = the type default. A number below the qualification floor
+  // (e.g. a Ladder min of 1 would make Driver/Engineer optional) is raised to the
+  // floor WITH a message, rather than stored as a setting the board ignores.
+  [...document.querySelectorAll("[data-unit-crew]")].forEach((input) => {
+    input.addEventListener("change", () => {
+      const unit = state.units.find((item) => item.id === input.dataset.unitCrew);
+      const b = crewBounds(unit);
+      if (!unit || !b) return;
+      const isMin = input.dataset.crewField === "min";
+      const raw = String(input.value || "").trim();
+      let n = raw === "" ? null : crewNumber(raw);
+      if (raw !== "" && n === null) {
+        window.alert(`Crew size must be a whole number from 1 to ${CREW_LIMIT}, or blank for the ${unit.type} default.`);
+        render();
+        return;
+      }
+      const floor = isMin ? b.floorMin : b.floorMax;
+      if (n !== null && n < floor) {
+        window.alert(`${unit.name} can't go below ${floor}: ${b.locked.join(", ")} ${b.locked.length === 1 ? "is" : "are"} always ${isMin ? "required" : "on the card"}. Set to ${floor}.`);
+        n = floor;
+      }
+      const otherMin = crewNumber(unit.crewMin);
+      const otherMax = crewNumber(unit.crewMax);
+      if (n !== null && isMin && otherMax !== null && n > otherMax) {
+        window.alert(`Min crew (${n}) can't be more than max crew (${otherMax}). Raise max first.`);
+        render();
+        return;
+      }
+      if (n !== null && !isMin && otherMin !== null && n < otherMin) {
+        window.alert(`Max crew (${n}) can't be less than min crew (${otherMin}). Lower min first.`);
+        render();
+        return;
+      }
+      const before = crewSummary(unit);
+      unit[isMin ? "crewMin" : "crewMax"] = n;
+      addAudit(`${unit.name} crew size changed: ${before} → ${crewSummary(unit)}.`, currentUserName());
+      render();
+      persistAppState("Crew size updated");
     });
   });
 
@@ -3144,7 +3200,7 @@ function postableShiftsFor(employeeId, horizonDays) {
 // supervisor would, so reshuffling is permitted for free.
 function tradeCrewIsLegal(trade, accepter) {
   const unit = unitById(trade.unitId);
-  const positions = UNIT_POSITION_REQUIREMENTS[unit?.type];
+  const positions = positionsForUnit(unit);
   if (!unit || !positions) return true;          // untyped unit: no seat rules
   const crew = getAssignments(trade.date, trade.unitId)
     .filter((p) => p && p.id !== trade.employeeId)
@@ -3949,7 +4005,7 @@ function coverageGaps(startDate, days) {
   for (let offset = 0; offset < days; offset += 1) {
     const date = addDays(startDate, offset);
     unitsForDate(date).forEach((unit) => {
-      const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
+      const positions = positionsForUnit(unit);
       if (!positions) return;
       const dayPeople = getAssignments(date, unit.id);
       const { seats } = assignPeopleToSeats(unit.type, dayPeople, unit, date);
@@ -4724,7 +4780,7 @@ function getStaffingAlerts(date) {
   return unitsForDate(date)
     .flatMap((unit) => {
       const people = getAssignments(date, unit.id);
-      const positions = UNIT_POSITION_REQUIREMENTS[unit.type];
+      const positions = positionsForUnit(unit);
       if (positions) {
         return checkPositionStaffing(unit, people, positions, date);
       }
@@ -4993,6 +5049,75 @@ function tourCovered(people, tour) {
 function seatIsRequired(pos) { return pos.required !== false; }
 function seatAllowsAny(pos) { const c = pos.cap; return !c || (Array.isArray(c) && c.length === 0); }
 
+// ─── Crew size per unit ──────────────────────────────────────────────────────
+// Set in Manage -> Units (or Django admin): unit.crewMin / unit.crewMax. Blank =
+// the type's own layout in UNIT_POSITION_REQUIREMENTS, untouched. Min makes the
+// first N seats (in layout order) required; max is how many seats the card
+// offers, adding any-rank riders past the type's list. Neither can take away a
+// qualification: every seat up to the last REQUIRED capability seat stays
+// required, and no capability seat is ever dropped -- only trailing riders.
+// EVERY reader of a unit's seats goes through positionsForUnit(); reading the
+// table directly would show the type default and ignore the unit's setting.
+const CREW_LIMIT = 10;
+
+function crewNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= CREW_LIMIT ? n : null;
+}
+
+function crewBounds(unit) {
+  const base = UNIT_POSITION_REQUIREMENTS[unit?.type];
+  if (!base) return null;
+  let lastRequiredCap = -1;
+  let lastCap = -1;
+  base.forEach((p, i) => {
+    if (seatAllowsAny(p)) return;
+    lastCap = i;
+    if (seatIsRequired(p)) lastRequiredCap = i;
+  });
+  return {
+    base,
+    floorMin: lastRequiredCap + 1,                 // can't un-require a qualification seat
+    floorMax: Math.max(lastCap + 1, 1),            // can't drop a qualification seat
+    defaultMin: base.filter(seatIsRequired).length,
+    defaultMax: base.length,
+    locked: base.slice(0, Math.max(lastCap + 1, 0)).filter((p) => !seatAllowsAny(p)).map((p) => p.label),
+  };
+}
+
+function positionsForUnit(unit) {
+  const b = crewBounds(unit);
+  if (!b) return undefined;
+  const min = crewNumber(unit.crewMin);
+  const max = crewNumber(unit.crewMax);
+  if (min === null && max === null) return b.base;
+  const effMin = min === null ? null : Math.max(min, b.floorMin);
+  let total = max === null ? b.base.length : Math.max(max, b.floorMax);
+  if (effMin !== null) total = Math.max(total, effMin);
+  const seats = b.base.slice(0, total).map((p) => ({ ...p }));
+  const riders = b.base.filter(seatAllowsAny);
+  const labelStem = riders.some((p) => /^Firefighter /.test(p.label)) ? "Firefighter "
+    : riders.some((p) => /^FF /.test(p.label)) ? "FF " : "Rider ";
+  const used = new Set(seats.map((p) => p.role));
+  let n = 1;
+  while (seats.length < total) {
+    while (used.has(`FF${n}`)) n += 1;
+    used.add(`FF${n}`);
+    seats.push({ role: `FF${n}`, label: `${labelStem}${n}`, cap: null, required: false });
+  }
+  if (effMin !== null) seats.forEach((p, i) => { p.required = i < effMin; });
+  return seats;
+}
+
+function crewSummary(unit) {
+  const positions = positionsForUnit(unit);
+  if (!positions) return "";
+  const custom = crewNumber(unit.crewMin) !== null || crewNumber(unit.crewMax) !== null;
+  return `Crew ${positions.filter(seatIsRequired).length} required, up to ${positions.length}`
+    + (custom ? " (set for this unit)" : ` (${unit.type} default)`);
+}
+
 // A person's full capability set = rank-derived certs PLUS ride-up grants.
 // This is what makes "acting" work: an Engineer marked ride-up "officer" gains
 // the officer capability without changing their permanent rank.
@@ -5116,7 +5241,8 @@ function assignedEmployeeIdsForDate(date) {
 // reads seat.person still works; `covered` is the honest answer to "is this seat
 // done", and for a full-tour assignment the two say the same thing.
 function assignPeopleToSeats(unitType, people, unit, date) {
-  const positions = UNIT_POSITION_REQUIREMENTS[unitType];
+  // The UNIT's layout (crew size applied) when we have the unit; the type table otherwise.
+  const positions = unit && unit.type === unitType ? positionsForUnit(unit) : UNIT_POSITION_REQUIREMENTS[unitType];
   if (!positions) {
     const r = people.map((p) => lightDutyBlockFor(p, unit, date) || p);
     return { seats: [], extra: r.filter((p) => !isAbsent(p)), off: r.filter(isAbsent) };

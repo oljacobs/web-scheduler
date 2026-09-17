@@ -62,7 +62,9 @@ COMMON ENTITY SHAPES
   certs[] = rank-derived capabilities; rideUp[] = acting quals above rank (subset of
   ["officer","engineer"]), stored separately so roster re-import never wipes it
 - Unit:
-  { id, name, type, minStaff, requiredCerts[], shift, visible }
+  { id, name, type, minStaff, requiredCerts[], shift, visible, crewMin?, crewMax? }
+  crewMin/crewMax = per-unit crew size (null = type default), edited in Manage -> Units or
+  Django admin. Seats for a unit come from positionsForUnit(unit), never the raw table.
 - Trade:
   { id, status, employeeId, partnerId, date, notes, type, createdBy }
 - OvertimePost:

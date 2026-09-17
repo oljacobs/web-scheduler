@@ -115,7 +115,10 @@ Core entities:
 Employee{id, entraId?, name, shift(A|B|C|null), title, certs[], rideUp[], email, isSupervisor, status}
   certs = rank-derived capabilities; rideUp = acting quals ABOVE rank (subset of RIDE_UP_CAPABILITIES),
   stored separately so roster re-import never wipes it. pin removed (Entra auth only).
-Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],sortOrder,visible}
+Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],sortOrder,visible,crewMin?,crewMax?}
+  crewMin/crewMax (2026-09-16): per-unit crew size, null = type default. NEVER read
+  UNIT_POSITION_REQUIREMENTS[unit.type] directly -- use positionsForUnit(unit). Server only
+  writes crew_min/crew_max when the key is in the payload (_crew_fields).
   sortOrder = board order. Front-line 1..8 = BC115,MOF115,L115,E115,M115,M115B,E116,M116.
   Everything else defaults to 100 (sorts after, then by name). byBoardOrder() is the ONLY
   ordering — never trust state.units array order, it comes from the API.
