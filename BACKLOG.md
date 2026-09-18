@@ -15,6 +15,33 @@ cross-referenced, not restated. Design detail for the accountability work lives 
 
 ---
 
+## 1. Time off and partial-day staffing — SHIPPED (2026-09-16, migrations 0013–0019)
+
+Decisions that differ from the original sketch below, so read these first:
+
+- Partial tours are **minutes from the unit's tour start**, not datetimes — a full
+  tour is `0..tour_minutes` and nothing wraps midnight, which removed every midnight
+  edge case. `unique_together` became `(employee, unit, date, start_minute)`.
+- **A seat is covered by a list of people**, and the open question below is answered:
+  a partially covered required seat is **still short**. Twelve of twenty-four hours
+  does not count as covered.
+- An absence **keeps its hours for payroll but covers no seat**, so the rig reads
+  short and an "Off this tour" roster says who is off and why.
+- The backfill prompt has **no default** — as specified, a decision, never automatic.
+  "No" leaves the seat short but keeps the hours off the overtime board.
+- Time off is entered once across a **date range** and expands to one row per tour,
+  touching only dates the person was already scheduled on that unit.
+- **`LTD` is Light Duty**, not long-term disability, and is derived from the member's
+  date range rather than picked. Its payroll is entered by admin.
+- Also shipped alongside: the admin/light-duty unit class (10hr Mon–Thu, own view,
+  excluded from the operations board), the `ADMIN` platoon, and the `admin`
+  qualification that gates admin pick lists.
+
+Still open: confirm `SICK`/`FMLA` are chief-entered rather than HR-entered like `LTD`;
+decide whether admin is one shared unit or several named posts.
+
+### Original specification (kept for context)
+
 ## 1. Time off and partial-day staffing
 
 **This is the SPEC's Phase 2 `Absence` model, extended.** Do not build it twice.

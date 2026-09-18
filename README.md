@@ -2,7 +2,7 @@
 
 A vanilla-JS SPA (no build step) for fire department scheduling, deployed static to Vercel at `schedule.d7fr.org`.
 
-## Current architecture (as of 2026-07 — updated)
+## Current architecture (as of 2026-09 — updated)
 
 - **Auth:** Microsoft Entra ID (MSAL.js) — the old PIN login is gone.
 - **Backend:** the app now reads/writes a **Django REST API** on Railway
@@ -14,6 +14,31 @@ A vanilla-JS SPA (no build step) for fire department scheduling, deployed static
   See that repo's `SCHEDULER_BACKEND.md` and `PROJECT_STATE.md` for the full picture.
 - **AI context:** `AI_STATE_MIN.txt` (compact, current) and `AI_STATE_SUMMARY.txt`.
   Update them when `app.js` changes state shapes/enums/flow (pre-commit hook enforces this).
+
+### Scheduling model — read before touching seats
+
+Three assumptions that used to hold no longer do. Code written against the old ones
+will look correct and be wrong:
+
+1. **A tour is not always 24 hours, and an assignment is not always the whole day.**
+   `Assignment.start_minute`/`end_minute` are minutes from the *unit's* tour start, so
+   a full tour is `0..unit.tour_minutes` and nothing wraps midnight. `Unit` carries
+   `schedule_class`, `tour_start_hour`, `tour_minutes` and `weekdays[]`. Never
+   hard-code 1440 — ask the unit. Seats come from `positionsForUnit(unit)`, never the
+   raw requirements table.
+2. **A seat is covered by a list of people, not one.** "I work the first 4, another
+   chief takes the last 20" is one seat filled by two. Read `seat.covered`, not
+   `seat.person`, to ask whether a seat is done. A partially covered required seat is
+   still short.
+3. **Somebody on the roster for a date may not be working it.** PTO, sick, FMLA and
+   light duty keep their hours for payroll but cover no seat, so the rig reads short
+   and an "Off this tour" roster says who and why.
+
+Admin and light-duty positions are a separate unit class (10hr, Mon–Thu) with their
+own view, deliberately kept off the operations board, the printed sheet, staffing
+alerts and the overtime and trade boards. Platoons are `A|B|C|ADMIN`, where `ADMIN`
+never rotates and is never forced by the 72-hour rule. Everything is scheduled in
+30-minute increments.
 
 Persistence still falls back to `localStorage` when offline. Legacy notes below
 describe the original trial (PIN login, Supabase blob) and are kept for history.
