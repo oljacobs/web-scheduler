@@ -43,6 +43,33 @@ never rotates and is never forced by the 72-hour rule. Everything is scheduled i
 Persistence still falls back to `localStorage` when offline. Legacy notes below
 describe the original trial (PIN login, Supabase blob) and are kept for history.
 
+### Scheduling model (2026-09) — read this before touching seats
+
+Three assumptions that used to hold no longer do. Code written against the old ones
+will look correct and be wrong:
+
+1. **A tour is not always 24 hours, and an assignment is not always the whole day.**
+   `Assignment.start_minute`/`end_minute` are minutes from the *unit's* tour start,
+   so a full tour is `0..unit.tour_minutes` and nothing wraps midnight. `Unit` carries
+   `schedule_class`, `tour_start_hour`, `tour_minutes` and `weekdays[]`. Never
+   hard-code 1440 — ask the unit.
+2. **A seat is covered by a list of people, not one.** "I work the first 4, another
+   chief takes the last 20" is one seat filled by two. Read `seat.covered`, not
+   `seat.person`, to ask whether a seat is done; a name on the row no longer means
+   the tour is covered. A partially covered required seat is still short.
+3. **Somebody on the roster for a date may not be working it.** PTO, sick, FMLA and
+   light duty keep their hours for payroll but cover no seat, so the rig reads short
+   and an "Off this tour" roster says who and why.
+
+Admin and light-duty positions are a separate unit class (10hr, Mon–Thu) with their
+own view, deliberately kept off the operations board, the printed sheet, staffing
+alerts and the overtime and trade boards. Platoons are `A|B|C|ADMIN`, where `ADMIN`
+never rotates and is never forced by the 72-hour rule. Everything is scheduled in
+30-minute increments.
+
+`HANDOFF_2026-09-16.md` has the session detail and a list of traps not to
+reintroduce; `AI_STATE_MIN.txt` has the mechanics.
+
 ## Included In This Trial
 
 - Daily, weekly, and monthly schedule views
@@ -72,14 +99,13 @@ describe the original trial (PIN login, Supabase blob) and are kept for history.
   an in-app list labelled "Email notification". Messages such as *"Eligible off-duty
   employees notified by email"* are literally untrue — nobody is notified. This is a
   feature to build, not a bug to test.
-- **Trades require a partner.** `createTradeRequest()` rejects a request with no
-  partner (`if (!ownerId || !partnerId || ownerId === partnerId) return;`) and does
-  so with a bare `return` — no message, the form just silently does nothing. There is
-  no way to give away a day and bank the time for later payback.
-- **Open shift posts fabricate applicants.** `createOpenShift()` seeds the first three
-  available off-duty employees as applicants who never applied. Demo behaviour left in
-  a production path; in an overtime context it shows people as volunteering when they
-  did not.
+- ~~**Trades require a partner.**~~ Fixed: the trade board is post → accept → approve,
+  with a `ShiftDebt` ledger for banked time. The old two-person form is deleted.
+- ~~**Open shift posts fabricate applicants.**~~ Fixed: `createOpenShift()` is deleted
+  and supervisors award to a named applicant.
+- **Admin/light-duty payroll is not entered here.** `LTD` shows on the board for
+  transparency and accountability; admin enters the hours in Paycom. Do not build a
+  second payroll path for it.
 - The whole-state `PUT /api/scheduler/state/` saves the entire application on every
   change. It is now guarded (capped history, prune guard) but not redesigned; targeted
   writes are the real fix.

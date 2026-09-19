@@ -1,20 +1,21 @@
 web-scheduler app quick context (app.js)
 
-=== MAJOR UPDATE (2026-09-16) — partial tours, admin/light duty, PTO. Read AI_STATE_MIN.txt ===
-Three assumptions that used to hold NO LONGER DO. Code written against the old ones looks
-correct and is wrong:
-1. A tour is not always 24h and an assignment is not always the whole day.
-   Assignment.start_minute/end_minute are minutes from the UNIT's tour start; Unit carries
-   scheduleClass/tourStartHour/tourMinutes/weekdays. Never hard-code 1440 — ask the unit.
-2. A seat is covered by a LIST of people, not one. assignPeopleToSeats(type,people,unit,date)
-   -> {seats,extra,off}; each seat is {pos,person,people[],gaps[],covered}. Read `covered`,
-   not `person`. A partially covered required seat is STILL SHORT.
-3. Somebody on the roster for a date may not be working it. PTO/SICK/FMLA and derived LTD
-   (= light duty) keep their hours for payroll but COVER NO SEAT, so the rig reads short and
-   an "Off this tour" roster says who and why.
-Also: platoons are A|B|C|ADMIN (ADMIN never rotates, never forced by the 72-hour rule);
-"admin" is a person-held capability gating admin seats and MUST be merged forward on roster
-re-import (PERSON_HELD_CAPABILITIES); everything is scheduled in 30-minute increments.
+=== MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===
+AI_STATE_MIN.txt carries the detail. Headlines, because they change assumptions all over:
+- A TOUR IS NO LONGER ALWAYS 24 HOURS AND NO LONGER ALWAYS THE WHOLE DAY.
+  Assignment.start_minute/end_minute are minutes from the UNIT's tour start. Unit carries
+  scheduleClass/tourStartHour/tourMinutes/weekdays. Nothing hard-codes 1440 — ask the unit.
+- A SEAT IS COVERED BY A LIST OF PEOPLE, not one. assignPeopleToSeats(type,people,unit,date)
+  returns {seats,extra,off}; each seat is {pos,person,people[],gaps[],covered}. Read `covered`,
+  not `person`, for "is this seat done" — a name on the row no longer means the tour is covered.
+- ADMIN / LIGHT DUTY is a 10hr Mon-Thu unit class, excluded from the operations board, the print
+  sheet, staffing alerts and the OT/trade boards. Its own "Admin" view.
+- ABSENCES (PTO/SICK/FMLA, plus derived LTD = light duty) keep their hours for payroll but COVER
+  NO SEAT, so the rig reads short and an "Off this tour" roster says who and why.
+- Platoons are now A|B|C|ADMIN. ADMIN never rotates and is never forced by the 72-hour rule.
+- "admin" is a person-held CAPABILITY gating admin seats; it must be merged forward on roster
+  re-import (PERSON_HELD_CAPABILITIES) or it is silently wiped.
+- Everything is scheduled in 30-MINUTE increments; durations read as "4h"/"1.5h"/"20h".
 === end 2026-09 update ===
 
 === MAJOR UPDATE (2026-07 session) — AI_STATE_MIN.txt is fully current; read it too ===
@@ -76,25 +77,21 @@ COMMON ENTITY SHAPES
 - Employee:
   { id, entraId?, name, shift (A|B|C|ADMIN|null), title, certs[], rideUp[], email, isSupervisor,
     status, lightDutyStart?, lightDutyEnd?, lightDutyNote? }
-  lightDuty* is a DATE RANGE (blank end = open-ended). Dates + a short operational note only —
-  never a medical detail. It vacates operations seats the member was ALREADY assigned to.
   NOTE: `pin` removed — auth is now Entra ID only
-  certs[] = rank-derived capabilities; rideUp[] = acting quals above rank (subset of
-  ["officer","engineer"]), stored separately so roster re-import never wipes it
+  certs[] = rank-derived capabilities PLUS person-held ones ("paramedic","emt","admin");
+  rideUp[] = acting quals above rank (subset of ["officer","engineer"]), stored separately so
+  roster re-import never wipes it. PERSON_HELD_CAPABILITIES is merged forward on re-import.
+  lightDuty* is a DATE RANGE (blank end = open-ended). Dates + a short operational note only —
+  never a medical detail.
 - Unit:
-  { id, name, type, minStaff, requiredCerts[], shift, visible, crewMin?, crewMax?,
+  { id, name, type, minStaff, requiredCerts[], shift, visible,
     scheduleClass ("operations"|"admin"), tourStartHour, tourMinutes, weekdays[] (Mon=0) }
-  Admin units = 0800-1800, Mon-Thu, and are DELIBERATELY excluded from the operations board,
-  the printed sheet, staffing alerts and the overtime/trade boards. They get their own view.
-  crewMin/crewMax = per-unit crew size (null = type default), edited in Manage -> Units or
-  Django admin. Seats for a unit come from positionsForUnit(unit), never the raw table.
+- Assignment (server-side; reaches the SPA as underscore fields on the person object):
+  start_minute/end_minute (_start/_end), absence_code/_note/_no_backfill (_off/_offNote/_noFill),
+  pay_code/_note/_for (_pay/_payNote/_payFor), source (_src), paid_employee (_paid).
+  A FULL TOUR WITH NO ABSENCE SENDS NONE OF THE BLOCK FIELDS — old clients keep working.
 - Trade:
   { id, status, employeeId, partnerId, date, notes, type, createdBy }
-- Assignment (server-side; reaches the SPA as underscore fields on the person object):
-  start_minute/end_minute (_start/_end) — minutes from the unit's tour start, full tour = 0..tour
-  absence_code/_note/_no_backfill (_off/_offNote/_noFill) — keeps its hours, covers no seat
-  pay_code/_note/_for (_pay/_payNote/_payFor), source (_src), paid_employee (_paid)
-  A FULL TOUR WITH NO ABSENCE SENDS NONE OF THE BLOCK FIELDS — old clients keep working.
 - OvertimePost:
   { id, status, unitId, date, qualification, reportTime, applicants[], approvedEmployeeId? }
 
@@ -102,7 +99,9 @@ IMPORTANT TOP-LEVEL CONSTANTS
 - baseDate, ROTATION_BASE_DATE, rotationPattern, LOCAL_STORAGE_KEY, REMOTE_STATE_ID
 - SUPERVISOR_TITLES: ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "MOF"]
 - UNIT_POSITION_REQUIREMENTS: Record<unitType, {role, label, cap, required?}[]>  (CAPABILITY-based)
-  Types: Batt, Ladder, Medic, MOF, Engine, Rescue, Tender, Brush
+  Types: Batt, Ladder, Medic, MOF, Engine, Rescue, Tender, Brush, Admin
+  Admin = 6 seats, cap:"admin", ALL required:false (an empty admin position is normal, not a
+  staffing failure — a required seat there would alert like an unstaffed engine)
   cap = required capability ("officer"|"engineer"|"paramedic"|"emt"); array = any-of; null = any rank
   required:false = optional rider seat. Engine = Officer+Engineer required + FF1..3 optional (min 2, up to 5)
   Positions listed most-restrictive-first for greedy matching in assignPeopleToSeats()/checkPositionStaffing()
@@ -110,8 +109,8 @@ IMPORTANT TOP-LEVEL CONSTANTS
 - employeeRoles: ["paramedic","emt","engineer","officer","admin"]
 - PERSON_HELD_CAPABILITIES: ["paramedic","emt","admin"] — merged forward on roster re-import
 - ROTATION_PLATOONS ["A","B","C"] / PLATOON_ADMIN "ADMIN" / ALL_PLATOONS
-- SLOT_MINUTES 30, TOUR_MINUTES 1440, ADMIN_TOUR_MINUTES 600
-- ABSENCE_REASONS (pickable): PTO / SICK / FMLA. "LTD" = light duty, derived, never picked.
+- SLOT_MINUTES 30, TOUR_MINUTES 1440, ADMIN_TOUR_MINUTES 600, WEEKDAYS_MON_THU [0,1,2,3]
+- ABSENCE_REASONS (pickable): PTO / SICK / FMLA. ABSENCE_LIGHT_DUTY "LTD" is derived, not picked.
 - unitTypes: ["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue","Admin"]
 - employeeTitleOptions: ["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
 - msalInstance: PublicClientApplication | null

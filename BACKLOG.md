@@ -13,57 +13,57 @@ cross-referenced, not restated. Design detail for the accountability work lives 
   Forced vs Awarded.
 - E118 / M118 / HR115 scheduler Units imported and confirmed; HR115 is on-demand.
 
+- **§1 Time off and partial-day staffing — BUILT** (2026-09-16, migrations
+  `0013`–`0019`). See below for what shipped and what is still open.
+
 ---
 
-## 1. Time off and partial-day staffing — SHIPPED (2026-09-16, migrations 0013–0019)
+## 1. Time off and partial-day staffing — SHIPPED
 
-Decisions that differ from the original sketch below, so read these first:
+Built 2026-09-16. `AI_STATE_MIN.txt` carries the mechanics; this records the
+decisions, because several of them differ from what was originally sketched here.
 
-- Partial tours are **minutes from the unit's tour start**, not datetimes — a full
-  tour is `0..tour_minutes` and nothing wraps midnight, which removed every midnight
-  edge case. `unique_together` became `(employee, unit, date, start_minute)`.
-- **A seat is covered by a list of people**, and the open question below is answered:
-  a partially covered required seat is **still short**. Twelve of twenty-four hours
-  does not count as covered.
-- An absence **keeps its hours for payroll but covers no seat**, so the rig reads
-  short and an "Off this tour" roster says who is off and why.
-- The backfill prompt has **no default** — as specified, a decision, never automatic.
-  "No" leaves the seat short but keeps the hours off the overtime board.
-- Time off is entered once across a **date range** and expands to one row per tour,
-  touching only dates the person was already scheduled on that unit.
-- **`LTD` is Light Duty**, not long-term disability, and is derived from the member's
-  date range rather than picked. Its payroll is entered by admin.
-- Also shipped alongside: the admin/light-duty unit class (10hr Mon–Thu, own view,
-  excluded from the operations board), the `ADMIN` platoon, and the `admin`
-  qualification that gates admin pick lists.
+**Partial tours.** `Assignment.start_minute`/`end_minute`, measured in minutes from
+the *unit's* tour start rather than as datetimes. A full tour is `0..tour_minutes`
+and nothing wraps midnight, which removed every midnight edge case the datetime
+approach would have carried. `unique_together` became
+`(employee, unit, date, start_minute)` — the old 3-tuple made split coverage
+impossible at the schema level, and the state-save dedupe key had the same bug.
 
-Still open: confirm `SICK`/`FMLA` are chief-entered rather than HR-entered like `LTD`;
-decide whether admin is one shared unit or several named posts.
+**A seat is covered by a LIST of people, not one.** "First 4 on, another chief takes
+the last 20" is one seat filled by two. `assignPeopleToSeats` returns seats carrying
+`people[]`, `gaps[]` and `covered`.
 
-### Original specification (kept for context)
+**The answer to the open question above: a partially covered required seat is STILL
+SHORT.** Twelve of twenty-four hours does not count as covered; the alert names the
+uncovered window and the rig does not read "Staffed". Trade legality and the
+overtime board use the same rule.
 
-## 1. Time off and partial-day staffing
+**Absences.** `absence_code` (`PTO`/`SICK`/`FMLA`/`LTD`) + note + `absence_no_backfill`.
+An absence block **keeps its hours for payroll but covers no seat** — that is what
+makes minimum staffing honest. An "Off this tour" roster under the seats says who is
+off and why, so the board answers "is this rig staffed" and "where is everybody"
+separately rather than conflating them.
 
-**This is the SPEC's Phase 2 `Absence` model, extended.** Do not build it twice.
-The spec already calls for datetimes rather than dates (specifically so partial-day
-leave works against the 0800 shift-day boundary) and for an absence to open a
-coverage gap automatically. Oren's requirements add the seat behaviour:
+**The backfill prompt has no default.** As specified: a decision, never automatic.
+Answering "no" leaves the seat visibly short but keeps the hours off the overtime
+board, and that choice is a real column, not something re-derived.
 
-- A person works part of a tour and takes the rest as PTO — 12 on, 12 off. Needs a
-  **partial-day assignment**, not a whole-tour one.
-- Recording that must **prompt to create a 12-hour seat** for the uncovered half,
-  so the gap is explicit rather than implied.
-- Marking someone off for a **full 24** prompts the same question: add a seat to
-  backfill, or not. Not every absence needs backfilling — an engine carrying five
-  when it needs two does not.
-- So the prompt is a decision, never automatic: **"open a seat for this?" yes/no.**
+**Date ranges.** Time off is entered once across a range and expands to one row per
+tour, so a 48 stays two rows and payroll reads the hours right. It only touches
+dates the person was already scheduled on that unit — a date they were never on is
+skipped and counted, never invented.
 
-Implications the spec does not yet cover:
-- `Assignment` currently means "this person, this unit, this whole shift day". A
-  half-tour needs start/end times on the assignment, which touches staffing counts,
-  the seat filler, and anything that counts a day as one unit of work.
-- A 12-hour seat is a real seat for staffing purposes but not a whole one. Decide
-  whether minimum-staffing alerts treat a covered half-day as covered.
+**`LTD` is Light Duty, not long-term disability.** It is never picked from the
+dropdown: it is derived live from `Employee.light_duty_start`/`_end`, so changing or
+closing the range updates every affected tour with no re-entry. Its payroll is
+entered by admin. Light duty vacates operations seats the member was *already*
+assigned to — blocking the pickers alone left rigs reading as staffed by somebody
+who was off for two months.
+
+Still open on this section:
+- Confirm `SICK` and `FMLA` are chief-entered rather than HR-entered like `LTD`.
+- Whether a partially covered *optional* rider seat should surface anywhere.
 
 ## 2. Pay codes on the board
 
@@ -103,6 +103,28 @@ the department already has a controlled vocabulary for why someone is on a rig, 
 it is the one payroll uses. **Do not invent the cause taxonomy in the spec's §3.
 Use these codes.** That makes the QA/QI report reconcile with payroll by
 construction instead of by mapping.
+
+## 2b. Admin / light-duty scheduling — SHIPPED
+
+Built 2026-09-16 alongside §1, and the reason the tour shape moved onto the unit.
+
+- `Unit.schedule_class` (`operations`|`admin`), `tour_start_hour`, `tour_minutes`,
+  `weekdays[]`. Admin = 0800–1800, Mon–Thu. Nothing hard-codes 1440 any more.
+- Admin units are **deliberately excluded** from the daily operations board, the
+  printed sheet, staffing alerts, and the overtime and trade boards. They are
+  constant and follow none of the operations rules — no platoon, no mandatory
+  overtime, no PTO tour limits. They get their own "Admin" view.
+- `ADMIN` platoon and an `admin` qualification, so admin pick lists are not the
+  whole department. The qualification is person-held and merged forward on roster
+  re-import; the platoon never rotates and can never be forced by the 72-hour rule.
+- Templates: a rig's standing crew is keyed by platoon, an admin position's by a
+  single Mon–Thu key, so the two can never be mistaken for each other on a push.
+
+Still open:
+- Whether admin is one shared "Light Duty" unit (6 slots is right) or several named
+  posts (one unit each, so the board says *where* people are).
+- `admin` currently sits in the Credentials checkbox grid beside paramedic/EMT/
+  engineer/officer. Could be its own toggle beside "Supervisor access".
 
 ## 3. Printable daily schedule
 

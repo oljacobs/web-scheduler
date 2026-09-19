@@ -18,15 +18,92 @@ SUPERVISOR_TITLES=["Batt. Chief","Div. Chief","Captain","Lieutenant","MOF"]
 employeeTitleOptions=["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
 employeeRoles=["paramedic","emt","engineer","officer","admin"]   (these are CAPABILITIES / certs)
 RIDE_UP_CAPABILITIES=["officer","engineer"]   (medical is license-only, not ride-up-able)
-LICENSE_CAPABILITIES=["paramedic","emt"]  person-held, NOT rank-derived. Roster import MERGES
-  these forward instead of overwriting, so an in-app paramedic grant survives re-import.
+LICENSE_CAPABILITIES=["paramedic","emt"]
+PERSON_HELD_CAPABILITIES=[...LICENSE_CAPABILITIES,"admin"]  person-held, NOT rank-derived. Roster
+  import MERGES these forward instead of overwriting, so an in-app paramedic OR admin grant
+  survives re-import. Adding a person-held cap and forgetting this list silently wipes it.
+CAP_ADMIN="admin" — a QUALIFICATION, not a rank. Granted in-app when somebody moves to light
+  duty or an admin post; every Admin unit seat has cap:"admin". It is what keeps the whole
+  department out of admin pick lists. CAPABILITY_LABELS.admin = "admin qualified".
 unitTypes=["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue","Admin"]
 UNIT_POSITION_REQUIREMENTS: Record<type, {role,label,cap,required?}[]>  (CAPABILITY-based now)
   cap = required capability ("officer"|"engineer"|"paramedic"|"emt"), array = any-of, null = any rank
   required:false = optional rider seat (doesn't count toward minimum staffing)
   Engine = Officer(officer)+Engineer(engineer) required + FF1..3(null, optional)  -> min 2, up to 5
 GRAPH_SCOPES=["User.Read","User.ReadBasic.All"]; APP_CONFIG.schedulerApiScopes=["api://<clientId>/access_as_user"]
-views: day|week|month|admin; scheduleStatus: draft|published; shifts: A|B|C|ADMIN|null
+views: day|week|month|admin; scheduleStatus: draft|published
+PLATOONS: ROTATION_PLATOONS=["A","B","C"]; PLATOON_ADMIN="ADMIN"; ALL_PLATOONS=[...both]
+  ADMIN is a ROSTER GROUPING, never a rotation. getShiftForDate() comes from rotationPattern,
+  so no date can put it on duty, and mandatoryEligibleShift() reads ROTATION_PLATOONS so the
+  72-hour rule can never force an admin-platoon member onto a rig. Employee.shift is
+  max_length=10 for it (was 1 — "ADMIN" would not have fit).
+
+TIME BLOCKS (partial tours) — migration 0013:
+Assignment.start_minute/end_minute = MINUTES FROM THE UNIT'S TOUR START, so a full tour is
+  0..unit.tour_minutes and nothing ever wraps midnight. First 4 hrs = 0..240; last 20 = 240..1440.
+  unique_together is (employee,unit,date,start_minute) and the _write_state dedupe key matches —
+  the old 3-tuple made "first 4 on, back for the last 2" impossible at the schema level.
+On the wire they ride with the person like _pay/_src: `_start`, `_end`. A FULL TOUR SENDS
+  NEITHER, so a whole-day payload is byte-identical to pre-partial-shift and old clients work.
+SPA: blockOf(person,tour) / isFullTour / blockLabel(person,unit) / windowLabel(win,unit) /
+  blocksOverlap (HALF-OPEN: 1200-1200 is a handoff, not a conflict) / tourGaps(people,tour) /
+  tourCovered(people,tour) / minuteToClock(min,startHour) / minuteToTimeValue / timeValueToMinute.
+30-MINUTE SLOTS: SLOT_MINUTES=30, snapToSlot(), inputs are step="1800", durationLabel() prints
+  "4h"/"1.5h"/"20h". The department schedules in half hours; 0817 is a typo, not a shift.
+GOTCHA: blockOf must NOT default _start and _end INDEPENDENTLY. A junk _start beside a real
+  _end silently produced a four-hour block nobody typed. Either field unusable => whole block
+  reads as a FULL TOUR (same rule server-side in _parse_block).
+NAME COLLISION THAT ALREADY BIT: coverageGaps(startDate,days) is the OVERTIME scanner. The seat
+  helpers are tourGaps/tourCovered. A duplicate top-level `function` declaration silently wins
+  for the WHOLE FILE — mine hijacked every OT board call before it was renamed.
+
+PER-UNIT TOUR SHAPE (admin / light duty) — migration 0014:
+Unit gains scheduleClass ("operations"|"admin"), tourStartHour, tourMinutes, weekdays[] (Mon=0).
+  Admin = 0800-1800 (600 min), Mon-Thu [0,1,2,3]. NOTHING hard-codes 1440 any more — it asks the
+  unit: unitTourMinutes(unit) / unitTourStartHour(unit) / isAdminUnit(unit).
+  Ten hours FILLS an admin seat while the same block on a rig is still 14 hours short.
+visibleUnits() splits: operationsUnits() / adminUnits() / adminUnitsForDate(date). Admin units are
+  DELIBERATELY excluded from unitsForDate(), printableUnits(), staffing alerts, the overtime board
+  and the trade board — they are constant, follow none of the operations rules (no platoon, no
+  mandatory OT, no PTO tour limits) and mixing them in clogs operations scheduling.
+"Admin" view button -> renderAdminSchedule(range): the admin WEEK, Mon-Thu, plus an
+  "On light duty this week" roster. Fri-Sun render greyed "Not an admin day" rather than vanishing.
+UNIT_POSITION_REQUIREMENTS.Admin = 6 seats, cap:"admin", EVERY ONE required:false. An empty admin
+  position is normal, not a staffing failure — a required seat there would raise a danger alert
+  like an unstaffed engine. The board shows filled slots + ONE "Add person" row, not six dropdowns.
+Cross-unit overlap compares MINUTES FROM MIDNIGHT (absoluteBlock), not each unit's own offset.
+  Today both start at 0800 so the numbers agree; the moment one does not, an unconverted compare
+  declares somebody free when they are not.
+
+ABSENCES (PTO etc.) — migrations 0016/0017/0018:
+Assignment.absence_code ("PTO"|"SICK"|"FMLA"|"LTD") + absence_note + absence_no_backfill.
+  Wire: `_off`, `_offNote`, `_noFill`.
+AN ABSENCE BLOCK KEEPS ITS HOURS (payroll) BUT COVERS NO SEAT. That is what makes minimum
+  staffing honest: the rig reads SHORT and an "Off this tour" roster under the seats
+  (offRosterHtml) says who and why. assignPeopleToSeats pulls them out BEFORE seating.
+LTD IS LIGHT DUTY, not long-term disability. It is NEVER picked from the dropdown — it is
+  DERIVED live from the member's light-duty date range by lightDutyBlockFor(), carries
+  _derivedLightDuty and _noFill (nobody is called in for light duty; admin owns that payroll),
+  and gets no × because the date range owns it. An explicit PTO entry WINS over it.
+ABSENCE_REASONS (the pickable list) = PTO / SICK / FMLA only. Admin enters LTD payroll.
+An unknown absence code or platoon reads as WORKING / unassigned, NEVER as "off" — a typo must
+  not silently take somebody off a rig the board then reports as covered.
+Payroll CSV (/api/scheduler/assignments/export.csv) gained start,end,hours,absence,absence_note.
+  Without them payroll reads a 4-hour block, or PTO hours, as a full tour.
+"Open these hours for backfill?" has NO DEFAULT — the chief must answer. "No" leaves the seat
+  visibly short but keeps the hours off the OT board (the gap scanner skips no-fill windows).
+applyTimeOff({personId,unitId,from,to,start,end,reason,note,openForBackfill}) writes ONE ROW PER
+  TOUR across a date range, and only touches dates the person was ALREADY scheduled on that unit
+  — a date they were never on is skipped and counted, never invented. A 48 stays two rows.
+
+LIGHT DUTY (Employee) — migration 0015:
+light_duty_start / light_duty_end / light_duty_note. A DATE RANGE, not a flag: the board is built
+  weeks ahead, so a chief staffing three weeks out has to be stopped then, not only today.
+  Blank end = OPEN-ENDED on purpose ("nobody set a return date" must not read as back to full duty).
+onLightDuty(emp,date) / lightDutyReason(emp,date) / employeeAvailableForUnit(emp,unit,date).
+Blocking the PICKERS is not enough: somebody already on the schedule keeps filling those seats.
+  lightDutyBlockFor() vacates operations seats live from the range. Admin seats are untouched —
+  that is where they work. Dates only + a short operational note; NOT a medical record.
 
 PAY CODES (Paycom labor distribution, migration 0012):
 PayCode{code,description,group,commentRequired,commentPrompt,wantsPerson} — seeded by
@@ -50,6 +127,13 @@ VISIBILITY TOGGLE: PAY_UI.show (localStorage "d7fr-scheduler-pay-ui", per viewer
   default OFF) gates the EDITING controls only. #pay-codes-toggle in the toolbar
   flips it. A seat that already HAS a code always shows the read-only chip, on or
   off -- the toggle hides pickers, never data. Non-supervisors are read-only regardless.
+HOURS_UI.show (localStorage "d7fr-scheduler-hours-ui", per viewer, default OFF), same pattern as
+  PAY_UI. #hours-toggle gates the Split and "Time off" BUTTONS only. Hours a seat already has, the
+  red OPEN gap picker and the off-roster ALWAYS show — the toggle hides editing controls, never
+  staffing information.
+PAY CODES ARE PER BLOCK, NOT PER PERSON-DAY: every pay control carries data-pay-start and
+  updateAssignedPerson(date,unitId,personId,patch,startMinute) matches on it. Without it a chief
+  on TIFMAS 0800-1800 and back on the rig after had the code land on the wrong hours.
 FIELD-LEVEL SAVE FEEDBACK: the board has no Save button by design (every edit
   persists on change), which reads as "nothing happened" for a TYPED note. The note
   and for-who fields flash via flashPayFieldSaved(): green only when
@@ -85,11 +169,14 @@ SECOND GOTCHA, SAME FAMILY: resolvePerson() returns the live ROSTER record, whic
   mapped straight through it and printed an empty code column while the board showed
   codes fine (it reads the stored objects). Anything that resolvePerson()s an
   assignment before reading transport fields must merge them back explicitly.
-CSS TRAP: the global `input, select, textarea { width: 100% }` rule at styles.css:286
-  applies to CHECKBOXES. Any new checkbox row needs an explicit
-  `input[type="checkbox"] { width:16px; height:16px; flex-shrink:0 }` or the box
-  stretches the row and shoves its label to the far right. See .roster-check-label
-  and .print-unit-pick.
+CSS TRAP: the global `input, select, textarea { width: 100% }` rule applies to CHECKBOXES AND
+  RADIOS. Any new one needs an explicit width/height + flex:0 0 auto or the control grows as a
+  flex item and shoves its own label to the far edge of the row. This bit the time-off dialog's
+  radio groups. See .check-tile (now covers both) / .roster-check-label / .print-unit-pick.
+BOARD ORDER: byBoardOrder() falls back to ALPHABETICAL on a sortOrder tie, and mof115-unit-import.csv
+  has no sortOrder column — MOF115 imported at the default 100 and sorted by name among everything
+  else at 100. Manage -> Units now lists units IN board order with up/down arrows that RENUMBER the
+  whole list 1..N, so ties cannot recur. .unit-edit-row is grid auto 1fr auto (3 children).
 THESE CODES ARE THE OT "WHY" the Asst. Chief asked for — do not invent a cause
   taxonomy alongside them; MINSTAFF/EMREP/ERC/deployment codes already say it, and
   using them makes the QA/QI report reconcile with payroll by construction.
@@ -116,94 +203,8 @@ Employee{id, entraId?, name, shift(A|B|C|ADMIN|null), title, certs[], rideUp[], 
   status, lightDutyStart?, lightDutyEnd?, lightDutyNote?}
   certs = rank-derived capabilities; rideUp = acting quals ABOVE rank (subset of RIDE_UP_CAPABILITIES),
   stored separately so roster re-import never wipes it. pin removed (Entra auth only).
-SCHEDULING MODEL — three old assumptions that NO LONGER HOLD (2026-09-16, migrations 0013-0019).
-Code written against the old ones looks correct and is wrong:
-
-1. A TOUR IS NOT ALWAYS 24h AND AN ASSIGNMENT IS NOT ALWAYS THE WHOLE DAY.
-   Assignment.start_minute/end_minute = MINUTES FROM THE UNIT'S TOUR START, so a full tour is
-   0..unit.tour_minutes and nothing wraps midnight. unique_together is
-   (employee,unit,date,start_minute) and the _write_state dedupe key matches -- the old 3-tuple
-   made "first 4 on, back for the last 20" impossible at the schema level.
-   Wire: `_start`/`_end` on the person object. A FULL TOUR SENDS NEITHER, so a whole-day payload
-   is byte-identical to pre-partial-shift and old clients keep working.
-   Helpers: blockOf(person,tour) / isFullTour / blockLabel(person,unit) / windowLabel(win,unit) /
-   blocksOverlap (HALF-OPEN: 1200-1200 is a handoff, not a conflict) / tourGaps(people,tour) /
-   tourCovered(people,tour) / minuteToClock(min,startHour) / minuteToTimeValue / timeValueToMinute.
-   30-MIN SLOTS: SLOT_MINUTES=30, snapToSlot(), inputs step="1800", durationLabel() -> "4h"/"1.5h".
-   GOTCHA: blockOf must NOT default _start and _end INDEPENDENTLY -- junk in one produced a block
-   nobody typed. Either unusable => whole block reads as a FULL TOUR (same rule in _parse_block).
-   NAME COLLISION: coverageGaps(startDate,days) is the OVERTIME scanner. The seat helpers are
-   tourGaps/tourCovered. A duplicate top-level `function` silently wins for the WHOLE FILE.
-
-2. A SEAT IS COVERED BY A LIST OF PEOPLE, NOT ONE.
-   assignPeopleToSeats(unitType,people,unit,date) -> {seats,extra,off}; each seat is
-   {pos,person,people[],gaps[],covered}. `person` is the first block holder, kept so older call
-   sites work. READ `covered`, NOT `person`, for "is this seat done" -- a name on the row no
-   longer means the tour is covered. Staffed / trade legality / the OT board all read `covered`.
-   checkPositionStaffing(unit,people,positions,date) delegates to the same filler, so alerts and
-   the card can never disagree. A PARTIALLY COVERED required seat is STILL SHORT and the alert
-   names the open hours ("BC Position partially covered -- open 1200-0800").
-   DOUBLE-BOOKING IS OVERLAP-BASED: isBookedDuring(date,empId,window,ignoreUnitId,unit) over
-   assignedBlocksForDate(). 0800-1200 on B115 leaves you free 1200-0800 on B116. Cross-unit
-   comparison uses absoluteBlock() = MINUTES FROM MIDNIGHT, not each unit's own offset.
-
-3. SOMEBODY ON THE ROSTER FOR A DATE MAY NOT BE WORKING IT.
-   Assignment.absence_code (PTO|SICK|FMLA|LTD) + absence_note + absence_no_backfill.
-   Wire: `_off`/`_offNote`/`_noFill`.
-   AN ABSENCE KEEPS ITS HOURS (payroll) BUT COVERS NO SEAT -- that is what makes minimum staffing
-   honest. assignPeopleToSeats pulls them out BEFORE seating; offRosterHtml() renders an
-   "Off this tour" block under the seats saying who and why.
-   LTD IS LIGHT DUTY, not long-term disability. NEVER picked from the dropdown -- derived live by
-   lightDutyBlockFor() from Employee.light_duty_start/_end, carries _derivedLightDuty and _noFill
-   (nobody is called in for light duty; admin owns that payroll) and gets no x. An explicit PTO
-   entry WINS over it. ABSENCE_REASONS (pickable) = PTO/SICK/FMLA only.
-   An unknown absence code or platoon reads as WORKING/unassigned, NEVER "off" -- a typo must not
-   silently take somebody off a rig the board then reports as covered.
-   "Open these hours for backfill?" has NO DEFAULT. "No" leaves the seat short but keeps the hours
-   off the OT board (the gap scanner skips no-fill windows).
-   applyTimeOff({personId,unitId,from,to,start,end,reason,note,openForBackfill}) writes ONE ROW PER
-   TOUR across a range and only touches dates the person was ALREADY scheduled on that unit -- a
-   date they were never on is skipped and counted, never invented. A 48 stays two rows.
-   Payroll CSV gained start,end,hours,absence,absence_note.
-
-ADMIN / LIGHT DUTY (migration 0014): Unit.scheduleClass ("operations"|"admin"), tourStartHour,
-  tourMinutes, weekdays[] (Mon=0). Admin = 0800-1800 (600 min), Mon-Thu. NOTHING hard-codes 1440 --
-  unitTourMinutes(unit)/unitTourStartHour(unit)/isAdminUnit(unit). Ten hours FILLS an admin seat
-  while the same block on a rig is 14 hours short.
-  visibleUnits() splits into operationsUnits()/adminUnits()/adminUnitsForDate(date). Admin units are
-  DELIBERATELY excluded from unitsForDate(), printableUnits(), staffing alerts, the OT board and the
-  trade board -- they are constant and follow none of the operations rules. "Admin" view button ->
-  renderAdminSchedule(range). UNIT_POSITION_REQUIREMENTS.Admin = 6 seats, cap:"admin", ALL
-  required:false (an empty admin position is normal, not a staffing failure).
-  NEW-UNIT GRACE (_write_state): units created within NEW_UNIT_GRACE_MINUTES (60) are EXEMPT from
-  the prune. A client can only prune what it could have SEEN -- a unit made in Django admin had
-  never been in any payload and, having no assignments, nothing else protected it.
-
-PLATOONS: ROTATION_PLATOONS=["A","B","C"]; PLATOON_ADMIN="ADMIN"; ALL_PLATOONS=[...both].
-  ADMIN is a ROSTER GROUPING, never a rotation. getShiftForDate() comes from rotationPattern so no
-  date puts it on duty, and mandatoryEligibleShift() reads ROTATION_PLATOONS so the 72-hour rule can
-  never force an admin member onto a rig. Employee.shift is max_length=10 (was 1).
-CAP_ADMIN="admin" is a QUALIFICATION, not a rank -- granted in-app on a move to light duty or an
-  admin post; every Admin seat has cap:"admin". PERSON_HELD_CAPABILITIES=[...LICENSE_CAPABILITIES,
-  "admin"] is merged forward on roster re-import, or an in-app grant is silently wiped.
-HOURS_UI.show (localStorage "d7fr-scheduler-hours-ui", default OFF), same pattern as PAY_UI.
-  #hours-toggle gates the Split and "Time off" BUTTONS only. Existing hour chips, the red OPEN gap
-  picker and the off-roster ALWAYS show -- it hides editing controls, never staffing information.
-PAY CODES ARE PER BLOCK: every pay control carries data-pay-start and
-  updateAssignedPerson(date,unitId,personId,patch,startMinute) matches on it. Without it a chief on
-  TIFMAS 0800-1800 and back on the rig after had the code land on the wrong hours.
-TEMPLATE KEY: templateKeyForUnit(unit,date) -- a rig is keyed by the PLATOON on duty, an admin
-  position by the sentinel TEMPLATE_KEY_ADMIN, so the two can never be confused on a push.
-BOARD ORDER: byBoardOrder() falls back to ALPHABETICAL on a sortOrder tie, which is what buried
-  MOF115. Manage -> Units lists units IN board order with arrows that RENUMBER 1..N.
-CSS: the global `input,select,textarea{width:100%}` applies to RADIOS as well as checkboxes -- size
-  any new one explicitly or it grows as a flex item and shoves its own label to the far edge.
-
-Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],sortOrder,visible,crewMin?,crewMax?,
+Unit{id,name,type,minStaff,requiredCerts,onDemand,activeDates[],sortOrder,visible,
      scheduleClass,tourStartHour,tourMinutes,weekdays[]}
-  crewMin/crewMax (2026-09-16): per-unit crew size, null = type default. NEVER read
-  UNIT_POSITION_REQUIREMENTS[unit.type] directly -- use positionsForUnit(unit). Server only
-  writes crew_min/crew_max when the key is in the payload (_crew_fields).
   sortOrder = board order. Front-line 1..8 = BC115,MOF115,L115,E115,M115,M115B,E116,M116.
   Everything else defaults to 100 (sorts after, then by name). byBoardOrder() is the ONLY
   ordering — never trust state.units array order, it comes from the API.
@@ -231,7 +232,11 @@ OvertimePost{id,status(requested|open|awarded|closed),unitId,date,role,requiredC
 Capabilities / seats:
 personCapabilities(emp)=[...certs, ...rideUp]; seatAccepts(pos,emp) checks pos.cap vs caps (null=any)
 resolvePerson(p)=live employee by id (assignment snapshots resolved to current record)
-assignPeopleToSeats(unitType,people) greedy-fills seats (specific/required first) -> {seats,extra}
+assignPeopleToSeats(unitType,people,unit,date) greedy-fills seats -> {seats,extra,off}
+  A SEAT IS COVERED BY A LIST, not one person: split coverage (first 4, then a relief) is ONE seat
+  filled by two. Each seat is {pos, person, people[], gaps[], covered}. `person` is the first block
+  holder and exists so older call sites still work; `covered` is the honest answer to "is this seat
+  done" and is what Staffed / trade legality / the OT board read. `off` = absence blocks.
 seatDropdownOptions(pos,unit,date): active, seat-eligible, NOT assignedEmployeeIdsForDate(date)
   (no double-booking). Grouped into <optgroup> BY PLATOON, on-duty shift first, off-duty ones
   labelled "(overtime)" — a flat alphabetical list across all three shifts made a supervisor read
@@ -240,6 +245,11 @@ Seat ORDER in UNIT_POSITION_REQUIREMENTS is the DISPLAY order on the card. Ladde
   Driver before Officer while Engine listed Officer first; both now read Officer > Driver/Engineer
   > riders. Keep new unit types consistent.
   assignedEmployeeIdsForDate only counts assignments to EXISTING units (orphaned/deleted-unit ones ignored)
+DOUBLE-BOOKING IS OVERLAP-BASED, NOT DATE-BASED: isBookedDuring(date,empId,window,ignoreUnitId,unit)
+  over assignedBlocksForDate(). Somebody working 0800-1200 on B115 is genuinely free 1200-0800 on
+  B116. assignedEmployeeIdsForDate() survives for "on the schedule at all" questions only.
+On an ADMIN unit the picker groups the admin platoon FIRST and labels nothing "overtime" — an
+  admin day is not a rotation shift. Rig pickers are unchanged.
 
 Auth flow (MSAL):
 initMsal() silent (accts) -> loadRemoteStateAfterAuth() -> setAuthFromToken()
@@ -265,8 +275,10 @@ todayIso() = current Central date, rolled back to previous day before 08:00 (080
 addDays/formatDate etc. anchor at noon to avoid tz date-shift
 
 Staffing:
-getStaffingAlerts(date) -> checkPositionStaffing(unit,people,positions): greedy, capability-based;
-  only REQUIRED seats raise "danger" alerts (optional rider seats don't)
+getStaffingAlerts(date) -> checkPositionStaffing(unit,people,positions,date): delegates to the SAME
+  seat filler the card draws from, so alerts and the board can never disagree. Only REQUIRED seats
+  raise "danger". A PARTIALLY COVERED required seat is STILL SHORT and the alert names the open
+  hours ("BC Position partially covered — open 1200-0800").
 
 Units-per-date / on-demand service:
 unitRunsOn(unit,date) / unitsForDate(date) replace every old `unit.shift===getShiftForDate(date)`
@@ -358,6 +370,12 @@ previewTemplatePush(days) is a DRY RUN -> {created,replaced,skippedManual,noTemp
   applyTemplatePush(days) confirms with those numbers, writes, and logs ONE audit entry.
 Default horizon TEMPLATE_PUSH_DEFAULT_DAYS=180. Activating an on-demand unit PROMPTS to fill
   from that platoon's template (never silent).
+TEMPLATE KEY: templateKeyForUnit(unit,date) — a rig is keyed by the PLATOON on duty, an admin
+  position by the single sentinel TEMPLATE_KEY_ADMIN ("ADMIN") because it has no platoon and one
+  standing crew covers Mon-Thu. One keyspace, so a 48hr platoon crew and a 10hr admin crew can
+  never be mistaken for each other on a push. The platoon <select> is DISABLED for admin units and
+  the seat-save handler derives the key from the unit, not from state.templateShift.
+  previewTemplatePush walks [...unitsForDate(date), ...adminUnitsForDate(date)].
 Admin -> Templates tab: template-unit/template-shift/template-seats/template-push-*.
 renderTemplateEditor() OWNS the seat-select binding (calls attachTemplateSeatEvents at its end).
   It replaces template-seats innerHTML, which destroys the old listeners — the unit and platoon
@@ -371,6 +389,10 @@ BACKEND PRUNE GUARD (scheduler/views.py _write_state): a Unit/Employee missing f
   is deleted ONLY if it has no assignments; otherwise it is hidden/archived. Assignments are
   rebuilt only for units present in the payload. Deleting cascades to Assignment, and a stale
   browser tab wiped MOF115 twice before this existed — do not "simplify" it back.
+NEW-UNIT GRACE: units created within NEW_UNIT_GRACE_MINUTES (60) are EXEMPT from that prune. A
+  client can only prune what it could plausibly have SEEN — a unit made in Django admin minutes
+  ago has never been in any browser's payload, and having no assignments it had nothing else
+  protecting it, so the next autosave from an open tab DELETED it outright.
 
 Personal landing view (#personal-panel, on the SCHEDULE surface, role-dependent):
 renderPersonalPanel() -> renderEmployeeUpcoming() | renderSupervisorInbox().
