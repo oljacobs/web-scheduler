@@ -150,6 +150,7 @@
                   <button class="tab-button" data-tab="imports">Imports</button>
                   <button class="tab-button" data-tab="units">Units</button>
                   <button class="tab-button" data-tab="callback">Callback</button>
+                  <button class="tab-button" data-tab="accountability">Accountability</button>
                   <button class="tab-button" data-tab="templates">Templates</button>
                   <button class="tab-button hidden" data-tab="mandatory">Mandatory</button>
                 </div>
@@ -199,6 +200,30 @@
                     </div>
                   </div>
                   <div id="callback-history-list" class="stack-list"></div>
+                </div>
+
+                <div class="tab-pane hidden" data-tab-id="accountability">
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Staffing Accountability</h2>
+                      <p class="helper-text">Reports use captured schedule history. Later schedule edits do not change these results.</p>
+                    </div>
+                  </div>
+                  <div class="template-controls">
+                    <label>Start date<input id="snapshot-report-start" type="date" /></label>
+                    <label>End date<input id="snapshot-report-end" type="date" /></label>
+                    <label>Capture point
+                      <select id="snapshot-report-kind">
+                        <option value="shift_end">Shift ended</option>
+                        <option value="nightly">Nightly</option>
+                        <option value="published">Published</option>
+                      </select>
+                    </label>
+                    <button id="load-snapshot-report-btn" class="button button-primary">Load report</button>
+                  </div>
+                  <p id="snapshot-report-message" class="helper-text"></p>
+                  <div id="snapshot-report-summary" class="summary-grid"></div>
+                  <div id="snapshot-report-list" class="stack-list"></div>
                 </div>
 
                 <div class="tab-pane" data-tab-id="employees">

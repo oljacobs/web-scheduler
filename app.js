@@ -31,6 +31,7 @@ const state = {
   callbackAvailability: [],
   callbackCandidates: [],
   callbackHistory: [],
+  staffingReport: null,
   callbackSpecificTime: false,
   // Reference data pushed down by the server (never sent back up). Empty in
   // Supabase/localStorage mode, which is why every reader guards on it.
@@ -211,6 +212,7 @@ function cacheDom() {
     "mandatory-import-preview", "mandatory-summary",
     "callback-horizon-days", "save-callback-settings-btn", "callback-settings-message",
     "callback-candidate-start-date", "callback-candidate-end-date", "callback-candidate-start", "callback-candidate-end", "callback-candidate-cap", "callback-overtime-post", "callback-specific-time-toggle", "callback-specific-time-fields", "find-callback-candidates-btn", "callback-candidate-list", "callback-history-list",
+    "snapshot-report-start", "snapshot-report-end", "snapshot-report-kind", "load-snapshot-report-btn", "snapshot-report-message", "snapshot-report-summary", "snapshot-report-list",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -280,6 +282,7 @@ function wireEvents() {
   dom["mandatory-apply-btn"]?.addEventListener("click", applyMandatoryImport);
   dom["save-callback-settings-btn"]?.addEventListener("click", saveCallbackSettings);
   dom["find-callback-candidates-btn"]?.addEventListener("click", findCallbackCandidates);
+  dom["load-snapshot-report-btn"]?.addEventListener("click", loadStaffingReport);
   dom["callback-specific-time-toggle"]?.addEventListener("click", () => {
     state.callbackSpecificTime = !state.callbackSpecificTime;
     renderCallbackSettings();
@@ -341,6 +344,7 @@ function wireEvents() {
       dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
       dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
       if (state.activeAdminTab === "callback") loadCallbackHistory();
+      if (state.activeAdminTab === "accountability") loadStaffingReport();
       persistAppState("Admin tab switched");
     });
   });
@@ -709,6 +713,62 @@ function callbackApiUrl(path) {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/callback/${path}`;
 }
 
+function staffingSnapshotApiUrl(path) {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/staffing-snapshots/${path}`;
+}
+
+async function capturePublishedSnapshots(dates) {
+  if (!usesSchedulerApi()) return;
+  const response = await fetch(staffingSnapshotApiUrl("capture/"), {
+    method: "POST",
+    headers: await schedulerApiHeaders(),
+    body: JSON.stringify({ dates }),
+  });
+  if (!response.ok) throw new Error("The published schedule was saved, but its history snapshot could not be captured.");
+}
+
+function renderStaffingReport() {
+  const message = dom["snapshot-report-message"];
+  const summary = dom["snapshot-report-summary"];
+  const list = dom["snapshot-report-list"];
+  if (!message || !summary || !list) return;
+  const report = state.staffingReport;
+  if (!report) {
+    message.textContent = usesSchedulerApi() ? "Choose a date range to view captured schedule history." : "Accountability reports require the scheduler server connection.";
+    summary.innerHTML = "";
+    list.innerHTML = "";
+    return;
+  }
+  const totals = report.totals || {};
+  message.textContent = `Captured ${report.captureKind.replace("_", " ")} history from ${report.start} through ${report.end}.`;
+  summary.innerHTML = `
+    <div class="summary-card"><span>Unit snapshots</span><strong>${totals.unitSnapshots || 0}</strong></div>
+    <div class="summary-card"><span>Below minimum</span><strong>${totals.unitsBelowMinimum || 0}</strong></div>
+    <div class="summary-card"><span>Overtime hours</span><strong>${Number(totals.overtimeHours || 0).toFixed(1)}</strong></div>
+    <div class="summary-card"><span>Forced posts</span><strong>${totals.forcedOvertimePosts || 0}</strong></div>`;
+  list.innerHTML = (report.snapshots || []).map((row) => `<article class="queue-item"><div class="unit-card-header"><div><strong>${escapeHtml(row.unitName)}</strong><p class="helper-text">${escapeHtml(row.shiftDate)} · ${row.requiredStaff == null ? "Minimum not configured" : `${row.staffedCount}/${row.requiredStaff} staffed`} · ${Number(row.overtimeHours || 0).toFixed(1)} OT hours</p></div><span class="badge ${row.minimumStaffingMet === false ? "badge-danger" : "badge-soft"}">${row.minimumStaffingMet === false ? "Below minimum" : row.minimumStaffingMet === true ? "Minimum met" : "Not rated"}</span></div></article>`).join("") || "<p class=\"helper-text\">No captured snapshots match this range.</p>";
+}
+
+async function loadStaffingReport() {
+  if (!usesSchedulerApi() || state.currentRole !== "supervisor") return;
+  const start = dom["snapshot-report-start"]?.value || todayIso();
+  const end = dom["snapshot-report-end"]?.value || todayIso();
+  const captureKind = dom["snapshot-report-kind"]?.value || "shift_end";
+  if (dom["snapshot-report-start"]) dom["snapshot-report-start"].value = start;
+  if (dom["snapshot-report-end"]) dom["snapshot-report-end"].value = end;
+  try {
+    const query = new URLSearchParams({ start, end, captureKind });
+    const response = await fetch(`${staffingSnapshotApiUrl("report/")}?${query}`, { headers: await schedulerApiHeaders() });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not load the accountability report.");
+    state.staffingReport = data;
+  } catch (error) {
+    state.staffingReport = null;
+    showToast(error.message || "Could not load the accountability report.", "error");
+  }
+  renderStaffingReport();
+}
+
 async function loadCallbackSettings() {
   if (!usesSchedulerApi()) return;
   try {
@@ -740,7 +800,8 @@ async function loadCallbackHistory() {
     if (!response.ok) throw new Error(`Callback history load failed with status ${response.status}`);
     const data = await response.json();
     state.callbackHistory = Array.isArray(data.history) ? data.history : [];
-    renderCallbackSettings();
+  renderCallbackSettings();
+  renderStaffingReport();
   } catch (error) {
     console.warn("Callback history unavailable", error);
   }
@@ -3152,7 +3213,7 @@ function defaultCertsForTitle(title) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function handlePublish() {
+async function handlePublish() {
   if (state.currentRole !== "supervisor") {
     showToast("Supervisor sign-in required to publish schedules.", "error");
     return;
@@ -3175,7 +3236,17 @@ function handlePublish() {
   addAudit(`Published ${state.currentView} schedule anchored on ${formatDate(state.currentDate)} (${openSeats} unfilled required seats).`, currentUserName());
   createNotification(`Schedule published for ${formatDate(state.currentDate)}.`, "email", currentUserName());
   render();
-  persistAppState("Schedule published");
+  await persistAppState("Schedule published");
+  if (state.persistence.backend !== "api") {
+    showToast("Schedule history was not captured because the schedule did not save to the server.", "error");
+    return;
+  }
+  try {
+    await capturePublishedSnapshots(range);
+  } catch (error) {
+    console.error("Published snapshot capture failed", error);
+    showToast(error.message || "Schedule history capture failed. Please notify an officer.", "error");
+  }
 }
 
 

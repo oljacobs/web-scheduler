@@ -71,8 +71,10 @@ assigned to — blocking the pickers alone left rigs reading as staffed by someb
 who was off for two months.
 
 Still open on this section:
-- Confirm `SICK` and `FMLA` are chief-entered rather than HR-entered like `LTD`.
 - Whether a partially covered *optional* rider seat should surface anywhere.
+
+**Confirmed 2026-09-25:** officers/admin may enter SICK and FMLA schedule absences; FMLA payroll
+remains an admin-only decision.
 
 ## 2. Pay codes on the board
 
@@ -130,18 +132,19 @@ Built 2026-09-16 alongside §1, and the reason the tour shape moved onto the uni
   single Mon–Thu key, so the two can never be mistaken for each other on a push.
 
 Still open:
-- Whether admin is one shared "Light Duty" unit (6 slots is right) or several named
-  posts (one unit each, so the board says *where* people are).
 - `admin` currently sits in the Credentials checkbox grid beside paramedic/EMT/
   engineer/officer. Could be its own toggle beside "Supervisor access".
+
+**Confirmed 2026-09-25:** admin/light duty uses one shared unit with up to six spots.
 
 ## Active remaining bins
 
 1. **P2 — Printable shift sheet:** dedicated 48-hour print view with selected units, crew, pay codes,
    and notes.
 2. **P2 — App/IT feedback:** scheduler feedback capture with page and signed-in reporter context.
-3. **P2 — Staffing accountability:** immutable snapshots plus QA/accountability reporting using pay codes.
-   Capture on publish, at 08:00 shift start, and nightly; notify staffing once per 24 hours at 08:00.
+3. **P2 — Staffing accountability — built, pending production verification:** immutable snapshots plus
+   officer/ride-up accountability reporting using pay codes. Capture on publish, at 08:00 for the shift
+   ending, and nightly at 20:00 Central; enable the once-daily 08:00 digest only after a limited test.
 4. **P2 — Paycom readiness:** discovery first; then decide comment enforcement, uncertain code visibility,
    and any export.
 5. **P2 — Rescue seat order and naming:** Heavy Rescue is Officer → Engineer → Firefighter 1 →

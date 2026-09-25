@@ -123,9 +123,13 @@ not current build instructions unless this file says otherwise.
    including selected units, crew, pay codes, and notes.
 2. **P2 — App/IT feedback:** add scheduler-side feedback capture that records the page and signed-in
    reporter context.
-3. **P2 — Staffing accountability:** add immutable staffing snapshots and QA/accountability reporting
-   using approved pay-code vocabulary. Capture on publish, at the 08:00 shift start, and nightly;
-   send the staffing email only once per 24 hours at 08:00.
+3. **P2 — Staffing accountability — built, pending production verification:** immutable per-unit
+   `StaffingSnapshot` records are captured on publish, at 08:00 for the shift ending, and nightly at
+   20:00 Central. Admin → Accountability is officer/ride-up-officer only and reads snapshots, never
+   live schedule data. Run `run_staffing_snapshot_schedule` hourly on Railway so Central daylight-saving
+   time remains correct. The optional 08:00 staffing digest uses `DIGEST_RECIPIENTS`, is idempotent per
+   recipient/day, and remains disabled behind `STAFFING_DIGEST_ENABLED=False` until a limited test passes.
+   Use the sender's required `--source-id` test filter so a live test cannot process unrelated queued mail.
 4. **P2 — Paycom readiness:** complete Paycom discovery before deciding required-comment enforcement,
    uncertain code visibility, or any payroll export.
 5. **P2 — Rescue display order:** Heavy Rescue uses Officer → Engineer → Firefighter 1 → Firefighter 2;
@@ -136,8 +140,8 @@ not current build instructions unless this file says otherwise.
 
 ## Open operations decisions
 
-- Confirm whether SICK and FMLA are chief-entered or HR-entered, whether admin needs one shared light-duty
-  unit or named posts, and callback ranking/cycle/decline policy.
+- Officers/admin may enter SICK and FMLA schedule absences; FMLA payroll remains admin-only. Light duty
+  uses one shared six-seat admin unit. Confirm callback ranking/cycle/decline policy.
 - Confirm and test a Railway PostgreSQL backup/restore process.
 - Mandatory escalation is retired and must not be built or re-enabled without an explicit leadership decision.
 
