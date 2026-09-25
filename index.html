@@ -210,15 +210,20 @@
                   </div>
                   <p id="callback-settings-message" class="helper-text"></p>
                   <div class="template-push">
-                    <label>Start<input id="callback-candidate-start" type="datetime-local" /></label>
-                    <label>End<input id="callback-candidate-end" type="datetime-local" /></label>
+                    <label>Start date<input id="callback-candidate-start-date" type="date" /></label>
+                    <label>End date<input id="callback-candidate-end-date" type="date" /></label>
                     <label>Required qualification
                       <select id="callback-candidate-cap"><option value="">Any qualified rider</option><option value="officer">Officer</option><option value="engineer">Driver/Engineer</option><option value="paramedic">Paramedic</option><option value="emt">EMT</option></select>
                     </label>
                     <label>Overtime opening (optional)
                       <select id="callback-overtime-post"><option value="">Record only</option></select>
                     </label>
+                    <button id="callback-specific-time-toggle" class="button button-secondary">Use specific hours</button>
                     <button id="find-callback-candidates-btn" class="button button-secondary">Find candidates</button>
+                  </div>
+                  <div id="callback-specific-time-fields" class="template-controls hidden">
+                    <label>Specific start<input id="callback-candidate-start" type="datetime-local" /></label>
+                    <label>Specific end<input id="callback-candidate-end" type="datetime-local" /></label>
                   </div>
                   <div id="callback-candidate-list" class="stack-list"></div>
                 </div>

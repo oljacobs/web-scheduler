@@ -22,14 +22,17 @@ write path is too broad for restricted or member-owned callback data. The SPA Ad
 tab manages only the sign-up horizon; it does not yet collect availability.
 
 CALLBACK AVAILABILITY (P1 Bins 3–6): `CallbackAvailability` belongs to one roster Employee and
-stores aware `start_at`/`end_at`, active/withdrawn status, and timestamps. Members access only
-their own rows through targeted endpoints; the server rejects past, out-of-window, and overlapping
-active blocks. `CallbackCandidatesView` is officer-only and returns only active roster members
-whose block fully covers the requested time, holds the requested capability (including ride-up),
-and does not overlap a real non-absence Assignment. `CallbackContactAttempt` stores officer,
-outcome, optional 300-character note, and optional overtime post. Accepting a callback candidate
-adds them to an existing open/requested `OvertimePost.applicants` list; it does NOT award the
-shift or send a new notification, preserving normal voluntary-OT workflow and notifications.
+stores aware `start_at`/`end_at`, active/withdrawn status, and timestamps. The member UI accepts
+an inclusive date span only: each date maps to one full 0800–0800 shift day. Members access only
+their own rows through targeted endpoints; the server rejects expired, out-of-window, and
+overlapping active blocks. Officer callback search defaults to the same full-shift range and only
+shows date/time inputs after they choose specific hours. `CallbackCandidatesView` is officer-only
+and returns only active roster members whose block fully covers the requested time, holds the
+requested capability (including ride-up), and does not overlap a real non-absence Assignment.
+`CallbackContactAttempt` stores officer, outcome, optional 300-character note, and optional
+overtime post. Accepting a callback candidate adds them to an existing open/requested
+`OvertimePost.applicants` list; it does NOT award the shift or send a new notification, preserving
+normal voluntary-OT workflow and notifications.
 
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,

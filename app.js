@@ -30,6 +30,7 @@ const state = {
   callbackSettings: { horizonDays: 21, updatedAt: null },
   callbackAvailability: [],
   callbackCandidates: [],
+  callbackSpecificTime: false,
   // Reference data pushed down by the server (never sent back up). Empty in
   // Supabase/localStorage mode, which is why every reader guards on it.
   payCodes: [],
@@ -208,7 +209,7 @@ function cacheDom() {
     "mandatory-preview-btn", "mandatory-apply-btn", "mandatory-import-message",
     "mandatory-import-preview", "mandatory-summary",
     "callback-horizon-days", "save-callback-settings-btn", "callback-settings-message",
-    "callback-candidate-start", "callback-candidate-end", "callback-candidate-cap", "callback-overtime-post", "find-callback-candidates-btn", "callback-candidate-list",
+    "callback-candidate-start-date", "callback-candidate-end-date", "callback-candidate-start", "callback-candidate-end", "callback-candidate-cap", "callback-overtime-post", "callback-specific-time-toggle", "callback-specific-time-fields", "find-callback-candidates-btn", "callback-candidate-list",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -278,6 +279,10 @@ function wireEvents() {
   dom["mandatory-apply-btn"]?.addEventListener("click", applyMandatoryImport);
   dom["save-callback-settings-btn"]?.addEventListener("click", saveCallbackSettings);
   dom["find-callback-candidates-btn"]?.addEventListener("click", findCallbackCandidates);
+  dom["callback-specific-time-toggle"]?.addEventListener("click", () => {
+    state.callbackSpecificTime = !state.callbackSpecificTime;
+    renderCallbackSettings();
+  });
   dom["coverage-shift"]?.addEventListener("change", (e) => {
     state.coverageShift = e.target.value;
     renderCoveragePanel();
@@ -738,6 +743,11 @@ function renderCallbackSettings() {
   message.textContent = available
     ? "Members will be able to enter availability through the selected window once callback sign-up launches."
     : "Callback settings require the scheduler server connection.";
+  const defaultDate = todayIso();
+  if (!dom["callback-candidate-start-date"].value) dom["callback-candidate-start-date"].value = defaultDate;
+  if (!dom["callback-candidate-end-date"].value) dom["callback-candidate-end-date"].value = defaultDate;
+  dom["callback-specific-time-fields"].classList.toggle("hidden", !state.callbackSpecificTime);
+  dom["callback-specific-time-toggle"].textContent = state.callbackSpecificTime ? "Use full shift day" : "Use specific hours";
   const posts = (state.overtimePosts || []).filter((post) => ["open", "requested"].includes(post.status));
   dom["callback-overtime-post"].innerHTML = `<option value="">Record only</option>${posts.map((post) => `<option value="${escapeHtml(post.id)}">${escapeHtml(unitLabel(post.unitId))} — ${escapeHtml(post.role || "open seat")} — ${escapeHtml(formatDate(post.date))}</option>`).join("")}`;
   dom["callback-candidate-list"].innerHTML = (state.callbackCandidates || []).map((row) => `<article class="queue-item"><div class="unit-card-header"><div><strong>${escapeHtml(row.employee.name)}</strong><p class="helper-text">${escapeHtml(row.employee.title || "—")} · ${escapeHtml(row.employee.shift || "—")} Shift</p></div><span class="button-row"><button class="button button-primary button-small" data-callback-accept="${row.id}">Accepted</button><button class="button button-secondary button-small" data-callback-outcome="declined" data-callback-availability="${row.id}">Declined</button><button class="button button-secondary button-small" data-callback-outcome="no_answer" data-callback-availability="${row.id}">No answer</button><button class="button button-secondary button-small" data-callback-outcome="unavailable" data-callback-availability="${row.id}">Unavailable</button></span></div></article>`).join("") || "<p class=\"helper-text\">Choose a time window to find callback candidates.</p>";
@@ -746,10 +756,13 @@ function renderCallbackSettings() {
 }
 
 async function findCallbackCandidates() {
-  const start = dom["callback-candidate-start"]?.value;
-  const end = dom["callback-candidate-end"]?.value;
-  if (!start || !end) return showToast("Choose a start and end time.", "error");
-  const query = new URLSearchParams({ startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString(), requiredCap: dom["callback-candidate-cap"].value });
+  const start = state.callbackSpecificTime ? dom["callback-candidate-start"]?.value : dom["callback-candidate-start-date"]?.value;
+  const end = state.callbackSpecificTime ? dom["callback-candidate-end"]?.value : dom["callback-candidate-end-date"]?.value;
+  if (!start || !end) return showToast(state.callbackSpecificTime ? "Choose a start and end time." : "Choose a start and end date.", "error");
+  const range = state.callbackSpecificTime
+    ? { startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() }
+    : callbackShiftDateRange(start, end);
+  const query = new URLSearchParams({ ...range, requiredCap: dom["callback-candidate-cap"].value });
   try {
     const response = await fetch(`${callbackApiUrl("candidates/")}?${query}`, { headers: await schedulerApiHeaders() });
     const data = await response.json();
@@ -814,17 +827,18 @@ async function submitCallbackAvailability() {
     showToast("Callback availability requires the scheduler server connection.", "error");
     return;
   }
-  const startInput = document.getElementById("callback-start-at");
-  const endInput = document.getElementById("callback-end-at");
+  const startInput = document.getElementById("callback-start-date");
+  const endInput = document.getElementById("callback-end-date");
   if (!startInput?.value || !endInput?.value) {
-    showToast("Choose both a start and end time.", "error");
+    showToast("Choose both a start and end date.", "error");
     return;
   }
+  const range = callbackShiftDateRange(startInput.value, endInput.value);
   try {
     const response = await fetch(callbackAvailabilityUrl(), {
       method: "POST",
       headers: await schedulerApiHeaders(),
-      body: JSON.stringify({ startAt: new Date(startInput.value).toISOString(), endAt: new Date(endInput.value).toISOString() }),
+      body: JSON.stringify(range),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Could not add availability.");
@@ -834,6 +848,13 @@ async function submitCallbackAvailability() {
   } catch (error) {
     showToast(error.message || "Could not add availability.", "error");
   }
+}
+
+function callbackShiftDateRange(startDate, endDate) {
+  const startAt = new Date(`${startDate}T08:00:00`);
+  const endAt = new Date(`${endDate}T08:00:00`);
+  endAt.setDate(endAt.getDate() + 1);
+  return { startAt: startAt.toISOString(), endAt: endAt.toISOString() };
 }
 
 async function withdrawCallbackAvailability(id) {
@@ -3770,19 +3791,29 @@ function renderEmployeeUpcoming() {
 function renderCallbackAvailability() {
   const rows = (state.callbackAvailability || []).filter((row) => row.status === "active");
   const list = rows.length
-    ? rows.map((row) => `<div class="personal-row"><span>${escapeHtml(new Date(row.startAt).toLocaleString())} — ${escapeHtml(new Date(row.endAt).toLocaleString())}</span><button class="button button-secondary button-small" data-withdraw-callback="${row.id}">Withdraw</button></div>`).join("")
+    ? rows.map((row) => `<div class="personal-row"><span>${escapeHtml(callbackDateSpanLabel(row))}</span><button class="button button-secondary button-small" data-withdraw-callback="${row.id}">Withdraw</button></div>`).join("")
     : '<p class="helper-text">No callback availability submitted.</p>';
   const horizon = state.callbackSettings.horizonDays || 21;
   return `<div class="personal-section">
     <h3>Callback availability</h3>
-    <p class="helper-text">Submit a time you can be called for overtime. You may add availability up to ${horizon} days ahead.</p>
+    <p class="helper-text">Submit the dates you are available for callback. Each date covers the full 0800–0800 shift day. You may add availability up to ${horizon} days ahead.</p>
     <div class="template-controls">
-      <label>Start<input id="callback-start-at" type="datetime-local" required /></label>
-      <label>End<input id="callback-end-at" type="datetime-local" required /></label>
+      <label>Start date<input id="callback-start-date" type="date" required /></label>
+      <label>End date<input id="callback-end-date" type="date" required /></label>
       <button class="button button-primary" id="add-callback-availability-btn">Add availability</button>
     </div>
     <div class="stack-list">${list}</div>
   </div>`;
+}
+
+function callbackDateSpanLabel(row) {
+  const start = new Date(row.startAt);
+  const end = new Date(row.endAt);
+  end.setDate(end.getDate() - 1);
+  const options = { month: "short", day: "numeric", year: "numeric" };
+  const startLabel = start.toLocaleDateString("en-US", options);
+  const endLabel = end.toLocaleDateString("en-US", options);
+  return startLabel === endLabel ? startLabel : `${startLabel} – ${endLabel}`;
 }
 
 // Only gaps that have ALREADY been pushed out and have someone waiting. This is
