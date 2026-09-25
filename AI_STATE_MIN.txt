@@ -65,6 +65,9 @@ P2 — standardize Heavy Rescue seat order to Officer → Engineer → Firefight
   and use the display label “Engineer” everywhere instead of “Driver/Engineer.” Attack and Brush
   remain wildland apparatus, not Rescue.
 P3 — audit and replace visible “platoon” wording only; do not rename internal data or APIs.
+P3 — email identities: retain the generic D7FR Scheduler sender with category subject prefixes now;
+  later create dedicated shared mailboxes (Scheduling and Operations/Compliance), scope Graph access
+  to only those mailboxes, and map notification categories to the correct sender.
 Operations decisions — officers/admin may enter SICK and FMLA schedule absences; FMLA payroll remains
 admin-only. Light duty uses one shared six-seat admin unit. Still decide callback ranking/cycle/decline
 policy and test a Railway Postgres backup/restore process. Mandatory escalation is retired, not active work.

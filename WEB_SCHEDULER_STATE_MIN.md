@@ -137,6 +137,9 @@ not current build instructions unless this file says otherwise.
    apparatus, not Rescue.
 6. **P3 — Vocabulary cleanup:** replace visible “platoon” wording with A/B/C Shift only; do not rename
    internal fields, API values, or database data.
+7. **P3 — Email identities:** current emails use category prefixes such as `[OT]`, `[STAFFING]`, `[IT]`,
+   and `[STATION]`. Later add dedicated shared mailboxes for Scheduling and Operations/Compliance,
+   scope Graph access to only those mailboxes, and map categories to the sender.
 
 ## Open operations decisions
 

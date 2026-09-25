@@ -151,6 +151,9 @@ Still open:
    Firefighter 2. Replace visible “Driver/Engineer” with “Engineer” everywhere; Attack and Brush
    remain wildland apparatus.
 6. **P3 — Vocabulary cleanup:** visible “platoon” copy only; no internal rename or migration.
+7. **P3 — Email identities:** category subject prefixes ship now. Later create dedicated shared mailboxes
+   for Scheduling and Operations/Compliance, scope Graph access to only those mailboxes, and map
+   notification categories to the correct sender.
 
 ## Historical detail
 
