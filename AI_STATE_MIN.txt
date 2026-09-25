@@ -89,15 +89,17 @@ selectedEmployeeId, employeeDraft, persistence{backend,status,hasRemote,isSaving
 Canonical enums/constants:
 SUPERVISOR_TITLES=["Batt. Chief","Div. Chief","Captain","Lieutenant","MOF"]
 employeeTitleOptions=["Batt. Chief","Div. Chief","Captain","Lieutenant","Engineer","MOF","FF/EMTP","FF/EMT"]
-employeeRoles=["paramedic","emt","engineer","officer","admin"]   (these are CAPABILITIES / certs)
-RIDE_UP_CAPABILITIES=["officer","engineer"]   (medical is license-only, not ride-up-able)
+employeeRoles=["paramedic","emt","engineer","officer","mof","admin"]   (these are CAPABILITIES / certs)
+RIDE_UP_CAPABILITIES=["officer","engineer","mof"]   (acting MOF is allowed; medical licenses remain license-only)
 LICENSE_CAPABILITIES=["paramedic","emt"]
-PERSON_HELD_CAPABILITIES=[...LICENSE_CAPABILITIES,"admin"]  person-held, NOT rank-derived. Roster
-  import MERGES these forward instead of overwriting, so an in-app paramedic OR admin grant
+PERSON_HELD_CAPABILITIES=[...LICENSE_CAPABILITIES,"mof","admin"]  person-held, NOT rank-derived. Roster
+  import MERGES these forward instead of overwriting, so an in-app paramedic, MOF, OR admin grant
   survives re-import. Adding a person-held cap and forgetting this list silently wipes it.
 CAP_ADMIN="admin" — a QUALIFICATION, not a rank. Granted in-app when somebody moves to light
   duty or an admin post; every Admin unit seat has cap:"admin". It is what keeps the whole
   department out of admin pick lists. CAPABILITY_LABELS.admin = "admin qualified".
+CAP_MOF="mof" — a person-held medical-officer qualification, granted directly or through
+  `rideUp`; it authorizes the student-rider workflow and survives roster re-import.
 unitTypes=["Engine","Ladder","Medic","Batt","MOF","Tender","Brush","Rescue","Admin"]
 UNIT_POSITION_REQUIREMENTS: Record<type, {role,label,cap,required?}[]>  (CAPABILITY-based now)
   cap = required capability ("officer"|"engineer"|"paramedic"|"emt"), array = any-of, null = any rank

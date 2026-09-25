@@ -18,8 +18,8 @@ AI_STATE_MIN.txt carries the detail. Headlines, because they change assumptions 
 - ABSENCES (PTO/SICK/FMLA, plus derived LTD = light duty) keep their hours for payroll but COVER
   NO SEAT, so the rig reads short and an "Off this tour" roster says who and why.
 - Platoons are now A|B|C|ADMIN. ADMIN never rotates and is never forced by the 72-hour rule.
-- "admin" is a person-held CAPABILITY gating admin seats; it must be merged forward on roster
-  re-import (PERSON_HELD_CAPABILITIES) or it is silently wiped.
+- "admin" and "mof" are person-held CAPABILITIES; both must be merged forward on roster re-import
+  (PERSON_HELD_CAPABILITIES) or they are silently wiped. `mof` may also be granted as ride-up.
 - Everything is scheduled in 30-MINUTE increments; durations read as "4h"/"1.5h"/"20h".
 === end 2026-09 update ===
 
@@ -83,8 +83,8 @@ COMMON ENTITY SHAPES
   { id, entraId?, name, shift (A|B|C|ADMIN|null), title, certs[], rideUp[], email, isSupervisor,
     status, lightDutyStart?, lightDutyEnd?, lightDutyNote? }
   NOTE: `pin` removed — auth is now Entra ID only
-  certs[] = rank-derived capabilities PLUS person-held ones ("paramedic","emt","admin");
-  rideUp[] = acting quals above rank (subset of ["officer","engineer"]), stored separately so
+  certs[] = rank-derived capabilities PLUS person-held ones ("paramedic","emt","mof","admin");
+  rideUp[] = acting quals above rank (subset of ["officer","engineer","mof"]), stored separately so
   roster re-import never wipes it. PERSON_HELD_CAPABILITIES is merged forward on re-import.
   lightDuty* is a DATE RANGE (blank end = open-ended). Dates + a short operational note only —
   never a medical detail.
@@ -111,8 +111,8 @@ IMPORTANT TOP-LEVEL CONSTANTS
   required:false = optional rider seat. Engine = Officer+Engineer required + FF1..3 optional (min 2, up to 5)
   Positions listed most-restrictive-first for greedy matching in assignPeopleToSeats()/checkPositionStaffing()
   eligibility: seatAccepts(pos, emp) via personCapabilities(emp) = [...certs, ...rideUp]
-- employeeRoles: ["paramedic","emt","engineer","officer","admin"]
-- PERSON_HELD_CAPABILITIES: ["paramedic","emt","admin"] — merged forward on roster re-import
+- employeeRoles: ["paramedic","emt","engineer","officer","mof","admin"]
+- PERSON_HELD_CAPABILITIES: ["paramedic","emt","mof","admin"] — merged forward on roster re-import
 - ROTATION_PLATOONS ["A","B","C"] / PLATOON_ADMIN "ADMIN" / ALL_PLATOONS
 - SLOT_MINUTES 30, TOUR_MINUTES 1440, ADMIN_TOUR_MINUTES 600, WEEKDAYS_MON_THU [0,1,2,3]
 - ABSENCE_REASONS (pickable): PTO / SICK / FMLA. ABSENCE_LIGHT_DUTY "LTD" is derived, not picked.

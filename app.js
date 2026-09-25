@@ -79,7 +79,8 @@ const lastNames = [
 // light duty or an admin post, and required by every seat on an Admin unit. It is
 // what keeps the whole department out of those pick lists.
 const CAP_ADMIN = "admin";
-const employeeRoles = ["paramedic", "emt", "engineer", "officer", CAP_ADMIN];
+const CAP_MOF = "mof";
+const employeeRoles = ["paramedic", "emt", "engineer", "officer", CAP_MOF, CAP_ADMIN];
 // Medical LICENSES are held by the person, not granted by rank. The roster
 // spreadsheet only knows rank, so a re-import must never strip a license that
 // was granted in-app (e.g. an Engineer who is also a paramedic).
@@ -87,7 +88,7 @@ const LICENSE_CAPABILITIES = ["paramedic", "emt"];
 // Everything a PERSON holds rather than a rank grants. The roster spreadsheet
 // knows only rank, so each of these must be merged forward on a re-import or an
 // in-app grant is silently wiped -- the admin qualification included.
-const PERSON_HELD_CAPABILITIES = [...LICENSE_CAPABILITIES, CAP_ADMIN];
+const PERSON_HELD_CAPABILITIES = [...LICENSE_CAPABILITIES, CAP_MOF, CAP_ADMIN];
 // "Admin" is last because it is not an apparatus: it is the 10hr Mon-Thu
 // admin / light-duty position type. See UNIT_POSITION_REQUIREMENTS.Admin.
 const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue", "Admin"];
@@ -155,9 +156,9 @@ const UNIT_POSITION_REQUIREMENTS = {
 
 // Readable names for capabilities, used in staffing-alert messages.
 const CAPABILITY_LABELS = { officer: "officer", engineer: "driver/engineer",
-  paramedic: "paramedic", emt: "EMT", [CAP_ADMIN]: "admin qualified" };
+  paramedic: "paramedic", emt: "EMT", [CAP_MOF]: "medical officer", [CAP_ADMIN]: "admin qualified" };
 // Which capabilities can be granted as ride-up (medical licenses cannot).
-const RIDE_UP_CAPABILITIES = ["officer", "engineer"];
+const RIDE_UP_CAPABILITIES = ["officer", "engineer", CAP_MOF];
 
 let msalInstance = null;
 const GRAPH_SCOPES = ["User.Read", "User.ReadBasic.All"];
@@ -2060,7 +2061,7 @@ function renderEmployeeRoster() {
   if (sort === "name") {
     employees.sort((a, b) => a.name.localeCompare(b.name));
   } else if (sort === "cert") {
-    const certOrder = { officer: 0, paramedic: 1, engineer: 2, emt: 3 };
+  const certOrder = { officer: 0, [CAP_MOF]: 1, paramedic: 2, engineer: 3, emt: 4 };
     employees.sort((a, b) => {
       const aLevel = Math.min(...a.certs.map((c) => certOrder[c] ?? 99));
       const bLevel = Math.min(...b.certs.map((c) => certOrder[c] ?? 99));
@@ -2180,7 +2181,7 @@ function renderEmployeeEditor() {
           ${employeeRoles.map((role) => `
             <label class="check-tile">
               <input type="checkbox" class="employee-cert-toggle" value="${role}" ${draft.certs.includes(role) ? "checked" : ""} />
-              <span>${capitalize(role)}</span>
+              <span>${CAPABILITY_LABELS[role] || capitalize(role)}</span>
             </label>
           `).join("")}
         </div>
@@ -2192,7 +2193,7 @@ function renderEmployeeEditor() {
           ${RIDE_UP_CAPABILITIES.map((cap) => `
             <label class="check-tile">
               <input type="checkbox" class="employee-rideup-toggle" value="${cap}" ${(draft.rideUp || []).includes(cap) ? "checked" : ""} />
-              <span>Acting ${cap === "engineer" ? "Driver/Engineer" : capitalize(cap)}</span>
+              <span>Acting ${CAPABILITY_LABELS[cap] || capitalize(cap)}</span>
             </label>
           `).join("")}
         </div>
