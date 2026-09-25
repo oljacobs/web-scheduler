@@ -24,6 +24,9 @@ const state = {
   unitImportPreview: null,
   rosterImportPreview: null,
   assignments: {},
+  // Server-owned feature switches. Mandatory/forced overtime is off by default
+  // until the callback-availability workflow replaces it.
+  schedulerFeatures: { mandatoryBackfill: false },
   // Reference data pushed down by the server (never sent back up). Empty in
   // Supabase/localStorage mode, which is why every reader guards on it.
   payCodes: [],
@@ -640,6 +643,7 @@ function migratePersistedUnitTypes(units) {
 // ─── Render ──────────────────────────────────────────────────────────────────
 
 function render() {
+  syncMandatoryBackfillFeature();
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
   // Default to the fiscal year people are picking for: after Oct 1 that's the
@@ -668,10 +672,25 @@ function render() {
   renderCoveragePanel();
   renderTradeBoard();
   renderPersonalPanel();
-  renderMandatoryImportPreview();
-  renderMandatorySummary();
+  if (mandatoryBackfillEnabled()) {
+    renderMandatoryImportPreview();
+    renderMandatorySummary();
+  }
   renderDrawerBadge();
   renderTemplateEditor();   // binds its own seat events
+}
+
+function mandatoryBackfillEnabled() {
+  return state.schedulerFeatures?.mandatoryBackfill === true;
+}
+
+function syncMandatoryBackfillFeature() {
+  const enabled = mandatoryBackfillEnabled();
+  const tab = dom.tabButtons.find((button) => button.dataset.tab === "mandatory");
+  const pane = dom.tabPanes.find((item) => item.dataset.tabId === "mandatory");
+  tab?.classList.toggle("hidden", !enabled);
+  pane?.classList.toggle("hidden", !enabled || state.activeAdminTab !== "mandatory");
+  if (!enabled && state.activeAdminTab === "mandatory") state.activeAdminTab = "employees";
 }
 
 // Passive reassurance in place of the old "Save Supervisor Edits" button.
@@ -3028,7 +3047,7 @@ function renderCoveragePanel() {
 
       // Force-in only appears once a gap has been announced and nobody took it —
       // it should never be the first move.
-      const forceable = isSupervisor && post?.notifiedAt && !posted.length;
+      const forceable = mandatoryBackfillEnabled() && isSupervisor && post?.notifiedAt && !posted.length;
       const action = isSupervisor
         ? `<button class="button button-secondary button-small" data-notify-gap="${gap.key}">
              ${post?.notifiedAt ? "Re-send" : "Notify"}
@@ -3864,6 +3883,10 @@ function forceCandidatesForGap(gap) {
 }
 
 function forceInToGap(gapKeyStr, gaps) {
+  if (!mandatoryBackfillEnabled()) {
+    showToast("Mandatory backfill is disabled. Use the callback list when it is available.", "error");
+    return;
+  }
   if (state.currentRole !== "supervisor") {
     showToast("Supervisor sign-in required to force staffing.", "error");
     return;
@@ -6395,6 +6418,9 @@ function applyPersistedState(data) {
   }
   state.staffingTemplates = Array.isArray(data.staffingTemplates) ? data.staffingTemplates : [];
   state.mandatoryBackfill = Array.isArray(data.mandatoryBackfill) ? data.mandatoryBackfill : [];
+  if (data.schedulerFeatures && typeof data.schedulerFeatures === "object") {
+    state.schedulerFeatures = { ...state.schedulerFeatures, ...data.schedulerFeatures };
+  }
   state.shiftDebts = Array.isArray(data.shiftDebts) ? data.shiftDebts : [];
   state.employees = Array.isArray(data.employees) ? data.employees : [];
   state.trades = Array.isArray(data.trades) ? data.trades : [];

@@ -81,6 +81,11 @@ not current build instructions unless this file says otherwise.
   and use the list. Calling records accepted/declined/no-answer/unavailable outcomes; notes are
   optional so the field workflow remains quick. Keep normal voluntary-OT notification email routes;
   hide the mandatory UI and deactivate only mandatory/forced email routes without deleting history.
+  **Bin 1 implemented, pending production verification:**
+  `SCHEDULER_MANDATORY_BACKFILL_ENABLED` defaults to false; the API hides existing mandatory
+  picks without deleting them, cached clients cannot create forced posts/assignments, and the
+  sender marks queued mandatory-overtime emails skipped. Do not enable this flag without an
+  explicit decision to restore the retired flow.
 - **Vocabulary cleanup:** user-facing copy must say `A Shift`, `B Shift`, `C Shift` (or `Shift A`,
   etc.), not “platoon.” This is display-only: do not rename the internal `platoon` fields,
   constants, API values, database values, or scheduling logic without a separate migration plan.

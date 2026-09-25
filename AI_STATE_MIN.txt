@@ -4,6 +4,14 @@ BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
 APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
 fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
 
+MANDATORY BACKFILL RETIRED (callback availability replaces it):
+`SCHEDULER_MANDATORY_BACKFILL_ENABLED` defaults FALSE. `/state/` returns
+`schedulerFeatures.mandatoryBackfill=false` and no picks while preserving historical
+`MandatoryBackfill` rows. The SPA hides its tab and Force button. Cached clients cannot
+write forced posts/assignments, and `send_queued_notifications` skips queued subjects beginning
+`MANDATORY overtime`. Keep normal voluntary-OT notifications. Do not enable this flag without an
+explicit decision to restore the retired system.
+
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
 loginRole, currentRole, isAuthenticated, currentView, currentDate, scheduleStatus,
