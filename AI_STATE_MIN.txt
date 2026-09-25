@@ -50,8 +50,12 @@ REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — build a dedicated 48-hour printable shift sheet with unit selection and pay-code detail.
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
 P2 — build immutable staffing snapshots and accountability/QA reporting using existing pay-code vocabulary.
+  Capture on publish, at the 08:00 shift start, and nightly; staffing email sends at most once per
+  24 hours at 08:00, never once per snapshot.
 P2 — complete Paycom discovery, then decide comment enforcement, uncertain code visibility, and any export.
-P2 — standardize Rescue seat order to Officer → Driver/Engineer → riders.
+P2 — standardize Heavy Rescue seat order to Officer → Engineer → Firefighter 1 → Firefighter 2,
+  and use the display label “Engineer” everywhere instead of “Driver/Engineer.” Attack and Brush
+  remain wildland apparatus, not Rescue.
 P3 — audit and replace visible “platoon” wording only; do not rename internal data or APIs.
 Operations decisions — confirm SICK/FMLA ownership, the admin-unit shape, callback ranking/cycle/decline policy,
 and a tested Railway Postgres backup/restore process. Mandatory escalation is retired, not active work.

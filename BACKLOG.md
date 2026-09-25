@@ -141,9 +141,12 @@ Still open:
    and notes.
 2. **P2 — App/IT feedback:** scheduler feedback capture with page and signed-in reporter context.
 3. **P2 — Staffing accountability:** immutable snapshots plus QA/accountability reporting using pay codes.
+   Capture on publish, at 08:00 shift start, and nightly; notify staffing once per 24 hours at 08:00.
 4. **P2 — Paycom readiness:** discovery first; then decide comment enforcement, uncertain code visibility,
    and any export.
-5. **P2 — Rescue seat order:** Officer → Driver/Engineer → riders.
+5. **P2 — Rescue seat order and naming:** Heavy Rescue is Officer → Engineer → Firefighter 1 →
+   Firefighter 2. Replace visible “Driver/Engineer” with “Engineer” everywhere; Attack and Brush
+   remain wildland apparatus.
 6. **P3 — Vocabulary cleanup:** visible “platoon” copy only; no internal rename or migration.
 
 ## Historical detail

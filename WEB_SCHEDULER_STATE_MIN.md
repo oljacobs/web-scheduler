@@ -124,10 +124,13 @@ not current build instructions unless this file says otherwise.
 2. **P2 — App/IT feedback:** add scheduler-side feedback capture that records the page and signed-in
    reporter context.
 3. **P2 — Staffing accountability:** add immutable staffing snapshots and QA/accountability reporting
-   using approved pay-code vocabulary.
+   using approved pay-code vocabulary. Capture on publish, at the 08:00 shift start, and nightly;
+   send the staffing email only once per 24 hours at 08:00.
 4. **P2 — Paycom readiness:** complete Paycom discovery before deciding required-comment enforcement,
    uncertain code visibility, or any payroll export.
-5. **P2 — Rescue display order:** standardize seats as Officer → Driver/Engineer → riders.
+5. **P2 — Rescue display order:** Heavy Rescue uses Officer → Engineer → Firefighter 1 → Firefighter 2;
+   replace the visible “Driver/Engineer” label with “Engineer” everywhere. Attack and Brush are wildland
+   apparatus, not Rescue.
 6. **P3 — Vocabulary cleanup:** replace visible “platoon” wording with A/B/C Shift only; do not rename
    internal fields, API values, or database data.
 
