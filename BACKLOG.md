@@ -21,6 +21,9 @@ work lives in `SPEC_2026-09-06-staffing-accountability.md`; this file controls p
   and normal voluntary-OT notifications remain unchanged.
 - **Checklist-suite branding** (Bins 10–12) is built and verified, including the full-width masthead
   and responsive one-column layout.
+- **Staffing snapshots and accountability reporting** are built and manually verified: officers and
+  ride-up officers can view immutable report data, and a limited production staffing-digest test
+  delivered only to its three allowlisted recipients. The unattended Railway cron remains separate.
 
 - **§1 Time off and partial-day staffing — BUILT** (2026-09-16, migrations
   `0013`–`0019`). See below for what shipped and what is still open.
@@ -142,16 +145,16 @@ Still open:
 1. **P2 — Printable shift sheet:** dedicated 48-hour print view with selected units, crew, pay codes,
    and notes.
 2. **P2 — App/IT feedback:** scheduler feedback capture with page and signed-in reporter context.
-3. **P2 — Staffing accountability — built, pending production verification:** immutable snapshots plus
-   officer/ride-up accountability reporting using pay codes. Capture on publish, at 08:00 for the shift
-   ending, and nightly at 20:00 Central; enable the once-daily 08:00 digest only after a limited test.
+3. **Operations — configure recurring staffing captures when ready:** add the Railway hourly cron for
+   `run_staffing_snapshot_schedule`; it captures at 08:00/20:00 Central and queues the 08:00 digest
+   only after `STAFFING_DIGEST_ENABLED` is deliberately enabled.
 4. **P2 — Paycom readiness:** discovery first; then decide comment enforcement, uncertain code visibility,
    and any export.
 5. **P2 — Rescue seat order and naming:** Heavy Rescue is Officer → Engineer → Firefighter 1 →
    Firefighter 2. Replace visible “Driver/Engineer” with “Engineer” everywhere; Attack and Brush
    remain wildland apparatus.
 6. **P3 — Vocabulary cleanup:** visible “platoon” copy only; no internal rename or migration.
-7. **P3 — Email identities:** category subject prefixes ship now. Later create dedicated shared mailboxes
+7. **P3 — Email identities:** category subject prefixes are complete. Later create dedicated shared mailboxes
    for Scheduling and Operations/Compliance, scope Graph access to only those mailboxes, and map
    notification categories to the correct sender.
 

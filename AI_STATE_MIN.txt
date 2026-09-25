@@ -49,23 +49,25 @@ former sign-in sidebar removed for a single responsive content column. Preserve
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — build a dedicated 48-hour printable shift sheet with unit selection and pay-code detail.
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
-P2 — STAFFING SNAPSHOTS / ACCOUNTABILITY REPORTING BUILT, PENDING PRODUCTION VERIFICATION:
+P2 — STAFFING SNAPSHOTS / ACCOUNTABILITY REPORTING BUILT AND MANUALLY VERIFIED:
   `StaffingSnapshot` freezes one operational-unit record per shift date and capture kind
   (`published`, `shift_end`, `nightly`), including configured minimum, staffed count, OT, forced-post,
   absence, pay-code, and assignment-block data. Existing snapshots are never changed. Officers and
   ride-up officers use the Admin → Accountability panel, which reads only immutable snapshots.
   Publish captures the selected schedule dates after the server save succeeds. Railway should run
   `run_staffing_snapshot_schedule` hourly: it captures the shift ending at 08:00 Central and a nightly
-  point-in-time record at 20:00 Central. `STAFFING_DIGEST_ENABLED` defaults false; when explicitly
-  enabled, the 08:00 run queues one staffing email per `DIGEST_RECIPIENTS` address. Use
-  `send_staffing_digest --to ... --dry-run` for a limited test before enabling it. The sender's
-  `--source-id` option limits a live test to that exact queued digest and cannot process unrelated mail.
+  point-in-time record at 20:00 Central. A limited production digest test delivered successfully to
+  three allowlisted recipients without processing unrelated queued mail. `STAFFING_DIGEST_ENABLED`
+  remains false until leadership enables the recurring 08:00 digest. The Railway hourly cron is a
+  separate deployment/configuration step; do not represent it as active until it is configured.
 P2 — complete Paycom discovery, then decide comment enforcement, uncertain code visibility, and any export.
 P2 — standardize Heavy Rescue seat order to Officer → Engineer → Firefighter 1 → Firefighter 2,
   and use the display label “Engineer” everywhere instead of “Driver/Engineer.” Attack and Brush
   remain wildland apparatus, not Rescue.
 P3 — audit and replace visible “platoon” wording only; do not rename internal data or APIs.
-P3 — email identities: retain the generic D7FR Scheduler sender with category subject prefixes now;
+P3 — email identities: the generic D7FR Scheduler sender now uses category subject prefixes
+  (`[OT]`, `[STAFFING]`, `[SYSTEMS]`, `[FLEET]`, `[IT]`, `[STATION]`, `[MAINTENANCE]`, and
+  `[CERTIFICATIONS]`); later
   later create dedicated shared mailboxes (Scheduling and Operations/Compliance), scope Graph access
   to only those mailboxes, and map notification categories to the correct sender.
 Operations decisions — officers/admin may enter SICK and FMLA schedule absences; FMLA payroll remains
