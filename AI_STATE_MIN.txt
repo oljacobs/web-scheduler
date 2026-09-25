@@ -41,8 +41,8 @@ SUITE BRANDING (P2 Bins 10–12): Scheduler uses the checklist suite's navy surf
 uppercase operational headings. Apply these as neutral/navigation tokens only. Do NOT flatten
 apparatus-type, staffing-warning, danger, or success colors into gold: those colors carry board
 meaning. Its full-width masthead uses the published checklist scramble plus the same red-to-gold
-rule; account access, department links, Schedule/Admin, and compact Tools/Print/Email controls
-live there, with the former sign-in sidebar removed for a single responsive content column. Preserve
+rule; account access, Schedule/Admin, and compact Tools/Print/Email controls live there, with the
+former sign-in sidebar removed for a single responsive content column. Preserve
 44px touch targets, focus rings, responsive schedule layout, and print's black-on-white rules.
 Manual visual verification remains required after each deploy.
 

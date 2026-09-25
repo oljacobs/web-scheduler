@@ -115,8 +115,8 @@ not current build instructions unless this file says otherwise.
   Condensed` operational headings. Apparatus-type and staffing-status colors remain unchanged so
   the visual refresh does not conceal operational meaning. The scheduler masthead now mirrors the
   checklist header with the D7FR scramble, district hierarchy, and red-to-gold rule. Account access,
-  department links, Schedule/Admin, and compact Tools/Print/Email controls are all in that full-width
-  masthead; the former sign-in sidebar is removed so the schedule uses one responsive content column.
+  Schedule/Admin, and compact Tools/Print/Email controls are all in that full-width masthead; the
+  former sign-in sidebar is removed so the schedule uses one responsive content column.
   **Bin 12:** manually verify phone,
   tablet, desktop, keyboard focus, contrast, empty/error states, and print output after deploy.
 - Callback ordering policy, cycle definition, and treatment of declines remain future operational/

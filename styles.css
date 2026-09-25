@@ -1793,37 +1793,6 @@ textarea:disabled {
   min-width: 0;
 }
 
-.masthead-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.masthead-link {
-  border-radius: 7px;
-  padding: 0.55rem 0.9rem;
-  background: var(--accent);
-  color: #241a06;
-  font-family: "Barlow Condensed", sans-serif;
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-decoration: none;
-  text-transform: uppercase;
-}
-
-.masthead-link-external {
-  border: 1px solid var(--panel-border);
-  background: transparent;
-  color: var(--muted);
-}
-
-.masthead-link-external:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .scramble {
   width: 58px;
   height: 57px;
@@ -2155,13 +2124,7 @@ textarea:disabled {
   .masthead-utility-icon span { display: none; }
   .masthead-utility { min-height: 44px; }
 
-  .masthead-nav {
-    order: 3;
-    width: 100%;
-  }
-
-  .masthead-link { flex: 1 1 auto; text-align: center; }
-  .topbar-actions { order: 5; margin-left: 0; }
+  .topbar-actions { order: 3; margin-left: 0; }
   .masthead-account { margin-left: auto; }
   .masthead-account .badge { display: none; }
   .masthead-account .auth-user-name { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; }
