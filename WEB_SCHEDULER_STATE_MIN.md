@@ -1,6 +1,6 @@
 # Web Scheduler — Living State Reference
 
-Last updated: 2026-09-24
+Last updated: 2026-09-25
 
 ## Use this first
 
@@ -25,6 +25,7 @@ not current build instructions unless this file says otherwise.
 - Partial tours, time off, and staffing coverage are live.
 - Admin/light-duty scheduling and the current employee roster are live.
 - Pay-code entry/confirmation and the printable schedule are live.
+- The dedicated 48-hour printable shift sheet is live and verified.
 - Bug reporting is live.
 - The primary current workstream is checklists/maintenance QA; do scheduler work only when it
   supports operations staffing, payroll/reporting, fleet/qualification truth, or bug routing.
@@ -115,15 +116,14 @@ not current build instructions unless this file says otherwise.
   Schedule/Admin, and compact Tools/Print/Email controls are all in that full-width masthead; the
   former sign-in sidebar is removed so the schedule uses one responsive content column.
   **Bin 12:** phone, tablet, desktop, keyboard focus, contrast, empty/error states, and print output
-  were verified after deployment.
+  were verified after deployment. On phones, the masthead scrolls with the content instead of
+  remaining sticky; the four status cards stack separately above the full-width staffing message.
 
 ## Remaining work bins
 
-1. **P2 — Printable shift sheet:** replace the live-page printout with a dedicated 48-hour sheet,
-   including selected units, crew, pay codes, and notes.
-2. **P2 — App/IT feedback:** add scheduler-side feedback capture that records the page and signed-in
+1. **P2 — App/IT feedback:** add scheduler-side feedback capture that records the page and signed-in
    reporter context.
-3. **P2 — Staffing accountability — built and manually verified:** immutable per-unit
+2. **P2 — Staffing accountability — built and manually verified:** immutable per-unit
    `StaffingSnapshot` records are captured on publish, at 08:00 for the shift ending, and nightly at
    20:00 Central. Admin → Accountability is officer/ride-up-officer only and reads snapshots, never
    live schedule data. Run `run_staffing_snapshot_schedule` hourly on Railway so Central daylight-saving
@@ -132,14 +132,14 @@ not current build instructions unless this file says otherwise.
    `DIGEST_RECIPIENTS`, is idempotent per recipient/day, and remains disabled behind
    `STAFFING_DIGEST_ENABLED=False` until leadership enables it. The Railway hourly cron remains a
    separate configuration step and is not yet active.
-4. **P2 — Paycom readiness:** complete Paycom discovery before deciding required-comment enforcement,
+3. **P2 — Paycom readiness:** complete Paycom discovery before deciding required-comment enforcement,
    uncertain code visibility, or any payroll export.
-5. **P2 — Rescue display order:** Heavy Rescue uses Officer → Engineer → Firefighter 1 → Firefighter 2;
+4. **P2 — Rescue display order:** Heavy Rescue uses Officer → Engineer → Firefighter 1 → Firefighter 2;
    replace the visible “Driver/Engineer” label with “Engineer” everywhere. Attack and Brush are wildland
    apparatus, not Rescue.
-6. **P3 — Vocabulary cleanup:** replace visible “platoon” wording with A/B/C Shift only; do not rename
+5. **P3 — Vocabulary cleanup:** replace visible “platoon” wording with A/B/C Shift only; do not rename
    internal fields, API values, or database data.
-7. **P3 — Email identities:** current emails use category prefixes such as `[OT]`, `[STAFFING]`, `[IT]`,
+6. **P3 — Email identities:** current emails use category prefixes such as `[OT]`, `[STAFFING]`, `[IT]`,
    and `[STATION]`. Later add dedicated shared mailboxes for Scheduling and Operations/Compliance,
    scope Graph access to only those mailboxes, and map categories to the sender.
 

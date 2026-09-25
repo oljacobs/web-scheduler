@@ -44,10 +44,14 @@ apparatus-type, staffing-warning, danger, or success colors into gold: those col
 meaning. Its full-width masthead uses the published checklist scramble plus the same red-to-gold
 rule; account access, Schedule/Admin, and compact Tools/Print/Email controls live there, with the
 former sign-in sidebar removed for a single responsive content column. Preserve
-44px touch targets, focus rings, responsive schedule layout, and print's black-on-white rules.
+44px touch targets, focus rings, responsive schedule layout, and print's black-on-white rules. On
+phones, the masthead scrolls with content rather than remaining sticky, and the four status cards
+stack above the full-width staffing message so a clear-status chip cannot compress the cards.
+
+RECENTLY COMPLETED (2026-09-25):
+P2 — dedicated 48-hour printable shift sheet with unit selection and pay-code detail: SHIPPED AND VERIFIED.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
-P2 — build a dedicated 48-hour printable shift sheet with unit selection and pay-code detail.
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
 P2 — STAFFING SNAPSHOTS / ACCOUNTABILITY REPORTING BUILT AND MANUALLY VERIFIED:
   `StaffingSnapshot` freezes one operational-unit record per shift date and capture kind
@@ -67,8 +71,7 @@ P2 — standardize Heavy Rescue seat order to Officer → Engineer → Firefight
 P3 — audit and replace visible “platoon” wording only; do not rename internal data or APIs.
 P3 — email identities: the generic D7FR Scheduler sender now uses category subject prefixes
   (`[OT]`, `[STAFFING]`, `[SYSTEMS]`, `[FLEET]`, `[IT]`, `[STATION]`, `[MAINTENANCE]`, and
-  `[CERTIFICATIONS]`); later
-  later create dedicated shared mailboxes (Scheduling and Operations/Compliance), scope Graph access
+  `[CERTIFICATIONS]`); later create dedicated shared mailboxes (Scheduling and Operations/Compliance), scope Graph access
   to only those mailboxes, and map notification categories to the correct sender.
 Operations decisions — officers/admin may enter SICK and FMLA schedule absences; FMLA payroll remains
 admin-only. Light duty uses one shared six-seat admin unit. Still decide callback ranking/cycle/decline
