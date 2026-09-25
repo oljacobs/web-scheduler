@@ -32,7 +32,9 @@ requested capability (including ride-up), and does not overlap a real non-absenc
 `CallbackContactAttempt` stores officer, outcome, optional 300-character note, and optional
 overtime post. Accepting a callback candidate adds them to an existing open/requested
 `OvertimePost.applicants` list; it does NOT award the shift or send a new notification, preserving
-normal voluntary-OT workflow and notifications.
+normal voluntary-OT workflow and notifications. The append-only rows are surfaced through the
+officer-only `GET /api/scheduler/callback/history/` endpoint and Admin → Callback history; this is
+the durable record of who was called, the response, the recording officer, optional note, and time.
 
 SUITE BRANDING (P2 Bins 10–12): Scheduler uses the checklist suite's navy surfaces (`#0d1526`,
 `#161f38`), gold actions/active controls (`#e0a83a`), `Inter` body type, and `Barlow Condensed`

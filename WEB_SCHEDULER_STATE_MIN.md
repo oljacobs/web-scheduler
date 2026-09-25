@@ -99,7 +99,9 @@ not current build instructions unless this file says otherwise.
   needed. Scheduled assignments are excluded. Officers record accepted/declined/no-answer/
   unavailable outcomes with an optional note. Accepting against an open overtime post adds the
   member to that post's existing applicant list; it does not bypass the current officer award
-  process or alter voluntary-OT notifications.
+  process or alter voluntary-OT notifications. Every outcome is retained as a
+  `CallbackContactAttempt` PostgreSQL row; officers can review the latest 100 entries under
+  Admin → Callback → Callback history after a page reload.
   **Bin 7 automated coverage:** member ownership, withdrawal, duplicate/overlap prevention,
   callback settings authorization, and mandatory-email retirement are covered. Manually verify
   the officer candidate screen and phone-sized member form after deployment.

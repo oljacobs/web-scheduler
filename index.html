@@ -13,13 +13,27 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <header class="app-topbar">
+      <button id="sidebar-toggle" class="icon-button topbar-menu" aria-label="Account menu" aria-expanded="false">☰</button>
+      <a class="masthead-brand" href="https://hub.d7fr.org" aria-label="District 7 Fire Rescue department hub">
+        <img class="scramble" src="https://checklist.d7fr.org/static/checklists/icons/icon-512.png" alt="" />
+        <span class="brand-text">
+          <span class="masthead-eyebrow">Bexar County Emergency Services District No. 7</span>
+          <span class="masthead-title">District 7 Fire Rescue<span class="masthead-sub">Crew Scheduler</span></span>
+        </span>
+      </a>
+      <div class="topbar-surfaces">
+        <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
+        <button id="surface-admin-btn" class="view-button">Admin</button>
+      </div>
+      <div class="topbar-actions">
+        <button id="drawer-toggle" class="masthead-utility" aria-controls="tool-drawer" aria-expanded="false">Tools <span id="drawer-badge" class="drawer-badge hidden">0</span></button>
+        <button id="print-btn" class="masthead-utility masthead-utility-icon" title="Print / Save PDF" aria-label="Print or save PDF">&#9113;<span>Print</span></button>
+        <button id="notify-btn" class="masthead-utility masthead-utility-icon" title="Send daily email digest" aria-label="Send daily email digest">&#9993;<span>Email</span></button>
+      </div>
+    </header>
     <div class="app-shell">
       <aside class="sidebar">
-        <div>
-          <p class="eyebrow">District 7 Fire Rescue</p>
-          <h1>D7FR Crew Scheduler</h1>
-        </div>
-
         <section class="panel auth-panel">
           <div class="panel-heading">
             <h2>Sign In</h2>
@@ -77,31 +91,6 @@
             <h2>Sign in to view and manage the schedule</h2>
           </div>
         </section>
-
-        <!-- Shared suite masthead: the same scramble, hierarchy, and red-to-gold
-             rule as Checklists. The right side stays operational to keep the
-             schedule's primary navigation and tools immediately reachable. -->
-        <header class="app-topbar">
-          <button id="sidebar-toggle" class="icon-button topbar-menu" aria-label="Account menu" aria-expanded="false">☰</button>
-          <a class="masthead-brand" href="https://hub.d7fr.org" aria-label="District 7 Fire Rescue department hub">
-            <img class="scramble" src="https://checklist.d7fr.org/static/checklists/icons/icon-512.png" alt="" />
-            <span class="brand-text">
-              <span class="masthead-eyebrow">Bexar County Emergency Services District No. 7</span>
-              <span class="masthead-title">District 7 Fire Rescue<span class="masthead-sub">Crew Scheduler</span></span>
-            </span>
-          </a>
-          <div class="topbar-surfaces">
-            <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
-            <button id="surface-admin-btn" class="view-button">Admin</button>
-          </div>
-          <div class="topbar-actions">
-            <button id="drawer-toggle" class="masthead-utility" aria-controls="tool-drawer" aria-expanded="false">
-              Tools <span id="drawer-badge" class="drawer-badge hidden">0</span>
-            </button>
-            <button id="print-btn" class="masthead-utility masthead-utility-icon" title="Print / Save PDF" aria-label="Print or save PDF">&#9113;<span>Print</span></button>
-            <button id="notify-btn" class="masthead-utility masthead-utility-icon" title="Send daily email digest" aria-label="Send daily email digest">&#9993;<span>Email</span></button>
-          </div>
-        </header>
 
         <!-- Save state is SILENT when healthy and loud when not. A permanent
              green "connected" pill just trains people to ignore this row, and an
@@ -233,6 +222,15 @@
                     <label>Specific end<input id="callback-candidate-end" type="datetime-local" /></label>
                   </div>
                   <div id="callback-candidate-list" class="stack-list"></div>
+                  <div class="template-push">
+                    <div class="panel-heading">
+                      <div>
+                        <h3>Callback history</h3>
+                        <p class="helper-text">Recent recorded call outcomes. This history is retained on the scheduler server.</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="callback-history-list" class="stack-list"></div>
                 </div>
 
                 <div class="tab-pane" data-tab-id="employees">

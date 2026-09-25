@@ -30,6 +30,7 @@ const state = {
   callbackSettings: { horizonDays: 21, updatedAt: null },
   callbackAvailability: [],
   callbackCandidates: [],
+  callbackHistory: [],
   callbackSpecificTime: false,
   // Reference data pushed down by the server (never sent back up). Empty in
   // Supabase/localStorage mode, which is why every reader guards on it.
@@ -209,7 +210,7 @@ function cacheDom() {
     "mandatory-preview-btn", "mandatory-apply-btn", "mandatory-import-message",
     "mandatory-import-preview", "mandatory-summary",
     "callback-horizon-days", "save-callback-settings-btn", "callback-settings-message",
-    "callback-candidate-start-date", "callback-candidate-end-date", "callback-candidate-start", "callback-candidate-end", "callback-candidate-cap", "callback-overtime-post", "callback-specific-time-toggle", "callback-specific-time-fields", "find-callback-candidates-btn", "callback-candidate-list",
+    "callback-candidate-start-date", "callback-candidate-end-date", "callback-candidate-start", "callback-candidate-end", "callback-candidate-cap", "callback-overtime-post", "callback-specific-time-toggle", "callback-specific-time-fields", "find-callback-candidates-btn", "callback-candidate-list", "callback-history-list",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -339,6 +340,7 @@ function wireEvents() {
       state.activeAdminTab = btn.dataset.tab;
       dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
       dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
+      if (state.activeAdminTab === "callback") loadCallbackHistory();
       persistAppState("Admin tab switched");
     });
   });
@@ -731,6 +733,19 @@ async function loadCallbackAvailability() {
   }
 }
 
+async function loadCallbackHistory() {
+  if (!usesSchedulerApi() || state.currentRole !== "supervisor") return;
+  try {
+    const response = await fetch(callbackApiUrl("history/"), { headers: await schedulerApiHeaders() });
+    if (!response.ok) throw new Error(`Callback history load failed with status ${response.status}`);
+    const data = await response.json();
+    state.callbackHistory = Array.isArray(data.history) ? data.history : [];
+    renderCallbackSettings();
+  } catch (error) {
+    console.warn("Callback history unavailable", error);
+  }
+}
+
 function renderCallbackSettings() {
   const select = dom["callback-horizon-days"];
   const button = dom["save-callback-settings-btn"];
@@ -753,6 +768,11 @@ function renderCallbackSettings() {
   dom["callback-candidate-list"].innerHTML = (state.callbackCandidates || []).map((row) => `<article class="queue-item"><div class="unit-card-header"><div><strong>${escapeHtml(row.employee.name)}</strong><p class="helper-text">${escapeHtml(row.employee.title || "—")} · ${escapeHtml(row.employee.shift || "—")} Shift</p></div><span class="button-row"><button class="button button-primary button-small" data-callback-accept="${row.id}">Accepted</button><button class="button button-secondary button-small" data-callback-outcome="declined" data-callback-availability="${row.id}">Declined</button><button class="button button-secondary button-small" data-callback-outcome="no_answer" data-callback-availability="${row.id}">No answer</button><button class="button button-secondary button-small" data-callback-outcome="unavailable" data-callback-availability="${row.id}">Unavailable</button></span></div></article>`).join("") || "<p class=\"helper-text\">Choose a time window to find callback candidates.</p>";
   dom["callback-candidate-list"].querySelectorAll("[data-callback-outcome]").forEach((button) => button.addEventListener("click", () => recordCallbackOutcome(button.dataset.callbackAvailability, button.dataset.callbackOutcome)));
   dom["callback-candidate-list"].querySelectorAll("[data-callback-accept]").forEach((button) => button.addEventListener("click", () => acceptCallbackCandidate(button.dataset.callbackAccept)));
+  dom["callback-history-list"].innerHTML = (state.callbackHistory || []).map((entry) => `<article class="queue-item"><div class="unit-card-header"><div><strong>${escapeHtml(entry.employeeName)}</strong> — ${escapeHtml(callbackOutcomeLabel(entry.outcome))}<p class="helper-text">${escapeHtml(new Date(entry.createdAt).toLocaleString())} · recorded by ${escapeHtml(entry.officerName)}${entry.unitName ? ` · ${escapeHtml(entry.unitName)}` : ""}${entry.note ? `<br>${escapeHtml(entry.note)}` : ""}</p></div></div></article>`).join("") || "<p class=\"helper-text\">No callback outcomes have been recorded yet.</p>";
+}
+
+function callbackOutcomeLabel(outcome) {
+  return { accepted: "Accepted", declined: "Declined", no_answer: "No answer", unavailable: "Unavailable" }[outcome] || outcome;
 }
 
 async function findCallbackCandidates() {
@@ -778,6 +798,7 @@ async function recordCallbackOutcome(availabilityId, outcome) {
     const response = await fetch(callbackApiUrl("outcomes/"), { method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({ availabilityId, outcome, note }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Could not record outcome.");
+    await loadCallbackHistory();
     showToast("Callback outcome recorded.");
   } catch (error) { showToast(error.message || "Could not record outcome.", "error"); }
 }
@@ -791,6 +812,7 @@ async function acceptCallbackCandidate(availabilityId) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Could not add callback candidate to the overtime opening.");
     await loadRemoteStateAfterAuth();
+    await loadCallbackHistory();
     showToast("Accepted callback candidate added to the overtime opening.");
   } catch (error) { showToast(error.message || "Could not add callback candidate.", "error"); }
 }
