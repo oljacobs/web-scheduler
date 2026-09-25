@@ -14,7 +14,6 @@
   </head>
   <body>
     <header class="app-topbar">
-      <button id="sidebar-toggle" class="icon-button topbar-menu" aria-label="Account menu" aria-expanded="false">☰</button>
       <a class="masthead-brand" href="https://hub.d7fr.org" aria-label="District 7 Fire Rescue department hub">
         <img class="scramble" src="https://checklist.d7fr.org/static/checklists/icons/icon-512.png" alt="" />
         <span class="brand-text">
@@ -22,6 +21,10 @@
           <span class="masthead-title">District 7 Fire Rescue<span class="masthead-sub">Crew Scheduler</span></span>
         </span>
       </a>
+      <nav class="masthead-nav" aria-label="Department tools">
+        <a class="masthead-link" href="https://checklist.d7fr.org">Checklists</a>
+        <a class="masthead-link masthead-link-external" href="https://hub.d7fr.org" target="_blank" rel="noopener">Department Hub ↗</a>
+      </nav>
       <div class="topbar-surfaces">
         <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
         <button id="surface-admin-btn" class="view-button">Admin</button>
@@ -31,59 +34,28 @@
         <button id="print-btn" class="masthead-utility masthead-utility-icon" title="Print / Save PDF" aria-label="Print or save PDF">&#9113;<span>Print</span></button>
         <button id="notify-btn" class="masthead-utility masthead-utility-icon" title="Send daily email digest" aria-label="Send daily email digest">&#9993;<span>Email</span></button>
       </div>
+      <section class="masthead-account" aria-label="Account">
+        <div id="auth-signed-out">
+          <button id="ms-sign-in-btn" class="masthead-utility ms-signin-btn">
+            <svg width="18" height="18" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#00a4ef"/>
+              <rect x="1" y="11" width="9" height="9" fill="#7fba00"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+            </svg>
+            Sign in
+          </button>
+          <span id="auth-message" class="visually-hidden">Sign in with your D7FR Microsoft account.</span>
+        </div>
+        <div id="auth-signed-in" class="hidden">
+          <div class="auth-user-card">
+            <div class="auth-user-avatar" id="auth-user-initials"></div>
+            <div><p class="auth-user-name" id="auth-user-name"></p><p class="helper-text" id="auth-user-title"></p></div>
+          </div>
+          <button id="sign-out-btn" class="masthead-utility">Sign out</button>
+        </div>
+        <span id="auth-role-badge" class="badge badge-soft">Department access</span>
+      </section>
     </header>
     <div class="app-shell">
-      <aside class="sidebar">
-        <section class="panel auth-panel">
-          <div class="panel-heading">
-            <h2>Sign In</h2>
-            <span id="auth-role-badge" class="badge badge-soft">Department access</span>
-          </div>
-
-          <div id="auth-signed-out">
-            <button id="ms-sign-in-btn" class="button ms-signin-btn">
-              <svg width="18" height="18" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <rect x="1"  y="1"  width="9" height="9" fill="#f25022"/>
-                <rect x="11" y="1"  width="9" height="9" fill="#00a4ef"/>
-                <rect x="1"  y="11" width="9" height="9" fill="#7fba00"/>
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-              </svg>
-              Sign in with Microsoft
-            </button>
-            <p id="auth-message" class="helper-text">
-              Sign in with your D7FR Microsoft account.
-            </p>
-          </div>
-
-          <div id="auth-signed-in" class="hidden">
-            <div class="auth-user-card">
-              <div class="auth-user-avatar" id="auth-user-initials"></div>
-              <div>
-                <p class="auth-user-name" id="auth-user-name"></p>
-                <p class="helper-text" id="auth-user-title"></p>
-              </div>
-            </div>
-            <button id="sign-out-btn" class="button button-secondary">Sign Out</button>
-          </div>
-        </section>
-
-        <!-- Shared hub nav. Same destinations, same order as the checklist app's
-             header, so crews learn one set of links rather than two.
-
-             One link to the hub, not two to SharePoint: the hub already carries
-             the Fleet and Stations tiles plus everything else, so a moved or
-             renamed SharePoint site no longer breaks the nav in two apps. -->
-        <nav class="hub-nav" aria-label="Department tools">
-          <a class="button button-secondary cross-app-link" href="https://checklist.d7fr.org">
-            Apparatus Checklists →
-          </a>
-          <a class="button button-secondary cross-app-link is-external"
-             href="https://hub.d7fr.org" target="_blank" rel="noopener">
-            Department hub ↗
-          </a>
-        </nav>
-      </aside>
-
       <main id="main-content" class="main-content">
         <section id="access-gate" class="panel access-gate">
           <div>
