@@ -108,6 +108,11 @@ not current build instructions unless this file says otherwise.
   constants, API values, database values, or scheduling logic without a separate migration plan.
 - **Suite branding:** bring the scheduler UI into the checklist-suite visual system so it reads as
   one product, while preserving scheduler-specific dense staffing workflows and accessibility.
+  **Bins 10–11 implemented, pending visual verification:** scheduler now uses the checklist
+  suite's navy surfaces, gold primary actions/active states, `Inter` body type, and `Barlow
+  Condensed` operational headings. Apparatus-type and staffing-status colors remain unchanged so
+  the visual refresh does not conceal operational meaning. **Bin 12:** manually verify phone,
+  tablet, desktop, keyboard focus, contrast, empty/error states, and print output after deploy.
 - Callback ordering policy, cycle definition, and treatment of declines remain future operational/
   contract decisions. They are separate from the first availability-list release.
 - Accountability reporting needs immutable staffing snapshots and must use approved pay-code

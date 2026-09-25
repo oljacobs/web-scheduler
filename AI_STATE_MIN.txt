@@ -34,6 +34,13 @@ overtime post. Accepting a callback candidate adds them to an existing open/requ
 `OvertimePost.applicants` list; it does NOT award the shift or send a new notification, preserving
 normal voluntary-OT workflow and notifications.
 
+SUITE BRANDING (P2 Bins 10–12): Scheduler uses the checklist suite's navy surfaces (`#0d1526`,
+`#161f38`), gold actions/active controls (`#e0a83a`), `Inter` body type, and `Barlow Condensed`
+uppercase operational headings. Apply these as neutral/navigation tokens only. Do NOT flatten
+apparatus-type, staffing-warning, danger, or success colors into gold: those colors carry board
+meaning. Preserve 44px touch targets, focus rings, responsive schedule layout, and print's
+black-on-white rules. Manual visual verification remains required after each deploy.
+
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
 loginRole, currentRole, isAuthenticated, currentView, currentDate, scheduleStatus,
