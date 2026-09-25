@@ -1,5 +1,10 @@
 # Scheduler backlog
 
+> **Needs reconciliation before use.** `WEB_SCHEDULER_STATE_MIN.md` is the current
+> scheduler reference. This backlog retains useful ideas but includes shipped and
+> superseded entries; reconcile it with `SPEC_2026-09-06-staffing-accountability.md`
+> before treating an item as active work.
+
 Single list for the scheduler (SPA + the `scheduler/` Django app). Reconciled
 2026-09-06 against Oren's own list — items already specified elsewhere are
 cross-referenced, not restated. Design detail for the accountability work lives in

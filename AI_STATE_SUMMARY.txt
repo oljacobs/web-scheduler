@@ -1,3 +1,8 @@
+> **Historical summary — do not use as the primary build reference.**
+> Read `WEB_SCHEDULER_STATE_MIN.md` first, then the relevant section of
+> `AI_STATE_MIN.txt`. This file is retained for session history and may describe
+> superseded behavior.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

@@ -73,8 +73,21 @@ not current build instructions unless this file says otherwise.
 
 ## Known open decisions / likely future work
 
-- Callback/mandatory overtime ordering: policy, cycle definition, and treatment of declines need
-  operational/contract decisions before implementation.
+- **P1 callback availability:** replace the visible mandatory list with a callback list. Members
+  submit general date/time availability in configurable officer-managed horizons (initial presets:
+  14, 21, or 30 days). Availability is not tied to a rig or seat; when a voluntary OT opening does
+  not fill in time, officers filter the callback list by the real seat qualification and conflicts.
+  Members may view/edit only their own availability; officers, including ride-up officers, may view
+  and use the list. Calling records accepted/declined/no-answer/unavailable outcomes; notes are
+  optional so the field workflow remains quick. Keep normal voluntary-OT notification email routes;
+  hide the mandatory UI and deactivate only mandatory/forced email routes without deleting history.
+- **Vocabulary cleanup:** user-facing copy must say `A Shift`, `B Shift`, `C Shift` (or `Shift A`,
+  etc.), not “platoon.” This is display-only: do not rename the internal `platoon` fields,
+  constants, API values, database values, or scheduling logic without a separate migration plan.
+- **Suite branding:** bring the scheduler UI into the checklist-suite visual system so it reads as
+  one product, while preserving scheduler-specific dense staffing workflows and accessibility.
+- Callback ordering policy, cycle definition, and treatment of declines remain future operational/
+  contract decisions. They are separate from the first availability-list release.
 - Accountability reporting needs immutable staffing snapshots and must use approved pay-code
   vocabulary; do not build a payroll export until Paycom confirms double-count behavior.
 - Mandatory escalation must be server-side on a Railway cron, never browser-timed.

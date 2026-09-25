@@ -1,5 +1,10 @@
 # Staffing accountability — callback list, leave visibility, OT cause reporting
 
+> **Historical design specification — reconciliation required.** Several phases
+> are now shipped or superseded. Before building from this document, reconcile it
+> with `WEB_SCHEDULER_STATE_MIN.md` and `BACKLOG.md`; preserve unresolved business
+> decisions, but do not treat its build order as current.
+
 **Spec, 2026-09-06.** Written against the Asst. Chief's three questions. Covers the
 `web-scheduler` SPA (`app.js`) and the `scheduler/` Django app in the
 `fdchecklist` repo. Companion to `HANDOFF_2026-07-26.md`.
