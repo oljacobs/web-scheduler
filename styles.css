@@ -375,7 +375,6 @@ textarea:disabled {
 
 /* Checklist-suite operational skin. Unit-type colors still carry apparatus
    meaning below; these rules only unify navigation, controls, and neutral cards. */
-.app-topbar,
 .tab-bar,
 .view-switch,
 .surface-switch-buttons {
@@ -1766,38 +1765,131 @@ textarea:disabled {
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
+  padding: 0.7rem 1.1rem 0.9rem;
+  border: 0;
+  border-bottom: 1px solid rgba(141, 175, 214, 0.14);
+  border-radius: 0;
+  box-shadow: none;
+  background:
+    linear-gradient(90deg, var(--danger) 0 14%, var(--accent) 34% 100%)
+      bottom left / 100% 3px no-repeat,
+    var(--bg-soft);
 }
 
-/* Brand + menu button only matter once the sidebar collapses. */
-.topbar-brand,
+/* The masthead mirrors Checklists: scramble, district, then this app's name. */
 .topbar-menu {
   display: none;
 }
 
-.topbar-brand {
-  font-family: "Barlow", sans-serif;
+.masthead-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.scramble {
+  width: 58px;
+  height: 57px;
+  flex: none;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.5));
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.masthead-eyebrow {
+  color: var(--accent);
+  font-family: "Inter", sans-serif;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.masthead-title {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: clamp(1.15rem, 3.4vw, 1.6rem);
   font-weight: 700;
   letter-spacing: 0.01em;
+  line-height: 1.02;
+  text-transform: uppercase;
+}
+
+.masthead-sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-family: "Inter", sans-serif;
+  font-size: 0.52em;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
 }
 
 .topbar-surfaces {
   display: flex;
   gap: 6px;
+  margin-left: auto;
+}
+
+.topbar-surfaces .view-button,
+.masthead-utility {
+  min-height: 40px;
+  border-radius: 7px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.topbar-surfaces .view-button {
+  padding: 0.55rem 0.9rem;
+  color: #241a06;
+  background: var(--accent);
+}
+
+.topbar-surfaces .view-button.is-active {
+  color: var(--accent-strong);
+  background: rgba(224, 168, 58, 0.2);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .topbar-actions {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-left: auto;
+  margin-left: 0;
+}
+
+.masthead-utility {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.masthead-utility:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.masthead-utility-icon {
+  min-width: 40px;
+  font-size: 0.8rem;
 }
 
 .drawer-badge {
@@ -1922,8 +2014,7 @@ textarea:disabled {
    Only once SIGNED IN. Signed out, the sidebar holds the sign-in button and
    must stay visible, so it keeps the existing "login first" ordering. */
 @media (max-width: 1180px) {
-  .app-shell.is-authenticated .topbar-menu,
-  .app-shell.is-authenticated .topbar-brand {
+  .app-shell.is-authenticated .topbar-menu {
     display: inline-flex;
   }
 
@@ -1958,6 +2049,12 @@ textarea:disabled {
     order: 3;
     width: 100%;
   }
+
+  .masthead-brand { gap: 9px; }
+  .scramble { width: 44px; height: 43px; }
+  .masthead-eyebrow { font-size: 0.52rem; letter-spacing: 0.12em; }
+  .masthead-utility-icon span { display: none; }
+  .masthead-utility { min-height: 44px; }
 
   .topbar-surfaces .view-button {
     flex: 1;

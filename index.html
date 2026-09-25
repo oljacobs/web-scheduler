@@ -78,23 +78,30 @@
           </div>
         </section>
 
-        <!-- Operational top bar. Replaced the old hero card and the "Workspace"
-             explainer panel: everything here is an action, not a description. -->
-        <div class="app-topbar">
+        <!-- Shared suite masthead: the same scramble, hierarchy, and red-to-gold
+             rule as Checklists. The right side stays operational to keep the
+             schedule's primary navigation and tools immediately reachable. -->
+        <header class="app-topbar">
           <button id="sidebar-toggle" class="icon-button topbar-menu" aria-label="Account menu" aria-expanded="false">☰</button>
-          <span class="topbar-brand">D7FR Crew Scheduler</span>
+          <a class="masthead-brand" href="https://hub.d7fr.org" aria-label="District 7 Fire Rescue department hub">
+            <img class="scramble" src="https://checklist.d7fr.org/static/checklists/icons/icon-512.png" alt="" />
+            <span class="brand-text">
+              <span class="masthead-eyebrow">Bexar County Emergency Services District No. 7</span>
+              <span class="masthead-title">District 7 Fire Rescue<span class="masthead-sub">Crew Scheduler</span></span>
+            </span>
+          </a>
           <div class="topbar-surfaces">
             <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
             <button id="surface-admin-btn" class="view-button">Admin</button>
           </div>
           <div class="topbar-actions">
-            <button id="drawer-toggle" class="button button-secondary button-small" aria-controls="tool-drawer" aria-expanded="false">
-              Tools<span id="drawer-badge" class="drawer-badge hidden">0</span>
+            <button id="drawer-toggle" class="masthead-utility" aria-controls="tool-drawer" aria-expanded="false">
+              Tools <span id="drawer-badge" class="drawer-badge hidden">0</span>
             </button>
-            <button id="print-btn" class="icon-button" title="Print / Save PDF" aria-label="Print or save PDF">&#9113;</button>
-            <button id="notify-btn" class="icon-button" title="Send daily email digest" aria-label="Send daily email digest">&#9993;</button>
+            <button id="print-btn" class="masthead-utility masthead-utility-icon" title="Print / Save PDF" aria-label="Print or save PDF">&#9113;<span>Print</span></button>
+            <button id="notify-btn" class="masthead-utility masthead-utility-icon" title="Send daily email digest" aria-label="Send daily email digest">&#9993;<span>Email</span></button>
           </div>
-        </div>
+        </header>
 
         <!-- Save state is SILENT when healthy and loud when not. A permanent
              green "connected" pill just trains people to ignore this row, and an

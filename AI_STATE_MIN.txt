@@ -38,8 +38,10 @@ SUITE BRANDING (P2 Bins 10–12): Scheduler uses the checklist suite's navy surf
 `#161f38`), gold actions/active controls (`#e0a83a`), `Inter` body type, and `Barlow Condensed`
 uppercase operational headings. Apply these as neutral/navigation tokens only. Do NOT flatten
 apparatus-type, staffing-warning, danger, or success colors into gold: those colors carry board
-meaning. Preserve 44px touch targets, focus rings, responsive schedule layout, and print's
-black-on-white rules. Manual visual verification remains required after each deploy.
+meaning. Its masthead uses the published checklist scramble plus the same red-to-gold rule;
+Schedule/Admin stay right-aligned, and Tools/Print/Email are compact outlined controls. Preserve
+44px touch targets, focus rings, responsive schedule layout, and print's black-on-white rules.
+Manual visual verification remains required after each deploy.
 
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
