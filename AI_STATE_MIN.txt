@@ -12,6 +12,15 @@ write forced posts/assignments, and `send_queued_notifications` skips queued sub
 `MANDATORY overtime`. Keep normal voluntary-OT notifications. Do not enable this flag without an
 explicit decision to restore the retired system.
 
+CALLBACK SETTINGS (P1 Bin 2): `CallbackAvailabilitySettings` is a PostgreSQL singleton (id=1),
+with `horizon_days` strictly 14, 21, or 30 (default 21), `updated_by`, and `updated_at`.
+`GET /api/scheduler/callback-settings/` is available to authenticated members so the future
+member sign-up view can use the real window. `PUT` is officer-only through
+`checklists.permissions.is_officer`, which includes roster ride-up officers; it validates the
+whitelist server-side and writes an AuditEntry. This does NOT use `/state/`: its whole-payload
+write path is too broad for restricted or member-owned callback data. The SPA Admin → Callback
+tab manages only the sign-up horizon; it does not yet collect availability.
+
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
 loginRole, currentRole, isAuthenticated, currentView, currentDate, scheduleStatus,

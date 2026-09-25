@@ -86,6 +86,12 @@ not current build instructions unless this file says otherwise.
   picks without deleting them, cached clients cannot create forced posts/assignments, and the
   sender marks queued mandatory-overtime emails skipped. Do not enable this flag without an
   explicit decision to restore the retired flow.
+  **Bin 2 implemented, pending production verification:** `CallbackAvailabilitySettings` is a
+  one-row, server-owned setting with only 14/21/30-day choices (21 default). Every authenticated
+  member may read the current window; only officers, including ride-up officers, may change it via
+  the targeted `callback-settings/` API. The change records the acting officer and an audit entry.
+  It is deliberately outside the broad `/state/` PUT, which must never be used for member-owned
+  callback availability or other restricted scheduler writes.
 - **Vocabulary cleanup:** user-facing copy must say `A Shift`, `B Shift`, `C Shift` (or `Shift A`,
   etc.), not “platoon.” This is display-only: do not rename the internal `platoon` fields,
   constants, API values, database values, or scheduling logic without a separate migration plan.

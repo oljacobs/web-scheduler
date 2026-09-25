@@ -27,6 +27,7 @@ const state = {
   // Server-owned feature switches. Mandatory/forced overtime is off by default
   // until the callback-availability workflow replaces it.
   schedulerFeatures: { mandatoryBackfill: false },
+  callbackSettings: { horizonDays: 21, updatedAt: null },
   // Reference data pushed down by the server (never sent back up). Empty in
   // Supabase/localStorage mode, which is why every reader guards on it.
   payCodes: [],
@@ -204,6 +205,7 @@ function cacheDom() {
     "mandatory-fy", "mandatory-platoon", "download-mandatory-btn", "mandatory-import-file",
     "mandatory-preview-btn", "mandatory-apply-btn", "mandatory-import-message",
     "mandatory-import-preview", "mandatory-summary",
+    "callback-horizon-days", "save-callback-settings-btn", "callback-settings-message",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -271,6 +273,7 @@ function wireEvents() {
   dom["mandatory-platoon"]?.addEventListener("change", renderMandatorySummary);
   dom["mandatory-preview-btn"]?.addEventListener("click", handleMandatoryPreview);
   dom["mandatory-apply-btn"]?.addEventListener("click", applyMandatoryImport);
+  dom["save-callback-settings-btn"]?.addEventListener("click", saveCallbackSettings);
   dom["coverage-shift"]?.addEventListener("change", (e) => {
     state.coverageShift = e.target.value;
     renderCoveragePanel();
@@ -550,6 +553,7 @@ async function loadRemoteStateAfterAuth() {
       state.persistence.hasRemote = true;
       setPersistenceStatus("Connected to server", "ok");
     }
+    await loadCallbackSettings();
   } catch (error) {
     console.error("Post-sign-in load failed", error);
     setPersistenceStatus("Server unavailable — try refreshing", "warning");
@@ -678,6 +682,64 @@ function render() {
   }
   renderDrawerBadge();
   renderTemplateEditor();   // binds its own seat events
+  renderCallbackSettings();
+}
+
+function callbackSettingsUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/callback-settings/`;
+}
+
+async function loadCallbackSettings() {
+  if (!usesSchedulerApi()) return;
+  try {
+    const response = await fetch(callbackSettingsUrl(), { headers: await schedulerApiHeaders() });
+    if (!response.ok) throw new Error(`Callback settings load failed with status ${response.status}`);
+    const data = await response.json();
+    state.callbackSettings = { ...state.callbackSettings, ...data };
+  } catch (error) {
+    console.warn("Callback settings unavailable", error);
+  }
+}
+
+function renderCallbackSettings() {
+  const select = dom["callback-horizon-days"];
+  const button = dom["save-callback-settings-btn"];
+  const message = dom["callback-settings-message"];
+  if (!select || !button || !message) return;
+  select.value = String(state.callbackSettings.horizonDays || 21);
+  const available = usesSchedulerApi();
+  select.disabled = !available;
+  button.disabled = !available;
+  message.textContent = available
+    ? "Members will be able to enter availability through the selected window once callback sign-up launches."
+    : "Callback settings require the scheduler server connection.";
+}
+
+async function saveCallbackSettings() {
+  if (!usesSchedulerApi()) return;
+  const horizonDays = Number(dom["callback-horizon-days"]?.value);
+  if (![14, 21, 30].includes(horizonDays)) {
+    showToast("Choose a 14, 21, or 30 day callback window.", "error");
+    return;
+  }
+  const button = dom["save-callback-settings-btn"];
+  button.disabled = true;
+  try {
+    const response = await fetch(callbackSettingsUrl(), {
+      method: "PUT",
+      headers: await schedulerApiHeaders(),
+      body: JSON.stringify({ horizonDays }),
+    });
+    if (!response.ok) throw new Error(`Callback settings save failed with status ${response.status}`);
+    state.callbackSettings = { ...state.callbackSettings, ...await response.json() };
+    showToast(`Callback availability window set to ${horizonDays} days.`);
+    renderCallbackSettings();
+  } catch (error) {
+    console.error("Callback settings save failed", error);
+    showToast("Could not save the callback window. Try again.", "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function mandatoryBackfillEnabled() {
