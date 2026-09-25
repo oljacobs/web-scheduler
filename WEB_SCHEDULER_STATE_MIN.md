@@ -1,71 +1,89 @@
-# Web Scheduler State Min
+# Web Scheduler — Living State Reference
 
-Last updated: 2026-09-18
+Last updated: 2026-09-24
 
-Purpose: compact preload for future AI sessions. This is separate from the existing `AI_STATE_MIN.txt`.
+## Use this first
 
-## Active path
+This is the short, current prompt reference for the live scheduler. Read it before
+inspecting code. Then read `AI_STATE_MIN.txt` only for the part of the scheduler
+being changed. `AI_STATE_SUMMARY.txt`, `HANDOFF_2026-09-16.md`, and
+`SPEC_2026-09-06-staffing-accountability.md` are supporting/historical documents,
+not current build instructions unless this file says otherwise.
 
-- Active scheduler SPA: `/Users/orenj/Documents/GitHub/web-scheduler`
-- Backend API: `/Users/orenj/Desktop/fdchecklist-trial_1/scheduler`
-- Ignore old prototype: `/Users/orenj/Documents/Claude/Projects/Scheduling App`
+## Active system
 
-## Architecture
+- SPA: `/Users/orenj/Documents/GitHub/web-scheduler`; vanilla JavaScript, no bundler;
+  deployed at `schedule.d7fr.org`.
+- Backend: `/Users/orenj/Desktop/fdchecklist-trial_1/scheduler`; Django API at
+  `https://checklist.d7fr.org/api/scheduler/` with Railway PostgreSQL.
+- Auth: Microsoft Entra/MSAL. Production persistence is the authenticated Django API.
+  Supabase is legacy fallback only when `APP_CONFIG.schedulerApiUrl` is blank.
+- Do not use the old prototype at `/Users/orenj/Documents/Claude/Projects/Scheduling App`.
 
-- Vanilla JS SPA, no bundler, deployed static at `schedule.d7fr.org`.
-- Auth uses Microsoft Entra / MSAL.
-- Production persistence uses Django API at `https://checklist.d7fr.org/api/scheduler/`.
-- Supabase is legacy fallback only when `APP_CONFIG.schedulerApiUrl` is blank.
-- Backend state lives in the main Django project's `scheduler/` app.
+## Live and verified
 
-## Current production truth from Oren
+- Partial tours, time off, and staffing coverage are live.
+- Admin/light-duty scheduling and the current employee roster are live.
+- Pay-code entry/confirmation and the printable schedule are live.
+- Bug reporting is live.
+- The primary current workstream is checklists/maintenance QA; do scheduler work only when it
+  supports operations staffing, payroll/reporting, fleet/qualification truth, or bug routing.
 
-The following are implemented, tested, and working:
+## Rules that must not change
 
-- Time off / partial-day staffing.
-- Admin panel, light-duty staffing, updated employee roster, admin qualification.
-- Pay-code confirmation.
-- Printable daily schedule with apparatus selector and pay codes included.
-- Bug reporting.
+- Railway PostgreSQL/Django API is the source of truth; do not reintroduce production Supabase writes.
+- Use America/Chicago and the 0800 shift-day rollover; never use bare UTC dates for staffing logic.
+- Apparatus have no platoon. The date determines the operational platoon on duty.
+- `ADMIN` is a non-rotating roster grouping; `admin` is a person-held qualification. Neither is
+  eligible for mandatory force logic.
+- Admin units use their own Mon–Thu, 0800–1800 tour shape and are excluded from operations board,
+  overtime/trade boards, staffing alerts, and normal operations printouts.
+- Assignments can be partial. `_start`/`_end` are minutes from the unit tour start; a whole tour
+  sends neither. Compare cross-unit blocks in absolute minutes and treat intervals as half-open.
+- A seat is covered by all of its blocks. Use `covered` and tour-gap logic, never only the first
+  person listed on a seat.
+- PTO/SICK/FMLA absence rows retain payroll hours but cover no seat. LTD is derived from light-duty
+  dates and is not a selectable absence reason.
+- Pay codes are per assignment block and are the approved payroll vocabulary. Do not invent a
+  separate overtime-cause taxonomy without an explicit decision.
+- Keep staff/medical data minimal: light-duty notes are operational only, no diagnosis; do not add
+  individual salary data to the scheduler.
 
-If older `README.md` or `BACKLOG.md` says these are unbuilt or only partly built, treat that as stale until code confirms otherwise. The existing `AI_STATE_MIN.txt` and `AI_STATE_SUMMARY.txt` contain detailed current scheduler contracts and should still be read for scheduler work.
+## State/API safeguards
 
-## Core concepts to preserve
+- `applyPersistedState()` is an allowlist: any new API state key must be explicitly copied into
+  client state or it disappears after load.
+- Do not place unbounded history in the whole-state PUT. Use targeted API endpoints for reports,
+  snapshots, or other growing data sets.
+- Stored audit/notification text must use safe fallbacks such as `unitLabel()`; never persist an
+  unresolved lookup as `undefined`.
+- New writes must preserve current Django authorization, CSRF/session or bearer-token protections,
+  server-side validation, auditability, and existing role boundaries.
 
-- Apparatus do not belong to a platoon; the date determines the platoon on duty.
-- Front-line units run daily; reserve/on-demand units activate by date.
-- Board order must be stable and explicit, not array-order dependent.
-- Staffing is capability-based: officer, engineer, paramedic, EMT, admin, plus ride-up grants.
-- ADMIN is a roster grouping/platoon sentinel and `admin` is a person-held capability. ADMIN never rotates, never becomes the on-duty platoon, and is never eligible for mandatory force logic.
-- Admin units have `scheduleClass="admin"` and separate tour rules. They are deliberately excluded from operations board, overtime board, trade board, staffing alerts, and normal operations printouts.
-- A tour is not always 24 hours and an assignment is not always the whole day. Assignments can carry `_start`/`_end` minutes from the unit tour start.
-- A seat can be covered by multiple people across a tour. Use seat `covered`/gap logic, not only the first `person`.
-- Absence rows keep payroll hours but cover no seat. PTO/SICK/FMLA are explicit; LTD is derived light duty.
-- Pay codes are payroll vocabulary and should not be replaced by a separate cause taxonomy.
-- Pay codes are per assignment block, so block-aware updates matter when someone works split hours.
-- Whole-state PUT exists historically; avoid expanding unbounded state. Prefer targeted writes for new complex workflows.
-- Date logic is America/Chicago and shift day rolls at 0800.
+## Current documentation status
 
-## Current caution areas
+- `AI_STATE_MIN.txt` is the detailed implementation contract and gotcha list.
+- `BACKLOG.md` contains useful work ideas but includes stale entries that are already shipped.
+- `SPEC_2026-09-06-staffing-accountability.md` is an early design document. Its Phase 0 and much
+  of its leave/payroll groundwork are already shipped or superseded by the current implementation.
+- **Required documentation task:** reconcile/consolidate
+  `SPEC_2026-09-06-staffing-accountability.md` and this file before using the spec for a build.
+  Preserve unresolved accountability decisions, mark shipped/superseded items, and move the final
+  open list into `BACKLOG.md`. Do not silently delete business requirements.
 
-- Existing long-form docs may be stale relative to Oren's latest tested features; `AI_STATE_MIN.txt` is the detailed scheduler contract.
-- Before building scheduler features, verify active code paths in `app.js`, `index.html`, and `styles.css`, but avoid broad repo scans.
-- If changing state shape, update this file and the existing AI context files as appropriate.
+## Known open decisions / likely future work
 
-## Likely next scheduler work
+- Callback/mandatory overtime ordering: policy, cycle definition, and treatment of declines need
+  operational/contract decisions before implementation.
+- Accountability reporting needs immutable staffing snapshots and must use approved pay-code
+  vocabulary; do not build a payroll export until Paycom confirms double-count behavior.
+- Mandatory escalation must be server-side on a Railway cron, never browser-timed.
+- Rescue seat display order should match Officer → Driver/Engineer → riders.
 
-Scheduler is not the immediate bottleneck compared with maintenance/checklist updates.
-Only prioritize scheduler work if it supports:
+## Prompt discipline
 
-- maintenance/fleet reporting,
-- payroll export/reporting,
-- fleet roster/qualification truth; note the full fleet roster lives in the Django app under `/maintenance/fleet/` via `checklists/urls.py` and `checklists/fleet_master.py`,
-- bug-report routing,
-- or operational staffing reports.
-
-## Efficient future-agent rules
-
-- Read this file and `AI_STATE_MIN.txt` before code inspection.
-- Do not inspect the old prototype scheduler folder.
-- Do not run broad search across the repo unless a ticket requires it.
-- For implementation, inspect only the named surfaces for the ticket.
+1. Read this file, then the relevant section of `AI_STATE_MIN.txt`.
+2. Verify the named active code path before changing it; do not scan the whole repo by default.
+3. Treat every client value as untrusted and protect object/role access on the Django side.
+4. Update this file and the detailed state file when state shape, permissions, data ownership, or
+   operational behavior changes.
