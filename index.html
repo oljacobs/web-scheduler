@@ -209,6 +209,18 @@
                     <button id="save-callback-settings-btn" class="button button-primary">Save callback window</button>
                   </div>
                   <p id="callback-settings-message" class="helper-text"></p>
+                  <div class="template-push">
+                    <label>Start<input id="callback-candidate-start" type="datetime-local" /></label>
+                    <label>End<input id="callback-candidate-end" type="datetime-local" /></label>
+                    <label>Required qualification
+                      <select id="callback-candidate-cap"><option value="">Any qualified rider</option><option value="officer">Officer</option><option value="engineer">Driver/Engineer</option><option value="paramedic">Paramedic</option><option value="emt">EMT</option></select>
+                    </label>
+                    <label>Overtime opening (optional)
+                      <select id="callback-overtime-post"><option value="">Record only</option></select>
+                    </label>
+                    <button id="find-callback-candidates-btn" class="button button-secondary">Find candidates</button>
+                  </div>
+                  <div id="callback-candidate-list" class="stack-list"></div>
                 </div>
 
                 <div class="tab-pane" data-tab-id="employees">

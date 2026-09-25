@@ -28,6 +28,8 @@ const state = {
   // until the callback-availability workflow replaces it.
   schedulerFeatures: { mandatoryBackfill: false },
   callbackSettings: { horizonDays: 21, updatedAt: null },
+  callbackAvailability: [],
+  callbackCandidates: [],
   // Reference data pushed down by the server (never sent back up). Empty in
   // Supabase/localStorage mode, which is why every reader guards on it.
   payCodes: [],
@@ -206,6 +208,7 @@ function cacheDom() {
     "mandatory-preview-btn", "mandatory-apply-btn", "mandatory-import-message",
     "mandatory-import-preview", "mandatory-summary",
     "callback-horizon-days", "save-callback-settings-btn", "callback-settings-message",
+    "callback-candidate-start", "callback-candidate-end", "callback-candidate-cap", "callback-overtime-post", "find-callback-candidates-btn", "callback-candidate-list",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -274,6 +277,7 @@ function wireEvents() {
   dom["mandatory-preview-btn"]?.addEventListener("click", handleMandatoryPreview);
   dom["mandatory-apply-btn"]?.addEventListener("click", applyMandatoryImport);
   dom["save-callback-settings-btn"]?.addEventListener("click", saveCallbackSettings);
+  dom["find-callback-candidates-btn"]?.addEventListener("click", findCallbackCandidates);
   dom["coverage-shift"]?.addEventListener("change", (e) => {
     state.coverageShift = e.target.value;
     renderCoveragePanel();
@@ -554,6 +558,7 @@ async function loadRemoteStateAfterAuth() {
       setPersistenceStatus("Connected to server", "ok");
     }
     await loadCallbackSettings();
+    await loadCallbackAvailability();
   } catch (error) {
     console.error("Post-sign-in load failed", error);
     setPersistenceStatus("Server unavailable — try refreshing", "warning");
@@ -689,6 +694,14 @@ function callbackSettingsUrl() {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/callback-settings/`;
 }
 
+function callbackAvailabilityUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/callback/availability/`;
+}
+
+function callbackApiUrl(path) {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/callback/${path}`;
+}
+
 async function loadCallbackSettings() {
   if (!usesSchedulerApi()) return;
   try {
@@ -698,6 +711,18 @@ async function loadCallbackSettings() {
     state.callbackSettings = { ...state.callbackSettings, ...data };
   } catch (error) {
     console.warn("Callback settings unavailable", error);
+  }
+}
+
+async function loadCallbackAvailability() {
+  if (!usesSchedulerApi()) return;
+  try {
+    const response = await fetch(callbackAvailabilityUrl(), { headers: await schedulerApiHeaders() });
+    if (!response.ok) throw new Error(`Callback availability load failed with status ${response.status}`);
+    const data = await response.json();
+    state.callbackAvailability = Array.isArray(data.availability) ? data.availability : [];
+  } catch (error) {
+    console.warn("Callback availability unavailable", error);
   }
 }
 
@@ -713,6 +738,48 @@ function renderCallbackSettings() {
   message.textContent = available
     ? "Members will be able to enter availability through the selected window once callback sign-up launches."
     : "Callback settings require the scheduler server connection.";
+  const posts = (state.overtimePosts || []).filter((post) => ["open", "requested"].includes(post.status));
+  dom["callback-overtime-post"].innerHTML = `<option value="">Record only</option>${posts.map((post) => `<option value="${escapeHtml(post.id)}">${escapeHtml(unitLabel(post.unitId))} — ${escapeHtml(post.role || "open seat")} — ${escapeHtml(formatDate(post.date))}</option>`).join("")}`;
+  dom["callback-candidate-list"].innerHTML = (state.callbackCandidates || []).map((row) => `<article class="queue-item"><div class="unit-card-header"><div><strong>${escapeHtml(row.employee.name)}</strong><p class="helper-text">${escapeHtml(row.employee.title || "—")} · ${escapeHtml(row.employee.shift || "—")} Shift</p></div><span class="button-row"><button class="button button-primary button-small" data-callback-accept="${row.id}">Accepted</button><button class="button button-secondary button-small" data-callback-outcome="declined" data-callback-availability="${row.id}">Declined</button><button class="button button-secondary button-small" data-callback-outcome="no_answer" data-callback-availability="${row.id}">No answer</button><button class="button button-secondary button-small" data-callback-outcome="unavailable" data-callback-availability="${row.id}">Unavailable</button></span></div></article>`).join("") || "<p class=\"helper-text\">Choose a time window to find callback candidates.</p>";
+  dom["callback-candidate-list"].querySelectorAll("[data-callback-outcome]").forEach((button) => button.addEventListener("click", () => recordCallbackOutcome(button.dataset.callbackAvailability, button.dataset.callbackOutcome)));
+  dom["callback-candidate-list"].querySelectorAll("[data-callback-accept]").forEach((button) => button.addEventListener("click", () => acceptCallbackCandidate(button.dataset.callbackAccept)));
+}
+
+async function findCallbackCandidates() {
+  const start = dom["callback-candidate-start"]?.value;
+  const end = dom["callback-candidate-end"]?.value;
+  if (!start || !end) return showToast("Choose a start and end time.", "error");
+  const query = new URLSearchParams({ startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString(), requiredCap: dom["callback-candidate-cap"].value });
+  try {
+    const response = await fetch(`${callbackApiUrl("candidates/")}?${query}`, { headers: await schedulerApiHeaders() });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not find callback candidates.");
+    state.callbackCandidates = data.candidates || [];
+    renderCallbackSettings();
+  } catch (error) { showToast(error.message || "Could not find callback candidates.", "error"); }
+}
+
+async function recordCallbackOutcome(availabilityId, outcome) {
+  const note = window.prompt("Note (optional):") || "";
+  try {
+    const response = await fetch(callbackApiUrl("outcomes/"), { method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({ availabilityId, outcome, note }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not record outcome.");
+    showToast("Callback outcome recorded.");
+  } catch (error) { showToast(error.message || "Could not record outcome.", "error"); }
+}
+
+async function acceptCallbackCandidate(availabilityId) {
+  const overtimePostId = dom["callback-overtime-post"].value;
+  if (!overtimePostId) return recordCallbackOutcome(availabilityId, "accepted");
+  const note = window.prompt("Note (optional):") || "";
+  try {
+    const response = await fetch(callbackApiUrl("accept/"), { method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({ availabilityId, overtimePostId, note }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not add callback candidate to the overtime opening.");
+    await loadRemoteStateAfterAuth();
+    showToast("Accepted callback candidate added to the overtime opening.");
+  } catch (error) { showToast(error.message || "Could not add callback candidate.", "error"); }
 }
 
 async function saveCallbackSettings() {
@@ -739,6 +806,49 @@ async function saveCallbackSettings() {
     showToast("Could not save the callback window. Try again.", "error");
   } finally {
     button.disabled = false;
+  }
+}
+
+async function submitCallbackAvailability() {
+  if (!usesSchedulerApi()) {
+    showToast("Callback availability requires the scheduler server connection.", "error");
+    return;
+  }
+  const startInput = document.getElementById("callback-start-at");
+  const endInput = document.getElementById("callback-end-at");
+  if (!startInput?.value || !endInput?.value) {
+    showToast("Choose both a start and end time.", "error");
+    return;
+  }
+  try {
+    const response = await fetch(callbackAvailabilityUrl(), {
+      method: "POST",
+      headers: await schedulerApiHeaders(),
+      body: JSON.stringify({ startAt: new Date(startInput.value).toISOString(), endAt: new Date(endInput.value).toISOString() }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not add availability.");
+    state.callbackAvailability = [...state.callbackAvailability, data];
+    render();
+    showToast("Callback availability added.");
+  } catch (error) {
+    showToast(error.message || "Could not add availability.", "error");
+  }
+}
+
+async function withdrawCallbackAvailability(id) {
+  if (!usesSchedulerApi()) return;
+  try {
+    const response = await fetch(`${callbackAvailabilityUrl()}${encodeURIComponent(id)}/withdraw/`, {
+      method: "POST", headers: await schedulerApiHeaders(),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not withdraw availability.");
+    state.callbackAvailability = state.callbackAvailability.map((row) => row.id === data.id ? data : row);
+    render();
+    showToast("Callback availability withdrawn.");
+  } catch (error) {
+    showToast(error.message || "Could not withdraw availability.", "error");
   }
 }
 
@@ -3653,7 +3763,26 @@ function renderEmployeeUpcoming() {
     </div>
     <div class="next-shift-grid">${shiftCards}</div>
     ${awardedList}
-    ${pendingList}`;
+    ${pendingList}
+    ${renderCallbackAvailability()}`;
+}
+
+function renderCallbackAvailability() {
+  const rows = (state.callbackAvailability || []).filter((row) => row.status === "active");
+  const list = rows.length
+    ? rows.map((row) => `<div class="personal-row"><span>${escapeHtml(new Date(row.startAt).toLocaleString())} — ${escapeHtml(new Date(row.endAt).toLocaleString())}</span><button class="button button-secondary button-small" data-withdraw-callback="${row.id}">Withdraw</button></div>`).join("")
+    : '<p class="helper-text">No callback availability submitted.</p>';
+  const horizon = state.callbackSettings.horizonDays || 21;
+  return `<div class="personal-section">
+    <h3>Callback availability</h3>
+    <p class="helper-text">Submit a time you can be called for overtime. You may add availability up to ${horizon} days ahead.</p>
+    <div class="template-controls">
+      <label>Start<input id="callback-start-at" type="datetime-local" required /></label>
+      <label>End<input id="callback-end-at" type="datetime-local" required /></label>
+      <button class="button button-primary" id="add-callback-availability-btn">Add availability</button>
+    </div>
+    <div class="stack-list">${list}</div>
+  </div>`;
 }
 
 // Only gaps that have ALREADY been pushed out and have someone waiting. This is
@@ -3743,6 +3872,9 @@ function attachPersonalPanelEvents() {
     b.addEventListener("click", () => approveTrade(b.dataset.approveTrade)));
   root.querySelectorAll("[data-deny-trade]").forEach((b) =>
     b.addEventListener("click", () => denyTrade(b.dataset.denyTrade)));
+  root.querySelector("#add-callback-availability-btn")?.addEventListener("click", submitCallbackAvailability);
+  root.querySelectorAll("[data-withdraw-callback]").forEach((button) =>
+    button.addEventListener("click", () => withdrawCallbackAvailability(button.dataset.withdrawCallback)));
   root.querySelectorAll("[data-award-post]").forEach((b) =>
     b.addEventListener("click", () => awardOvertime(b.dataset.awardPost, b.dataset.awardEmp)));
   root.querySelectorAll("[data-decline-post]").forEach((b) =>

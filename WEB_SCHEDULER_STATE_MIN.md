@@ -92,6 +92,15 @@ not current build instructions unless this file says otherwise.
   the targeted `callback-settings/` API. The change records the acting officer and an audit entry.
   It is deliberately outside the broad `/state/` PUT, which must never be used for member-owned
   callback availability or other restricted scheduler writes.
+  **Bins 3–6 implemented, pending production verification:** members create and withdraw only
+  their own future, non-overlapping Central-time availability blocks inside the selected horizon.
+  Officers can filter active blocks by time and required capability; scheduled assignments are
+  excluded. Officers record accepted/declined/no-answer/unavailable outcomes with an optional
+  note. Accepting against an open overtime post adds the member to that post's existing applicant
+  list; it does not bypass the current officer award process or alter voluntary-OT notifications.
+  **Bin 7 automated coverage:** member ownership, withdrawal, duplicate/overlap prevention,
+  callback settings authorization, and mandatory-email retirement are covered. Manually verify
+  the officer candidate screen and phone-sized member form after deployment.
 - **Vocabulary cleanup:** user-facing copy must say `A Shift`, `B Shift`, `C Shift` (or `Shift A`,
   etc.), not “platoon.” This is display-only: do not rename the internal `platoon` fields,
   constants, API values, database values, or scheduling logic without a separate migration plan.
