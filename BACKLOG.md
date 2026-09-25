@@ -1,14 +1,13 @@
 # Scheduler backlog
 
-> **Needs reconciliation before use.** `WEB_SCHEDULER_STATE_MIN.md` is the current
-> scheduler reference. This backlog retains useful ideas but includes shipped and
-> superseded entries; reconcile it with `SPEC_2026-09-06-staffing-accountability.md`
-> before treating an item as active work.
+> **Reconciled 2026-09-25.** `WEB_SCHEDULER_STATE_MIN.md` is the current scheduler
+> reference. This backlog keeps historical detail; its active work is the remaining-bins
+> list below. `SPEC_2026-09-06-staffing-accountability.md` remains historical and must
+> not override the current state without reconciliation.
 
 Single list for the scheduler (SPA + the `scheduler/` Django app). Reconciled
-2026-09-06 against Oren's own list — items already specified elsewhere are
-cross-referenced, not restated. Design detail for the accountability work lives in
-`SPEC_2026-09-06-staffing-accountability.md`; this is the ordered backlog.
+2026-09-25; items already shipped remain as history. Design detail for accountability
+work lives in `SPEC_2026-09-06-staffing-accountability.md`; this file controls priority.
 
 ## Shipped
 
@@ -17,6 +16,11 @@ cross-referenced, not restated. Design detail for the accountability work lives 
   every save and a forced hire looked identical to a volunteer. Coverage rows badge
   Forced vs Awarded.
 - E118 / M118 / HR115 scheduler Units imported and confirmed; HR115 is on-demand.
+- **Mandatory retirement and callback availability** (Bins 1–7) are built and verified:
+  members submit date spans, officers use qualified conflict-free candidates, outcomes are retained,
+  and normal voluntary-OT notifications remain unchanged.
+- **Checklist-suite branding** (Bins 10–12) is built and verified, including the full-width masthead
+  and responsive one-column layout.
 
 - **§1 Time off and partial-day staffing — BUILT** (2026-09-16, migrations
   `0013`–`0019`). See below for what shipped and what is still open.
@@ -131,7 +135,20 @@ Still open:
 - `admin` currently sits in the Credentials checkbox grid beside paramedic/EMT/
   engineer/officer. Could be its own toggle beside "Supervisor access".
 
-## 3. Printable daily schedule
+## Active remaining bins
+
+1. **P2 — Printable shift sheet:** dedicated 48-hour print view with selected units, crew, pay codes,
+   and notes.
+2. **P2 — App/IT feedback:** scheduler feedback capture with page and signed-in reporter context.
+3. **P2 — Staffing accountability:** immutable snapshots plus QA/accountability reporting using pay codes.
+4. **P2 — Paycom readiness:** discovery first; then decide comment enforcement, uncertain code visibility,
+   and any export.
+5. **P2 — Rescue seat order:** Officer → Driver/Engineer → riders.
+6. **P3 — Vocabulary cleanup:** visible “platoon” copy only; no internal rename or migration.
+
+## Historical detail
+
+### 3. Printable daily schedule
 
 **New.** Today the print button is `window.print()` against the live page, plus two
 `@media print` blocks in `styles.css`. That prints whatever is on screen.
@@ -155,14 +172,13 @@ the half people leave out.
 
 Ordered as in the spec's build order. Nothing here is urgent per Oren 2026-09-06:
 
-- **Phase 1 — callback list.** `hire_date` + `Assignment.hours`, configurable
-  ranking tiers, call-attempt log. BLOCKED on three answers from the Asst. Chief:
-  equalise OT or seniority; what "the cycle" means (FLSA 7(k) period or fiscal
-  year); whether declines count against position.
+- **Phase 1 — callback list — SHIPPED.** General date-span availability, officer
+  candidate filtering, and a durable call-attempt log are live. Ranking policy is a
+  future operational decision, not a blocker for the current callback workflow.
 - **Phase 3 — OT cause and the QA/QI report.** Now cheaper: use the pay codes above
   as the cause vocabulary. Still needs the immutable `StaffingSnapshot`.
-- **Phase 4 — mandatory escalation.** Specified, never built, and the Asst. Chief
-  has been told it exists. Server-side management command on a Railway cron.
+- **Phase 4 — mandatory escalation — RETIRED.** Do not build or re-enable it unless
+  leadership explicitly reverses the callback-list decision.
 - **Phase 5 — Paycom export.** Hold until the Paycom support call answers the
   double-count question. The pay-code work above is the natural precursor.
 

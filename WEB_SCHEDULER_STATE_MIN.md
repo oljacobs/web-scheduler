@@ -71,28 +71,29 @@ not current build instructions unless this file says otherwise.
   Preserve unresolved accountability decisions, mark shipped/superseded items, and move the final
   open list into `BACKLOG.md`. Do not silently delete business requirements.
 
-## Known open decisions / likely future work
+## Verified shipped work
 
-- **P1 callback availability:** replace the visible mandatory list with a callback list. Members
-  submit general date/time availability in configurable officer-managed horizons (initial presets:
+- **P1 callback availability — shipped and verified:** the visible mandatory list is replaced with
+  a callback list. Members
+  submit date-span availability in configurable officer-managed horizons (initial presets:
   14, 21, or 30 days). Availability is not tied to a rig or seat; when a voluntary OT opening does
   not fill in time, officers filter the callback list by the real seat qualification and conflicts.
   Members may view/edit only their own availability; officers, including ride-up officers, may view
   and use the list. Calling records accepted/declined/no-answer/unavailable outcomes; notes are
   optional so the field workflow remains quick. Keep normal voluntary-OT notification email routes;
   hide the mandatory UI and deactivate only mandatory/forced email routes without deleting history.
-  **Bin 1 implemented, pending production verification:**
+  **Bin 1:**
   `SCHEDULER_MANDATORY_BACKFILL_ENABLED` defaults to false; the API hides existing mandatory
   picks without deleting them, cached clients cannot create forced posts/assignments, and the
   sender marks queued mandatory-overtime emails skipped. Do not enable this flag without an
   explicit decision to restore the retired flow.
-  **Bin 2 implemented, pending production verification:** `CallbackAvailabilitySettings` is a
+  **Bin 2:** `CallbackAvailabilitySettings` is a
   one-row, server-owned setting with only 14/21/30-day choices (21 default). Every authenticated
   member may read the current window; only officers, including ride-up officers, may change it via
   the targeted `callback-settings/` API. The change records the acting officer and an audit entry.
   It is deliberately outside the broad `/state/` PUT, which must never be used for member-owned
   callback availability or other restricted scheduler writes.
-  **Bins 3–6 implemented, pending production verification:** members create and withdraw only
+  **Bins 3–6:** members create and withdraw only
   their own non-overlapping Central-time availability date spans inside the selected horizon.
   Each submitted date is a full 0800–0800 shift day; the member UI does not ask for times. Officers
   default their callback search to the same full shift day and may reveal specific hours only when
@@ -102,29 +103,40 @@ not current build instructions unless this file says otherwise.
   process or alter voluntary-OT notifications. Every outcome is retained as a
   `CallbackContactAttempt` PostgreSQL row; officers can review the latest 100 entries under
   Admin → Callback → Callback history after a page reload.
-  **Bin 7 automated coverage:** member ownership, withdrawal, duplicate/overlap prevention,
-  callback settings authorization, and mandatory-email retirement are covered. Manually verify
-  the officer candidate screen and phone-sized member form after deployment.
-- **Vocabulary cleanup:** user-facing copy must say `A Shift`, `B Shift`, `C Shift` (or `Shift A`,
-  etc.), not “platoon.” This is display-only: do not rename the internal `platoon` fields,
-  constants, API values, database values, or scheduling logic without a separate migration plan.
-- **Suite branding:** bring the scheduler UI into the checklist-suite visual system so it reads as
+  **Bin 7 coverage:** member ownership, withdrawal, duplicate/overlap prevention, callback settings
+  authorization, and mandatory-email retirement are covered; the officer and phone flows are verified.
+- **Suite branding — shipped and verified:** the scheduler now reads as
   one product, while preserving scheduler-specific dense staffing workflows and accessibility.
-  **Bins 10–11 implemented, pending visual verification:** scheduler now uses the checklist
+  **Bins 10–11:** scheduler uses the checklist
   suite's navy surfaces, gold primary actions/active states, `Inter` body type, and `Barlow
   Condensed` operational headings. Apparatus-type and staffing-status colors remain unchanged so
   the visual refresh does not conceal operational meaning. The scheduler masthead now mirrors the
   checklist header with the D7FR scramble, district hierarchy, and red-to-gold rule. Account access,
   Schedule/Admin, and compact Tools/Print/Email controls are all in that full-width masthead; the
   former sign-in sidebar is removed so the schedule uses one responsive content column.
-  **Bin 12:** manually verify phone,
-  tablet, desktop, keyboard focus, contrast, empty/error states, and print output after deploy.
-- Callback ordering policy, cycle definition, and treatment of declines remain future operational/
-  contract decisions. They are separate from the first availability-list release.
-- Accountability reporting needs immutable staffing snapshots and must use approved pay-code
-  vocabulary; do not build a payroll export until Paycom confirms double-count behavior.
-- Mandatory escalation must be server-side on a Railway cron, never browser-timed.
-- Rescue seat display order should match Officer → Driver/Engineer → riders.
+  **Bin 12:** phone, tablet, desktop, keyboard focus, contrast, empty/error states, and print output
+  were verified after deployment.
+
+## Remaining work bins
+
+1. **P2 — Printable shift sheet:** replace the live-page printout with a dedicated 48-hour sheet,
+   including selected units, crew, pay codes, and notes.
+2. **P2 — App/IT feedback:** add scheduler-side feedback capture that records the page and signed-in
+   reporter context.
+3. **P2 — Staffing accountability:** add immutable staffing snapshots and QA/accountability reporting
+   using approved pay-code vocabulary.
+4. **P2 — Paycom readiness:** complete Paycom discovery before deciding required-comment enforcement,
+   uncertain code visibility, or any payroll export.
+5. **P2 — Rescue display order:** standardize seats as Officer → Driver/Engineer → riders.
+6. **P3 — Vocabulary cleanup:** replace visible “platoon” wording with A/B/C Shift only; do not rename
+   internal fields, API values, or database data.
+
+## Open operations decisions
+
+- Confirm whether SICK and FMLA are chief-entered or HR-entered, whether admin needs one shared light-duty
+  unit or named posts, and callback ranking/cycle/decline policy.
+- Confirm and test a Railway PostgreSQL backup/restore process.
+- Mandatory escalation is retired and must not be built or re-enabled without an explicit leadership decision.
 
 ## Prompt discipline
 

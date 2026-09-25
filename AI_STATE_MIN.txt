@@ -12,14 +12,15 @@ write forced posts/assignments, and `send_queued_notifications` skips queued sub
 `MANDATORY overtime`. Keep normal voluntary-OT notifications. Do not enable this flag without an
 explicit decision to restore the retired system.
 
-CALLBACK SETTINGS (P1 Bin 2): `CallbackAvailabilitySettings` is a PostgreSQL singleton (id=1),
+CALLBACK AVAILABILITY (P1 Bins 1–7, SHIPPED AND VERIFIED):
+`CallbackAvailabilitySettings` is a PostgreSQL singleton (id=1),
 with `horizon_days` strictly 14, 21, or 30 (default 21), `updated_by`, and `updated_at`.
 `GET /api/scheduler/callback-settings/` is available to authenticated members so the future
 member sign-up view can use the real window. `PUT` is officer-only through
 `checklists.permissions.is_officer`, which includes roster ride-up officers; it validates the
 whitelist server-side and writes an AuditEntry. This does NOT use `/state/`: its whole-payload
 write path is too broad for restricted or member-owned callback data. The SPA Admin → Callback
-tab manages only the sign-up horizon; it does not yet collect availability.
+tab manages the sign-up horizon, while the member Callback view collects date-span availability.
 
 CALLBACK AVAILABILITY (P1 Bins 3–6): `CallbackAvailability` belongs to one roster Employee and
 stores aware `start_at`/`end_at`, active/withdrawn status, and timestamps. The member UI accepts
@@ -36,7 +37,7 @@ normal voluntary-OT workflow and notifications. The append-only rows are surface
 officer-only `GET /api/scheduler/callback/history/` endpoint and Admin → Callback history; this is
 the durable record of who was called, the response, the recording officer, optional note, and time.
 
-SUITE BRANDING (P2 Bins 10–12): Scheduler uses the checklist suite's navy surfaces (`#0d1526`,
+SUITE BRANDING (P2 Bins 10–12, SHIPPED AND VERIFIED): Scheduler uses the checklist suite's navy surfaces (`#0d1526`,
 `#161f38`), gold actions/active controls (`#e0a83a`), `Inter` body type, and `Barlow Condensed`
 uppercase operational headings. Apply these as neutral/navigation tokens only. Do NOT flatten
 apparatus-type, staffing-warning, danger, or success colors into gold: those colors carry board
@@ -44,7 +45,16 @@ meaning. Its full-width masthead uses the published checklist scramble plus the 
 rule; account access, Schedule/Admin, and compact Tools/Print/Email controls live there, with the
 former sign-in sidebar removed for a single responsive content column. Preserve
 44px touch targets, focus rings, responsive schedule layout, and print's black-on-white rules.
-Manual visual verification remains required after each deploy.
+
+REMAINING SCHEDULER BINS (current as of 2026-09-25):
+P2 — build a dedicated 48-hour printable shift sheet with unit selection and pay-code detail.
+P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
+P2 — build immutable staffing snapshots and accountability/QA reporting using existing pay-code vocabulary.
+P2 — complete Paycom discovery, then decide comment enforcement, uncertain code visibility, and any export.
+P2 — standardize Rescue seat order to Officer → Driver/Engineer → riders.
+P3 — audit and replace visible “platoon” wording only; do not rename internal data or APIs.
+Operations decisions — confirm SICK/FMLA ownership, the admin-unit shape, callback ranking/cycle/decline policy,
+and a tested Railway Postgres backup/restore process. Mandatory escalation is retired, not active work.
 
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
