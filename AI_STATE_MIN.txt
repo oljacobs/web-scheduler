@@ -62,6 +62,11 @@ P1 — notification activation: as of 2026-09-25, the production pre-activation 
 retired to `skipped` (45 rows; none deleted), leaving zero deliverable backlog. Delivery remains off
 until an explicit rollout. The backend repo's `SCHEDULER_NOTIFICATION_RUNBOOK.md` is the operational
 source for queue checks, controlled digest tests, kill switch, and the separate hourly Railway cron.
+SPECIAL ASSIGNMENT FOUNDATION (deployment work, Bin 1): Scheduler Units now distinguish
+`special_assignment` from `operations` and `admin`, with a required category of Military, VTO,
+Event, Training, or Other. This is Scheduler-only metadata: do not create a checklist Vehicle or
+template for it. Existing browser payloads that do not know these fields preserve the server's
+special-assignment class/category rather than downgrading it to operations on save.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
