@@ -82,6 +82,11 @@ Special-assignment blocks prevent overlapping normal/OT selection only for their
 When an officer moves an already scheduled member, show affected shifts and require confirmation
 before moving them and separately opening normal-unit OT coverage. Do not notify employees until
 the officer publishes the schedule.
+BIN 1 COMPLETE (backend): `SpecialAssignmentTemplate` stores one to ten validated daily blocks
+with start hour, 30-minute duration, crew range, and officer/engineer/MOF/paramedic/EMT counts.
+`GET|POST /api/scheduler/special-assignment-templates/` is officer-only and audit logged; it creates
+patterns only, never Vehicle, Assignment, or OT rows. The next bin must make those templates usable
+from the Scheduler UI and generate editable date/block records.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.

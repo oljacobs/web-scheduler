@@ -66,6 +66,10 @@ Next build: reusable daily time-block templates and role slots; VTO vacancies ma
 existing voluntary OT flow, while all special-assignment work is paid but never contributes to
 normal operational minimum staffing. Conflicts require an officer-confirmed move and optional OT
 coverage; changes notify employees only on normal schedule publication.
+Bin 1 foundation is complete in the Django backend: `SpecialAssignmentTemplate` has active,
+auditable, officer-only reusable time-block and role patterns. It intentionally creates no people,
+dates, Vehicle rows, or OT posts; the next bin will expose it in the Scheduler and generate editable
+per-date blocks.
 
 PRIMARY STATE OBJECT (`state`)
 - currentUserId: string|null             — employee.id of signed-in user
