@@ -2117,7 +2117,7 @@ function openSpecialAssignmentDialog() {
       </fieldset>
       <div class="dialog-times"><label>Minimum crew <input id="special-crew-min" type="number" min="1" max="10" value="1"></label><label>Maximum crew <input id="special-crew-max" type="number" min="1" max="10" value="1"></label></div>
       <p id="special-assignment-error" class="helper-text dialog-error hidden"></p>
-      <div class="dialog-footer"><button value="cancel" class="button button-secondary">Cancel</button><button id="special-assignment-save" value="save" class="button button-primary">Create assignment</button></div>
+      <div class="dialog-footer"><button value="cancel" formnovalidate class="button button-secondary">Cancel</button><button id="special-assignment-save" value="save" class="button button-primary">Create assignment</button></div>
     </form>`;
   document.body.appendChild(dlg);
   dlg.querySelectorAll("[data-special-duration]").forEach((button) => button.addEventListener("click", () => {

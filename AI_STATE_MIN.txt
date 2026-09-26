@@ -73,6 +73,15 @@ minimum/maximum crew, and required officer/paramedic/EMT counts. The unit is on-
 its selected dates, appears in a separate daily “Special assignments” section, and uses ordinary
 assignments so no person can also be staffed on a rig. It is excluded from apparatus alerts,
 printing, and automatic overtime; officers decide whether to open a voluntary OT post later.
+The native-dialog Cancel control uses `formnovalidate`; it must close without triggering the
+required assignment-name validation. Keep Create validation intact.
+NEXT — SPECIAL ASSIGNMENT STAFFING: add reusable per-day time-block and role-count templates,
+then officer-selected staff per block. VTO gaps use the existing voluntary-OT flow; Military,
+Event, and Training hours are paid but do not count toward operational apparatus minimums.
+Special-assignment blocks prevent overlapping normal/OT selection only for their listed hours.
+When an officer moves an already scheduled member, show affected shifts and require confirmation
+before moving them and separately opening normal-unit OT coverage. Do not notify employees until
+the officer publishes the schedule.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.

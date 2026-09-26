@@ -57,6 +57,16 @@ AI_STATE_MIN.txt carries the detail. Headlines, because they change assumptions 
 === end update ===
 
 
+SPECIAL ASSIGNMENTS (2026-09-25): Scheduler-only Special Assignment units are on-demand and
+date-bound; never create a checklist Vehicle. Categories are Military, VTO, Event, Training, and
+Other. Officers configure a start hour, 12/24-hour quick duration or custom 30-minute duration,
+crew min/max, and required officer/paramedic/EMT counts. The dedicated creation dialog's Cancel
+button must use `formnovalidate`, otherwise the required Name field prevents it from closing.
+Next build: reusable daily time-block templates and role slots; VTO vacancies may enter the
+existing voluntary OT flow, while all special-assignment work is paid but never contributes to
+normal operational minimum staffing. Conflicts require an officer-confirmed move and optional OT
+coverage; changes notify employees only on normal schedule publication.
+
 PRIMARY STATE OBJECT (`state`)
 - currentUserId: string|null             — employee.id of signed-in user
 - currentUserDisplayName: string|null    — from Entra ID displayName
