@@ -10,6 +10,9 @@ for its payment, debt-settlement, permission, and UI rules.
 Latest note (2026-09-25): student riders are separate 12-hour operational records, not staffing
 assignments. Daily cards show only a unit flag; detailed student information is restricted to MOFs.
 
+Latest note (2026-09-25): the pre-activation notification queue was safely cleared to `skipped`.
+The backend notification runbook is the source for the remaining hourly snapshot cron configuration.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

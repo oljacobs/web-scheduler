@@ -58,6 +58,10 @@ officers can use the optional Students toggle to add, edit, or remove one EMT or
 per apparatus per date; every rider is a fixed 12-hour shift and becomes read-only when the shift
 begins. Names and school are fetched only through the medical-officer endpoint; the shared state
 contains unit/date flags only.
+P1 — notification activation: as of 2026-09-25, the production pre-activation outbox was safely
+retired to `skipped` (45 rows; none deleted), leaving zero deliverable backlog. Delivery remains off
+until an explicit rollout. The backend repo's `SCHEDULER_NOTIFICATION_RUNBOOK.md` is the operational
+source for queue checks, controlled digest tests, kill switch, and the separate hourly Railway cron.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
