@@ -12,6 +12,7 @@ const state = {
   scheduleStatus: "draft",
   units: [],
   staffingTemplates: [],
+  studentRiderFlags: [],
   shiftDebts: [],
   mandatoryBackfill: [],
   mandatoryImportPreview: null,
@@ -180,7 +181,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "pay-codes-toggle", "hours-toggle", "trades-toggle",
+    "pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
@@ -257,9 +258,11 @@ function wireEvents() {
   renderPayCodeToggle();
   renderHoursToggle();
   renderTradesToggle();
+  renderStudentRidersToggle();
   dom["pay-codes-toggle"].addEventListener("click", togglePayCodeUi);
   dom["hours-toggle"]?.addEventListener("click", toggleHoursUi);
   dom["trades-toggle"]?.addEventListener("click", toggleTradesUi);
+  dom["student-riders-toggle"]?.addEventListener("click", toggleStudentRidersUi);
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
   // Employee import
@@ -667,6 +670,7 @@ function migratePersistedUnitTypes(units) {
 
 function render() {
   syncMandatoryBackfillFeature();
+  renderStudentRidersToggle();
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
   // Default to the fiscal year people are picking for: after Oct 1 that's the
@@ -718,6 +722,10 @@ function callbackApiUrl(path) {
 
 function manualTradesApiUrl() {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/manual-trades/`;
+}
+
+function studentRidersApiUrl(path = "") {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/student-riders/${path}`;
 }
 
 function staffingSnapshotApiUrl(path) {
@@ -1165,6 +1173,7 @@ function renderSchedule() {
   attachSeatTimeEvents(dom["schedule-container"]);
   attachPayCodeEvents(dom["schedule-container"]);
   attachManualTradeEvents(dom["schedule-container"]);
+  attachStudentRiderEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
   attachUnitServiceEvents(dom["schedule-container"]);
 }
@@ -1690,6 +1699,24 @@ function unitServiceControlHtml(unit, date) {
   return `<button class="button button-secondary button-small" data-deactivate-unit="${unit.id}" data-deactivate-date="${date}">Out of service</button>`;
 }
 
+function canManageStudentRiders() {
+  const current = employeeById(state.currentUserId);
+  return !!current && personCapabilities(current).includes("mof");
+}
+
+function studentRiderFlag(unit, date) {
+  return (state.studentRiderFlags || []).find((item) => item.date === date && item.unitId === unit.id) || null;
+}
+
+function studentRiderControlHtml(unit, date) {
+  if (isAdminUnit(unit)) return "";
+  const assigned = studentRiderFlag(unit, date);
+  const edit = canManageStudentRiders() && STUDENT_RIDERS_UI.show && state.currentView === "day" && usesSchedulerApi()
+    ? `<button class="button button-secondary button-small seat-student-rider" data-student-unit="${unit.id}" data-student-date="${date}">${assigned ? "Edit student" : "Add student"}</button>`
+    : "";
+  return `${assigned ? '<span class="badge badge-soft">Student rider</span>' : ""}${edit}`;
+}
+
 // Week view: compact 7-column calendar grid
 function renderWeekCalendar(dates) {
   const today = todayIso();
@@ -1801,6 +1828,7 @@ function renderUnitCard(unit, date, activeShift) {
         <div class="unit-card-actions">
           <span class="badge ${cls}">${lbl}</span>
           ${unitServiceControlHtml(unit, date)}
+          ${studentRiderControlHtml(unit, date)}
         </div>
       </div>
       <div class="seat-list">${rows || `<div class="empty-state">No assignment on this date.</div>`}
@@ -1862,6 +1890,7 @@ function renderUnitCard(unit, date, activeShift) {
         <div class="unit-card-actions">
           <span class="badge ${statusClass}">${statusLabel}</span>
           ${unitServiceControlHtml(unit, date)}
+          ${studentRiderControlHtml(unit, date)}
         </div>
       </div>
       <div class="seat-list">
@@ -3035,6 +3064,118 @@ function attachManualTradeEvents(scope) {
     button.addEventListener("click", () => {
       const { tradePerson: personId, tradeUnit: unitId, tradeDate: date, tradeStart: startMinute, tradeRole: role } = button.dataset;
       openManualTradeDialog({ personId, unitId, date, startMinute, role });
+    });
+  });
+}
+
+async function openStudentRiderDialog({ unitId, date }) {
+  const unit = unitById(unitId);
+  if (!unit || !canManageStudentRiders() || !usesSchedulerApi()) return;
+  let rider = null;
+  if (studentRiderFlag(unit, date)) {
+    try {
+      const response = await fetch(`${studentRidersApiUrl()}?date=${encodeURIComponent(date)}&unitId=${encodeURIComponent(unitId)}`, {
+        headers: await schedulerApiHeaders(),
+      });
+      if (!response.ok) throw new Error("Could not load the student rider.");
+      rider = await response.json();
+    } catch (error) {
+      showToast(error.message || "Could not load the student rider.", "error");
+      return;
+    }
+  }
+
+  document.getElementById("student-rider-dialog")?.remove();
+  const dlg = document.createElement("dialog");
+  dlg.id = "student-rider-dialog";
+  dlg.className = "app-dialog";
+  dlg.innerHTML = studentRiderDialogHtml(unit, date, rider);
+  document.body.appendChild(dlg);
+  wireStudentRiderDialog(dlg, { unitId, date, rider });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
+}
+
+function studentRiderDialogHtml(unit, date, rider) {
+  const qualification = rider?.qualification || "emt";
+  return `
+    <form method="dialog" class="dialog-body">
+      <h3>${rider ? "Edit" : "Add"} student rider</h3>
+      <p class="helper-text">${escapeHtml(unit.name)} · ${formatDate(date)} · 12-hour shift</p>
+      <label>Student name <input id="student-rider-name" type="text" maxlength="200" value="${escapeHtml(rider?.name || "")}" required></label>
+      <label>School <input id="student-rider-school" type="text" maxlength="200" value="${escapeHtml(rider?.school || "")}" required></label>
+      <label>Qualification
+        <select id="student-rider-qualification">
+          <option value="emt"${qualification === "emt" ? " selected" : ""}>EMT</option>
+          <option value="paramedic"${qualification === "paramedic" ? " selected" : ""}>Paramedic</option>
+        </select>
+      </label>
+      <p id="student-rider-error" class="helper-text dialog-error hidden"></p>
+      <div class="dialog-footer">
+        ${rider ? '<button id="student-rider-remove" value="remove" class="button button-secondary">Remove student</button>' : ""}
+        <button value="cancel" class="button button-secondary">Cancel</button>
+        <button id="student-rider-save" value="save" class="button button-primary">Save student</button>
+      </div>
+    </form>`;
+}
+
+function wireStudentRiderDialog(dlg, { unitId, date, rider }) {
+  const fail = (message) => {
+    const error = dlg.querySelector("#student-rider-error");
+    error.textContent = message;
+    error.classList.remove("hidden");
+  };
+  const reload = async () => {
+    await loadRemoteStateAfterAuth();
+    render();
+    dlg.close();
+  };
+  dlg.querySelector("#student-rider-save")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const name = dlg.querySelector("#student-rider-name")?.value.trim() || "";
+    const school = dlg.querySelector("#student-rider-school")?.value.trim() || "";
+    const qualification = dlg.querySelector("#student-rider-qualification")?.value || "";
+    if (!name || !school) return fail("Enter the student name and school.");
+    const save = dlg.querySelector("#student-rider-save");
+    save.disabled = true;
+    try {
+      const response = await fetch(rider ? studentRidersApiUrl(`${rider.id}/`) : studentRidersApiUrl(), {
+        method: rider ? "PUT" : "POST",
+        headers: await schedulerApiHeaders(),
+        body: JSON.stringify(rider ? { name, school, qualification } : { date, unitId, name, school, qualification }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not save the student rider.");
+      await reload();
+      showToast(rider ? "Student rider updated." : "Student rider added.", "success");
+    } catch (error) {
+      fail(error.message || "Could not save the student rider.");
+      save.disabled = false;
+    }
+  });
+  dlg.querySelector("#student-rider-remove")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    if (!window.confirm("Remove this student rider from the unit?")) return;
+    try {
+      const response = await fetch(studentRidersApiUrl(`${rider.id}/`), {
+        method: "DELETE",
+        headers: await schedulerApiHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not remove the student rider.");
+      await reload();
+      showToast("Student rider removed.", "success");
+    } catch (error) {
+      fail(error.message || "Could not remove the student rider.");
+    }
+  });
+}
+
+function attachStudentRiderEvents(scope) {
+  const root = scope || document;
+  [...root.querySelectorAll(".seat-student-rider")].forEach((button) => {
+    button.addEventListener("click", () => {
+      openStudentRiderDialog({ unitId: button.dataset.studentUnit, date: button.dataset.studentDate });
     });
   });
 }
@@ -5785,6 +5926,8 @@ const HOURS_UI_KEY = "d7fr-scheduler-hours-ui";
 const HOURS_UI = { show: false };
 const TRADES_UI_KEY = "d7fr-scheduler-trades-ui";
 const TRADES_UI = { show: false };
+const STUDENT_RIDERS_UI_KEY = "d7fr-scheduler-student-riders-ui";
+const STUDENT_RIDERS_UI = { show: false };
 
 function loadPayUiPreference() {
   try {
@@ -5802,6 +5945,31 @@ function loadPayUiPreference() {
   } catch (e) {
     TRADES_UI.show = false;
   }
+  try {
+    STUDENT_RIDERS_UI.show = localStorage.getItem(STUDENT_RIDERS_UI_KEY) === "1";
+  } catch (e) {
+    STUDENT_RIDERS_UI.show = false;
+  }
+}
+
+function toggleStudentRidersUi() {
+  STUDENT_RIDERS_UI.show = !STUDENT_RIDERS_UI.show;
+  try {
+    localStorage.setItem(STUDENT_RIDERS_UI_KEY, STUDENT_RIDERS_UI.show ? "1" : "0");
+  } catch (e) {
+  }
+  renderStudentRidersToggle();
+  render();
+}
+
+function renderStudentRidersToggle() {
+  const btn = dom["student-riders-toggle"];
+  if (!btn) return;
+  const enabled = STUDENT_RIDERS_UI.show && canManageStudentRiders();
+  btn.classList.toggle("is-active", enabled);
+  btn.disabled = !canManageStudentRiders();
+  btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+  btn.textContent = enabled ? "Students ✓" : "Students";
 }
 
 function toggleTradesUi() {
@@ -6869,6 +7037,7 @@ function applyPersistedState(data) {
     state.units = defaultUnits();
   }
   state.staffingTemplates = Array.isArray(data.staffingTemplates) ? data.staffingTemplates : [];
+  state.studentRiderFlags = Array.isArray(data.studentRiderFlags) ? data.studentRiderFlags : [];
   state.mandatoryBackfill = Array.isArray(data.mandatoryBackfill) ? data.mandatoryBackfill : [];
   if (data.schedulerFeatures && typeof data.schedulerFeatures === "object") {
     state.schedulerFeatures = { ...state.schedulerFeatures, ...data.schedulerFeatures };

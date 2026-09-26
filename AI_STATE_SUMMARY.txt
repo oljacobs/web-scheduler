@@ -7,6 +7,9 @@ Latest note (2026-09-25): officer manual trades are recorded from the Day roster
 targeted Django endpoint. The existing employee trade board remains unchanged; see `AI_STATE_MIN.txt`
 for its payment, debt-settlement, permission, and UI rules.
 
+Latest note (2026-09-25): student riders are separate 12-hour operational records, not staffing
+assignments. Daily cards show only a unit flag; detailed student information is restricted to MOFs.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

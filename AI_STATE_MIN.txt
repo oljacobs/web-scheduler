@@ -53,6 +53,11 @@ P2 — dedicated 48-hour printable shift sheet with unit selection and pay-code 
 P1 — officer manual trades: daily-roster Trade controls call the targeted Django endpoint only. The
 paid member is removed from duty, the covering member is recorded as unpaid, and a reciprocal
 banked day is added or settled server-side. The existing employee trade board is unchanged.
+P1 — student riders: the Day roster shows a compact “Student rider” unit flag. Qualified medical
+officers can use the optional Students toggle to add, edit, or remove one EMT or Paramedic student
+per apparatus per date; every rider is a fixed 12-hour shift and becomes read-only when the shift
+begins. Names and school are fetched only through the medical-officer endpoint; the shared state
+contains unit/date flags only.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
@@ -215,6 +220,11 @@ POST `/api/scheduler/manual-trades/`; never use the broad `/state/` write for th
 server locks and validates the source assignment, covering member, qualification, and conflicts,
 then records `Trade(type="manual")`, settles or creates a `ShiftDebt`, writes an audit row, and
 updates the assignment's paid employee. The roster shows “Trade · paid to …” on the working seat.
+STUDENT_RIDERS_UI.show (localStorage "d7fr-scheduler-student-riders-ui", per viewer, default OFF)
+gates the MOF-only daily-roster controls. `studentRiderFlags` is read-only unit/date status from
+`/state/`; never put student name or school in the whole-state payload. Student details use the
+targeted `/api/scheduler/student-riders/` endpoints, which enforce the MOF qualification, one rider
+per unit/date, 12 hours, and the shift-start edit cutoff server-side.
 PAY CODES ARE PER BLOCK, NOT PER PERSON-DAY: every pay control carries data-pay-start and
   updateAssignedPerson(date,unitId,personId,patch,startMinute) matches on it. Without it a chief
   on TIFMAS 0800-1800 and back on the rig after had the code land on the wrong hours.
