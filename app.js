@@ -2083,6 +2083,14 @@ function specialAssignmentApiUrl() {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/special-assignments/`;
 }
 
+function specialAssignmentTemplatesApiUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/special-assignment-templates/`;
+}
+
+function specialAssignmentDeploymentsApiUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/special-assignment-deployments/`;
+}
+
 function openSpecialAssignmentDialog() {
   if (state.currentRole !== "supervisor" || !usesSchedulerApi()) {
     showToast("Supervisor sign-in and the scheduler server are required.", "error");
@@ -2103,23 +2111,51 @@ function openSpecialAssignmentDialog() {
           <option value="event">Event</option><option value="training">Training</option><option value="other">Other</option>
         </select>
       </label>
+      <label>Staffing pattern
+        <select id="special-template"><option value="">Custom single time block</option></select>
+      </label>
+      <fieldset class="dialog-group"><legend>Pre-staff entire deployment (optional)</legend>
+        <p class="helper-text">Use for the same crew on every generated block. Conflicting members can be moved from the daily schedule after creation.</p>
+        <label>Members
+          <select id="special-employees" multiple size="5">${activeEmployees().map((employee) => `<option value="${employee.id}">${escapeHtml(employee.name)} — ${escapeHtml(employee.title || "—")}</option>`).join("")}</select>
+        </label>
+      </fieldset>
       <div class="dialog-times">
         <label>Start date <input id="special-start-date" type="date" value="${state.currentDate}"></label>
         <label>End date <input id="special-end-date" type="date" value="${state.currentDate}"></label>
       </div>
-      <div class="dialog-times">
+      <div class="dialog-times special-custom-block">
         <label>Start hour <select id="special-start-hour">${Array.from({ length: 24 }, (_, hour) => `<option value="${hour}"${hour === 8 ? " selected" : ""}>${String(hour).padStart(2, "0")}:00</option>`).join("")}</select></label>
         <label>Duration (hours) <input id="special-duration" type="number" min="1" max="24" step="0.5" value="12"></label>
       </div>
-      <div class="button-row"><button class="button button-secondary button-small" type="button" data-special-duration="12">12 hours</button><button class="button button-secondary button-small" type="button" data-special-duration="24">24 hours</button></div>
-      <fieldset class="dialog-group"><legend>Required roles</legend>
+      <div class="button-row special-custom-block"><button class="button button-secondary button-small" type="button" data-special-duration="12">12 hours</button><button class="button button-secondary button-small" type="button" data-special-duration="24">24 hours</button></div>
+      <fieldset class="dialog-group special-custom-block"><legend>Required roles</legend>
         <div class="dialog-times"><label>Officers <input id="special-officer-count" type="number" min="0" max="10" value="0"></label><label>Paramedics <input id="special-paramedic-count" type="number" min="0" max="10" value="0"></label><label>EMTs <input id="special-emt-count" type="number" min="0" max="10" value="0"></label></div>
       </fieldset>
-      <div class="dialog-times"><label>Minimum crew <input id="special-crew-min" type="number" min="1" max="10" value="1"></label><label>Maximum crew <input id="special-crew-max" type="number" min="1" max="10" value="1"></label></div>
+      <div class="dialog-times special-custom-block"><label>Minimum crew <input id="special-crew-min" type="number" min="1" max="10" value="1"></label><label>Maximum crew <input id="special-crew-max" type="number" min="1" max="10" value="1"></label></div>
+      <label class="special-custom-block"><input id="special-save-template" type="checkbox"> Save this staffing pattern for future assignments</label>
+      <label id="special-template-name-wrap" class="hidden">Pattern name <input id="special-template-name" type="text" maxlength="100" placeholder="VTO 4-hour medic/EMT detail"></label>
       <p id="special-assignment-error" class="helper-text dialog-error hidden"></p>
       <div class="dialog-footer"><button value="cancel" formnovalidate class="button button-secondary">Cancel</button><button id="special-assignment-save" value="save" class="button button-primary">Create assignment</button></div>
     </form>`;
   document.body.appendChild(dlg);
+  const templateSelect = dlg.querySelector("#special-template");
+  const setCustomBlockVisibility = () => {
+    const usingTemplate = Boolean(templateSelect.value);
+    dlg.querySelectorAll(".special-custom-block").forEach((element) => element.classList.toggle("hidden", usingTemplate));
+    dlg.querySelector("#special-template-name-wrap").classList.toggle("hidden", usingTemplate || !dlg.querySelector("#special-save-template").checked);
+  };
+  templateSelect.addEventListener("change", setCustomBlockVisibility);
+  dlg.querySelector("#special-save-template").addEventListener("change", setCustomBlockVisibility);
+  schedulerApiHeaders().then((headers) => fetch(specialAssignmentTemplatesApiUrl(), { headers }))
+    .then((response) => response.ok ? response.json() : [])
+    .then((templates) => (Array.isArray(templates) ? templates : []).forEach((template) => {
+      const option = document.createElement("option");
+      option.value = template.id;
+      option.textContent = `${template.name} (${template.category})`;
+      templateSelect.appendChild(option);
+    }))
+    .catch(() => {});
   dlg.querySelectorAll("[data-special-duration]").forEach((button) => button.addEventListener("click", () => {
     dlg.querySelector("#special-duration").value = button.dataset.specialDuration;
   }));
@@ -2140,15 +2176,27 @@ function openSpecialAssignmentDialog() {
     if (!Number.isFinite(duration) || duration < 1 || duration > 24 || (duration * 60) % 30) return fail("Use a duration from 1 to 24 hours in 30-minute increments.");
     if (!Number.isInteger(crewMin) || !Number.isInteger(crewMax) || crewMin < 1 || crewMax < crewMin || crewMax > CREW_LIMIT) return fail("Use a crew range from 1 to 10, with minimum no greater than maximum.");
     if (requirements.reduce((total, item) => total + item.count, 0) > crewMin) return fail("Minimum crew must cover every required role.");
-    const save = dlg.querySelector("#special-assignment-save");
-    save.disabled = true;
-    try {
-      const response = await fetch(specialAssignmentApiUrl(), {
+      const templateId = templateSelect.value;
+      const employeeIds = [...dlg.querySelector("#special-employees").selectedOptions].map((option) => option.value);
+      const save = dlg.querySelector("#special-assignment-save");
+      save.disabled = true;
+      try {
+        const customBlock = { startHour: Number(dlg.querySelector("#special-start-hour").value), tourMinutes: Math.round(duration * 60), crewMin, crewMax, requirements };
+        if (!templateId && dlg.querySelector("#special-save-template").checked) {
+          const templateName = dlg.querySelector("#special-template-name").value.trim();
+          if (!templateName) throw new Error("Enter a name for the saved staffing pattern.");
+          const templateResponse = await fetch(specialAssignmentTemplatesApiUrl(), {
+            method: "POST", headers: await schedulerApiHeaders(),
+            body: JSON.stringify({ name: templateName, category: dlg.querySelector("#special-category").value, blocks: [customBlock] }),
+          });
+          const templateData = await templateResponse.json().catch(() => ({}));
+          if (!templateResponse.ok) throw new Error(templateData.detail || "Could not save the staffing pattern.");
+        }
+      const response = await fetch(specialAssignmentDeploymentsApiUrl(), {
         method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({
           name: dlg.querySelector("#special-name").value.trim(), category: dlg.querySelector("#special-category").value,
           startDate: dlg.querySelector("#special-start-date").value, endDate: dlg.querySelector("#special-end-date").value,
-          startHour: Number(dlg.querySelector("#special-start-hour").value), tourMinutes: Math.round(duration * 60),
-          crewMin, crewMax, requirements,
+          templateId: templateId || undefined, blocks: templateId ? undefined : [customBlock], employeeIds,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -2156,7 +2204,7 @@ function openSpecialAssignmentDialog() {
       await loadRemoteStateAfterAuth();
       render();
       dlg.close();
-      showToast("Special assignment created.", "success");
+      showToast("Special assignment deployment created.", "success");
     } catch (error) {
       fail(error.message || "Could not create the special assignment.");
       save.disabled = false;
@@ -2820,10 +2868,22 @@ function attachUnitMoveEvents() {
         return;
       }
       // Nor may they be covering that window on another rig.
-      if (isBookedDuring(date, employee.id, win, unitId, unit)) {
+      if (isBookedDuring(date, employee.id, win, unitId, unit) && !isSpecialAssignment(unit)) {
         window.alert(`${employee.name} is already assigned elsewhere during ${windowLabel(win, unit)}.`);
         select.value = "";
         return;
+      }
+      if (isSpecialAssignment(unit) && isBookedDuring(date, employee.id, win, unitId, unit)) {
+        const message = `${employee.name} is already scheduled during ${windowLabel(win, unit)}.\n\nMove them to ${unit.name} for this time block? Their overlapping normal assignment will become open.`;
+        if (!window.confirm(message)) {
+          select.value = "";
+          return;
+        }
+        const affectedUnitIds = moveEmployeeToSpecialAssignment(date, employee.id, win, unit);
+        if (window.confirm("Open overtime coverage for the affected normal assignment?")) {
+          openSpecialAssignmentCoverage(date, affectedUnitIds);
+          addAudit(`Overtime coverage requested after moving ${employee.name} to ${unit.name} on ${formatDate(date)}.`, currentUserName());
+        }
       }
 
       const placed = { ...employee };
@@ -2866,6 +2926,48 @@ function attachUnitMoveEvents() {
       persistAppState("Assignment removed");
     });
   });
+}
+
+function moveEmployeeToSpecialAssignment(date, employeeId, specialWindow, specialUnit) {
+  const targetStart = unitTourStartHour(specialUnit) * 60 + specialWindow.start;
+  const targetEnd = unitTourStartHour(specialUnit) * 60 + specialWindow.end;
+  const byUnit = state.assignments?.[date] || {};
+  const affectedUnitIds = new Set();
+  Object.entries(byUnit).forEach(([otherUnitId, people]) => {
+    if (otherUnitId === specialUnit.id) return;
+    const otherUnit = unitById(otherUnitId);
+    if (!otherUnit || isSpecialAssignment(otherUnit)) return;
+    const replacement = [];
+    (people || []).forEach((person) => {
+      if (person.id !== employeeId) {
+        replacement.push(person);
+        return;
+      }
+      const block = blockOf(person, unitTourMinutes(otherUnit));
+      const absolute = absoluteBlock(person, otherUnit);
+      if (!blocksOverlap(absolute, { start: targetStart, end: targetEnd })) {
+        replacement.push(person);
+        return;
+      }
+      affectedUnitIds.add(otherUnitId);
+      const otherBase = unitTourStartHour(otherUnit) * 60;
+      const beforeEnd = Math.max(block.start, Math.min(block.end, targetStart - otherBase));
+      const afterStart = Math.min(block.end, Math.max(block.start, targetEnd - otherBase));
+      if (block.start < beforeEnd) replacement.push({ ...person, _start: block.start, _end: beforeEnd });
+      if (afterStart < block.end) replacement.push({ ...person, _start: afterStart, _end: block.end });
+    });
+    state.assignments[date][otherUnitId] = markManual(replacement);
+  });
+  addAudit(`${employeeById(employeeId)?.name || "Employee"} moved to ${specialUnit.name} on ${formatDate(date)} for ${windowLabel(specialWindow, specialUnit)}.`, currentUserName());
+  return affectedUnitIds;
+}
+
+function openSpecialAssignmentCoverage(date, affectedUnitIds) {
+  const gaps = coverageGaps(date, 1).filter((gap) => affectedUnitIds.has(gap.unitId));
+  gaps.forEach((gap) => ensureOvertimePost(gap, "open"));
+  showToast(gaps.length
+    ? `Opened ${gaps.length} normal overtime coverage ${gaps.length === 1 ? "post" : "posts"}.`
+    : "The normal assignment is open; no required overtime post was needed.", "success");
 }
 
 // Editing a person's hours on a seat row. Like every other edit on this board
@@ -5994,7 +6096,7 @@ function seatDropdownOptions(pos, unit, date, window) {
     // Light duty takes someone off the RIGS, not off the schedule -- they stay
     // pickable for admin positions, which is the whole reason one exists.
     .filter((e) => employeeAvailableForUnit(e, unit, date))
-    .filter((e) => !isBookedDuring(date, e.id, win, null, unit))
+    .filter((e) => isSpecialAssignment(unit) || !isBookedDuring(date, e.id, win, null, unit))
     .filter((e) => seatAccepts(pos, e));
 
   // Grouped by platoon, the on-duty one first — that is who a supervisor is
@@ -6002,7 +6104,8 @@ function seatDropdownOptions(pos, unit, date, window) {
   // sit below, clearly labelled, instead of being mixed in alphabetically.
   const optionFor = (e) => {
     const acting = !seatAllowsAny(pos) && !(e.certs || []).some((c) => (Array.isArray(pos.cap) ? pos.cap : [pos.cap]).includes(c));
-    return `<option value="${e.id}">${escapeHtml(e.name)} — ${escapeHtml(e.title || "—")}${acting ? " (acting)" : ""}</option>`;
+    const booked = isBookedDuring(date, e.id, win, null, unit);
+    return `<option value="${e.id}">${escapeHtml(e.name)} — ${escapeHtml(e.title || "—")}${acting ? " (acting)" : ""}${booked ? " (scheduled conflict)" : ""}</option>`;
   };
   // On an admin position the admin platoon comes first and nothing is
   // "overtime" -- an admin day is not a rotation shift, and labelling a rig's
