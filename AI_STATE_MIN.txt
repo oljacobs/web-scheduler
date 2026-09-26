@@ -50,6 +50,9 @@ stack above the full-width staffing message so a clear-status chip cannot compre
 
 RECENTLY COMPLETED (2026-09-25):
 P2 — dedicated 48-hour printable shift sheet with unit selection and pay-code detail: SHIPPED AND VERIFIED.
+P1 — officer manual trades: daily-roster Trade controls call the targeted Django endpoint only. The
+paid member is removed from duty, the covering member is recorded as unpaid, and a reciprocal
+banked day is added or settled server-side. The existing employee trade board is unchanged.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
@@ -206,6 +209,12 @@ HOURS_UI.show (localStorage "d7fr-scheduler-hours-ui", per viewer, default OFF),
   PAY_UI. #hours-toggle gates the Split and "Time off" BUTTONS only. Hours a seat already has, the
   red OPEN gap picker and the off-roster ALWAYS show — the toggle hides editing controls, never
   staffing information.
+TRADES_UI.show (localStorage "d7fr-scheduler-trades-ui", per viewer, default OFF) gates the
+officer-only Trade button on assigned operations seats in the Day view. It calls
+POST `/api/scheduler/manual-trades/`; never use the broad `/state/` write for this action. The
+server locks and validates the source assignment, covering member, qualification, and conflicts,
+then records `Trade(type="manual")`, settles or creates a `ShiftDebt`, writes an audit row, and
+updates the assignment's paid employee. The roster shows “Trade · paid to …” on the working seat.
 PAY CODES ARE PER BLOCK, NOT PER PERSON-DAY: every pay control carries data-pay-start and
   updateAssignedPerson(date,unitId,personId,patch,startMinute) matches on it. Without it a chief
   on TIFMAS 0800-1800 and back on the rig after had the code land on the wrong hours.

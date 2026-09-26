@@ -3,6 +3,10 @@
 > `AI_STATE_MIN.txt`. This file is retained for session history and may describe
 > superseded behavior.
 
+Latest note (2026-09-25): officer manual trades are recorded from the Day roster through the
+targeted Django endpoint. The existing employee trade board remains unchanged; see `AI_STATE_MIN.txt`
+for its payment, debt-settlement, permission, and UI rules.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

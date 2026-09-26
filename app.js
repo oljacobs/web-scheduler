@@ -180,7 +180,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "pay-codes-toggle", "hours-toggle",
+    "pay-codes-toggle", "hours-toggle", "trades-toggle",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
@@ -256,8 +256,10 @@ function wireEvents() {
   loadPayUiPreference();
   renderPayCodeToggle();
   renderHoursToggle();
+  renderTradesToggle();
   dom["pay-codes-toggle"].addEventListener("click", togglePayCodeUi);
   dom["hours-toggle"]?.addEventListener("click", toggleHoursUi);
+  dom["trades-toggle"]?.addEventListener("click", toggleTradesUi);
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
   // Employee import
@@ -714,6 +716,10 @@ function callbackApiUrl(path) {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/callback/${path}`;
 }
 
+function manualTradesApiUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/manual-trades/`;
+}
+
 function staffingSnapshotApiUrl(path) {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/staffing-snapshots/${path}`;
 }
@@ -1158,6 +1164,7 @@ function renderSchedule() {
   attachUnitMoveEvents();
   attachSeatTimeEvents(dom["schedule-container"]);
   attachPayCodeEvents(dom["schedule-container"]);
+  attachManualTradeEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
   attachUnitServiceEvents(dom["schedule-container"]);
 }
@@ -2938,6 +2945,98 @@ function applyTimeOff({ personId, unitId, from, to, start, end, reason, note, op
     );
   }
   return { applied, skipped };
+}
+
+function openManualTradeDialog({ personId, unitId, date, startMinute, role }) {
+  const unit = unitById(unitId);
+  if (!unit) return;
+  const tour = unitTourMinutes(unit);
+  const person = getAssignments(date, unitId)
+    .find((item) => item.id === personId && blockOf(item, tour).start === Number(startMinute));
+  const position = positionsForUnit(unit).find((item) => item.role === role);
+  if (!person || !position) return;
+
+  document.getElementById("manual-trade-dialog")?.remove();
+  const dlg = document.createElement("dialog");
+  dlg.id = "manual-trade-dialog";
+  dlg.className = "app-dialog";
+  dlg.innerHTML = manualTradeDialogHtml(person, unit, date, blockOf(person, tour), position);
+  document.body.appendChild(dlg);
+  wireManualTradeDialog(dlg, { personId, unitId, date, startMinute: Number(startMinute) });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
+}
+
+function manualTradeDialogHtml(person, unit, date, blk, position) {
+  const options = seatDropdownOptions(position, unit, date, blk);
+  const unavailable = !options;
+  return `
+    <form method="dialog" class="dialog-body">
+      <h3>Record trade — ${escapeHtml(person.name)}</h3>
+      <p class="helper-text">${escapeHtml(unit.name)} · ${formatDate(date)} ·
+        ${windowLabel(blk, unit)} (${durationLabel(blk.end - blk.start)})</p>
+      <p class="helper-text">${escapeHtml(person.name)} remains paid but is not on duty. The covering member works unpaid. An existing banked day between these members is settled automatically.</p>
+      <label>Covering member
+        <select id="trade-working-member" ${unavailable ? "disabled" : ""}>
+          <option value="">— choose —</option>${options}
+        </select>
+      </label>
+      ${unavailable ? `<p class="helper-text">No qualified, available members can cover this seat.</p>` : ""}
+      <label>Note <input id="trade-note" type="text" maxlength="300" placeholder="Optional"></label>
+      <p id="manual-trade-error" class="helper-text dialog-error hidden"></p>
+      <div class="dialog-footer">
+        <button value="cancel" class="button button-secondary">Cancel</button>
+        <button id="manual-trade-save" value="save" class="button button-primary" ${unavailable ? "disabled" : ""}>Record trade</button>
+      </div>
+    </form>`;
+}
+
+function wireManualTradeDialog(dlg, { personId, unitId, date, startMinute }) {
+  const fail = (message) => {
+    const error = dlg.querySelector("#manual-trade-error");
+    error.textContent = message;
+    error.classList.remove("hidden");
+  };
+  dlg.querySelector("#manual-trade-save")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const workingEmployeeId = dlg.querySelector("#trade-working-member")?.value;
+    if (!workingEmployeeId) return fail("Choose the member covering this trade.");
+    const save = dlg.querySelector("#manual-trade-save");
+    save.disabled = true;
+    try {
+      const response = await fetch(manualTradesApiUrl(), {
+        method: "POST",
+        headers: await schedulerApiHeaders(),
+        body: JSON.stringify({
+          date,
+          unitId,
+          paidEmployeeId: personId,
+          workingEmployeeId,
+          startMinute,
+          note: dlg.querySelector("#trade-note")?.value.trim().slice(0, 300) || "",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not record the trade.");
+      await loadRemoteStateAfterAuth();
+      render();
+      dlg.close();
+      showToast(data.settled ? "Trade recorded and banked day settled." : "Trade recorded and banked day added.", "success");
+    } catch (error) {
+      fail(error.message || "Could not record the trade. Try again.");
+      save.disabled = false;
+    }
+  });
+}
+
+function attachManualTradeEvents(scope) {
+  const root = scope || document;
+  [...root.querySelectorAll(".seat-trade")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const { tradePerson: personId, tradeUnit: unitId, tradeDate: date, tradeStart: startMinute, tradeRole: role } = button.dataset;
+      openManualTradeDialog({ personId, unitId, date, startMinute, role });
+    });
+  });
 }
 
 function attachSeatTimeEvents(scope) {
@@ -5684,6 +5783,8 @@ const PAY_UI = { show: false };
 // nothing is ever hidden -- only the editing controls are.
 const HOURS_UI_KEY = "d7fr-scheduler-hours-ui";
 const HOURS_UI = { show: false };
+const TRADES_UI_KEY = "d7fr-scheduler-trades-ui";
+const TRADES_UI = { show: false };
 
 function loadPayUiPreference() {
   try {
@@ -5696,6 +5797,29 @@ function loadPayUiPreference() {
   } catch (e) {
     HOURS_UI.show = false;
   }
+  try {
+    TRADES_UI.show = localStorage.getItem(TRADES_UI_KEY) === "1";
+  } catch (e) {
+    TRADES_UI.show = false;
+  }
+}
+
+function toggleTradesUi() {
+  TRADES_UI.show = !TRADES_UI.show;
+  try {
+    localStorage.setItem(TRADES_UI_KEY, TRADES_UI.show ? "1" : "0");
+  } catch (e) {
+  }
+  renderTradesToggle();
+  render();
+}
+
+function renderTradesToggle() {
+  const btn = dom["trades-toggle"];
+  if (!btn) return;
+  btn.classList.toggle("is-active", TRADES_UI.show);
+  btn.setAttribute("aria-pressed", TRADES_UI.show ? "true" : "false");
+  btn.textContent = TRADES_UI.show ? "Trades ✓" : "Trades";
 }
 
 function toggleHoursUi() {
@@ -6047,10 +6171,19 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
           data-off-start="${blk.start}"
           title="Record PTO or other time off for ${escapeHtml(person.name)}">Time off</button>`
       : "";
+    const tradeEditor = isSupervisor && TRADES_UI.show && state.currentView === "day"
+      && usesSchedulerApi() && !isAdminUnit(unit) && !!pos.role && !person._paid
+      ? `<button class="button button-secondary button-small seat-trade"
+          data-trade-person="${person.id}" data-trade-date="${date}" data-trade-unit="${unit.id}" data-trade-start="${blk.start}" data-trade-role="${escapeHtml(pos.role || "")}" title="Record an officer-entered trade for ${escapeHtml(person.name)}">Trade</button>`
+      : "";
+    const tradePay = person._paid
+      ? `<span class="seat-block">Trade · paid to ${escapeHtml(employeeById(person._paid)?.name || "another member")}</span>`
+      : "";
     control = `<div class="seat-person">
-        <span><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"} shift</small>${hours}</span>
+        <span><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"} shift</small>${hours}${tradePay}</span>
         ${timeEditor}
         ${markOff}
+        ${tradeEditor}
         ${isSupervisor ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" data-remove-start="${blk.start}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
       </div>`;
   } else if (isSupervisor) {

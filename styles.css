@@ -904,7 +904,9 @@ textarea:disabled {
 
 /* Toolbar toggle: same visual language as the Day/Week/Month switch, so "on"
    reads the same way everywhere. */
-#pay-codes-toggle.is-active {
+#pay-codes-toggle.is-active,
+#hours-toggle.is-active,
+#trades-toggle.is-active {
   background: rgba(77, 163, 255, 0.22);
   border-color: rgba(77, 163, 255, 0.55);
   color: #eaf3ff;
