@@ -67,6 +67,12 @@ SPECIAL ASSIGNMENT FOUNDATION (deployment work, Bin 1): Scheduler Units now dist
 Event, Training, or Other. This is Scheduler-only metadata: do not create a checklist Vehicle or
 template for it. Existing browser payloads that do not know these fields preserve the server's
 special-assignment class/category rather than downgrading it to operations on save.
+SPECIAL ASSIGNMENTS (Bin 2): officers create Scheduler-only date-range units from Manage → Units.
+They choose a category, hourly start, 12/24-hour quick duration or custom 30-minute duration,
+minimum/maximum crew, and required officer/paramedic/EMT counts. The unit is on-demand only for
+its selected dates, appears in a separate daily “Special assignments” section, and uses ordinary
+assignments so no person can also be staffed on a rig. It is excluded from apparatus alerts,
+printing, and automatic overtime; officers decide whether to open a voluntary OT post later.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.

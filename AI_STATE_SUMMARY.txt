@@ -14,7 +14,8 @@ Latest note (2026-09-25): the pre-activation notification queue was safely clear
 The backend notification runbook is the source for the remaining hourly snapshot cron configuration.
 
 Latest note (2026-09-25): special assignment units now have a protected Scheduler-only category
-boundary. Deployment cycles, schedule placement, and overtime behavior remain the next bins.
+boundary. Officers can now create date-range special assignments with crew and role requirements;
+they display separately from apparatus readiness and never auto-create overtime.
 
 web-scheduler app quick context (app.js)
 

@@ -92,7 +92,7 @@ const LICENSE_CAPABILITIES = ["paramedic", "emt"];
 const PERSON_HELD_CAPABILITIES = [...LICENSE_CAPABILITIES, CAP_MOF, CAP_ADMIN];
 // "Admin" is last because it is not an apparatus: it is the 10hr Mon-Thu
 // admin / light-duty position type. See UNIT_POSITION_REQUIREMENTS.Admin.
-const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue", "Admin"];
+const unitTypes = ["Engine", "Ladder", "Medic", "Batt", "MOF", "Tender", "Brush", "Rescue", "Admin", "Special"];
 const employeeTitleOptions = ["Batt. Chief", "Div. Chief", "Captain", "Lieutenant", "Engineer", "MOF", "FF/EMTP", "FF/EMT"];
 
 // Titles that grant supervisor access in this app
@@ -133,6 +133,7 @@ const UNIT_POSITION_REQUIREMENTS = {
   Admin: Array.from({ length: 6 }, (_, i) => ({
     role: `ADM${i + 1}`, label: `Admin ${i + 1}`, cap: CAP_ADMIN, required: false,
   })),
+  Special: [{ role: "MEMBER1", label: "Member 1", cap: null }],
   // Engine: 2 required seats (Officer + Engineer), then up to 3 optional riders
   // of any rank -- minimum 2 filled, staff up to 5.
   Engine: [
@@ -181,7 +182,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle",
+    "pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle", "add-special-assignment",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
@@ -263,6 +264,7 @@ function wireEvents() {
   dom["hours-toggle"]?.addEventListener("click", toggleHoursUi);
   dom["trades-toggle"]?.addEventListener("click", toggleTradesUi);
   dom["student-riders-toggle"]?.addEventListener("click", toggleStudentRidersUi);
+  dom["add-special-assignment"]?.addEventListener("click", openSpecialAssignmentDialog);
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
   // Employee import
@@ -1375,7 +1377,7 @@ function previewTemplatePush(days = TEMPLATE_PUSH_DEFAULT_DAYS) {
     let touched = false;
     // Operations rigs run every shift day; admin positions run Mon-Thu. Both
     // push, each on its own calendar, and neither can write to the other's.
-    [...unitsForDate(date), ...adminUnitsForDate(date)].forEach((unit) => {
+    [...unitsForDate(date), ...specialAssignmentsForDate(date), ...adminUnitsForDate(date)].forEach((unit) => {
       const crew = crewFromTemplate(unit.id, date);
       if (!crew.length) { result.noTemplate += 1; return; }
       const existing = getAssignments(date, unit.id);
@@ -1632,6 +1634,9 @@ function renderTimelineCard(date) {
   const unitsMarkup = unitsForDate(date)
     .map((unit) => renderUnitCard(unit, date, shift))
     .join("");
+  const specialMarkup = specialAssignmentsForDate(date)
+    .map((unit) => renderUnitCard(unit, date, shift))
+    .join("");
 
   return `
     <article class="timeline-card">
@@ -1646,6 +1651,7 @@ function renderTimelineCard(date) {
         </div>
       </div>
       <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
+      ${specialMarkup ? `<section class="special-assignment-section"><h3>Special assignments</h3><p class="helper-text">These are Scheduler-only details. They block double-booking but do not affect apparatus readiness.</p><div class="timeline-grid">${specialMarkup}</div></section>` : ""}
     </article>
   `;
 }
@@ -1904,6 +1910,9 @@ function renderUnitCard(unit, date, activeShift) {
 
 function renderUnitControls() {
   const supervisorLocked = !state.isAuthenticated || state.currentRole !== "supervisor";
+  if (dom["add-special-assignment"]) {
+    dom["add-special-assignment"].disabled = supervisorLocked || !usesSchedulerApi();
+  }
 
   // Listed in the order they appear on the board, because that is the thing
   // being edited. Showing them in some other order and then offering "move up"
@@ -1925,8 +1934,8 @@ function renderUnitControls() {
         <div class="unit-edit-info">
           <strong>${unit.name}</strong>
           ${
-            supervisorLocked
-              ? `<p class="helper-text">${unit.type} • ${unit.onDemand ? "on demand" : "runs daily"}</p>`
+            supervisorLocked || isSpecialAssignment(unit)
+              ? `<p class="helper-text">${unit.type} • ${isSpecialAssignment(unit) ? `special assignment · ${unit.assignmentCategory || "other"}` : unit.onDemand ? "on demand" : "runs daily"}</p>`
               : `<select class="unit-type-select" data-unit-type="${unit.id}" title="Edit unit type">
                   ${unitTypes.map((t) => `<option value="${t}" ${t === unit.type ? "selected" : ""}>${t}</option>`).join("")}
                 </select>
@@ -1936,7 +1945,7 @@ function renderUnitControls() {
                 </select>`
           }
           ${isAdminUnit(unit) ? `<p class="helper-text">${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)} · ${durationLabel(unitTourMinutes(unit))} · Mon-Thu — kept off the operations board.</p>` : ""}
-          ${crewBounds(unit) && !isAdminUnit(unit) ? (supervisorLocked ? "" : `
+          ${crewBounds(unit) && !isAdminUnit(unit) && !isSpecialAssignment(unit) ? (supervisorLocked ? "" : `
           <div class="crew-size-row" style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:0.35rem">
             <label style="display:flex;gap:0.35rem;align-items:center;white-space:nowrap">Min crew
               <input type="number" min="1" max="${CREW_LIMIT}" step="1" inputmode="numeric"
@@ -2068,6 +2077,93 @@ function renderUnitControls() {
       persistAppState("Unit schedule class updated");
     });
   });
+}
+
+function specialAssignmentApiUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/special-assignments/`;
+}
+
+function openSpecialAssignmentDialog() {
+  if (state.currentRole !== "supervisor" || !usesSchedulerApi()) {
+    showToast("Supervisor sign-in and the scheduler server are required.", "error");
+    return;
+  }
+  document.getElementById("special-assignment-dialog")?.remove();
+  const dlg = document.createElement("dialog");
+  dlg.id = "special-assignment-dialog";
+  dlg.className = "app-dialog";
+  dlg.innerHTML = `
+    <form method="dialog" class="dialog-body">
+      <h3>Add special assignment</h3>
+      <p class="helper-text">Scheduler-only staffing detail. It does not create a checklist apparatus or affect apparatus readiness.</p>
+      <label>Name <input id="special-name" type="text" maxlength="100" placeholder="VTO medical detail" required></label>
+      <label>Purpose
+        <select id="special-category">
+          <option value="military">Military</option><option value="vto">VTO</option>
+          <option value="event">Event</option><option value="training">Training</option><option value="other">Other</option>
+        </select>
+      </label>
+      <div class="dialog-times">
+        <label>Start date <input id="special-start-date" type="date" value="${state.currentDate}"></label>
+        <label>End date <input id="special-end-date" type="date" value="${state.currentDate}"></label>
+      </div>
+      <div class="dialog-times">
+        <label>Start hour <select id="special-start-hour">${Array.from({ length: 24 }, (_, hour) => `<option value="${hour}"${hour === 8 ? " selected" : ""}>${String(hour).padStart(2, "0")}:00</option>`).join("")}</select></label>
+        <label>Duration (hours) <input id="special-duration" type="number" min="1" max="24" step="0.5" value="12"></label>
+      </div>
+      <div class="button-row"><button class="button button-secondary button-small" type="button" data-special-duration="12">12 hours</button><button class="button button-secondary button-small" type="button" data-special-duration="24">24 hours</button></div>
+      <fieldset class="dialog-group"><legend>Required roles</legend>
+        <div class="dialog-times"><label>Officers <input id="special-officer-count" type="number" min="0" max="10" value="0"></label><label>Paramedics <input id="special-paramedic-count" type="number" min="0" max="10" value="0"></label><label>EMTs <input id="special-emt-count" type="number" min="0" max="10" value="0"></label></div>
+      </fieldset>
+      <div class="dialog-times"><label>Minimum crew <input id="special-crew-min" type="number" min="1" max="10" value="1"></label><label>Maximum crew <input id="special-crew-max" type="number" min="1" max="10" value="1"></label></div>
+      <p id="special-assignment-error" class="helper-text dialog-error hidden"></p>
+      <div class="dialog-footer"><button value="cancel" class="button button-secondary">Cancel</button><button id="special-assignment-save" value="save" class="button button-primary">Create assignment</button></div>
+    </form>`;
+  document.body.appendChild(dlg);
+  dlg.querySelectorAll("[data-special-duration]").forEach((button) => button.addEventListener("click", () => {
+    dlg.querySelector("#special-duration").value = button.dataset.specialDuration;
+  }));
+  dlg.querySelector("#special-assignment-save").addEventListener("click", async (event) => {
+    event.preventDefault();
+    const fail = (message) => {
+      const error = dlg.querySelector("#special-assignment-error");
+      error.textContent = message;
+      error.classList.remove("hidden");
+    };
+    const count = (id) => Number(dlg.querySelector(id).value || 0);
+    const requirements = [
+      ["officer", count("#special-officer-count")], ["paramedic", count("#special-paramedic-count")], ["emt", count("#special-emt-count")],
+    ].filter(([, amount]) => Number.isInteger(amount) && amount > 0).map(([capability, amount]) => ({ capability, count: amount }));
+    const duration = Number(dlg.querySelector("#special-duration").value);
+    const crewMin = count("#special-crew-min");
+    const crewMax = count("#special-crew-max");
+    if (!Number.isFinite(duration) || duration < 1 || duration > 24 || (duration * 60) % 30) return fail("Use a duration from 1 to 24 hours in 30-minute increments.");
+    if (!Number.isInteger(crewMin) || !Number.isInteger(crewMax) || crewMin < 1 || crewMax < crewMin || crewMax > CREW_LIMIT) return fail("Use a crew range from 1 to 10, with minimum no greater than maximum.");
+    if (requirements.reduce((total, item) => total + item.count, 0) > crewMin) return fail("Minimum crew must cover every required role.");
+    const save = dlg.querySelector("#special-assignment-save");
+    save.disabled = true;
+    try {
+      const response = await fetch(specialAssignmentApiUrl(), {
+        method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({
+          name: dlg.querySelector("#special-name").value.trim(), category: dlg.querySelector("#special-category").value,
+          startDate: dlg.querySelector("#special-start-date").value, endDate: dlg.querySelector("#special-end-date").value,
+          startHour: Number(dlg.querySelector("#special-start-hour").value), tourMinutes: Math.round(duration * 60),
+          crewMin, crewMax, requirements,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not create the special assignment.");
+      await loadRemoteStateAfterAuth();
+      render();
+      dlg.close();
+      showToast("Special assignment created.", "success");
+    } catch (error) {
+      fail(error.message || "Could not create the special assignment.");
+      save.disabled = false;
+    }
+  });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
 }
 
 // ─── Employee Roster ──────────────────────────────────────────────────────────
@@ -5522,6 +5618,10 @@ function isAdminUnit(unit) {
   return unit?.scheduleClass === "admin";
 }
 
+function isSpecialAssignment(unit) {
+  return unit?.scheduleClass === "special_assignment";
+}
+
 // Mon=0 .. Sun=6, so it lines up with the server's date.weekday().
 function isoWeekday(dateStr) {
   const d = new Date(`${dateStr}T12:00:00`);
@@ -5669,6 +5769,25 @@ function crewBounds(unit) {
 }
 
 function positionsForUnit(unit) {
+  if (isSpecialAssignment(unit)) {
+    const requirements = Array.isArray(unit.specialRequirements) ? unit.specialRequirements : [];
+    const seats = [];
+    requirements.forEach((item) => {
+      const capability = String(item?.capability || "");
+      const count = Number(item?.count);
+      if (!CAPABILITY_LABELS[capability] || !Number.isInteger(count) || count < 1) return;
+      for (let index = 1; index <= count; index += 1) {
+        seats.push({ role: `${capability.toUpperCase()}${index}`, label: `${CAPABILITY_LABELS[capability]} ${index}`, cap: capability });
+      }
+    });
+    const minimum = crewNumber(unit.crewMin) || Math.max(seats.length, 1);
+    const maximum = crewNumber(unit.crewMax) || minimum;
+    while (seats.length < maximum) {
+      const number = seats.length + 1;
+      seats.push({ role: `MEMBER${number}`, label: `Member ${number}`, cap: null, required: seats.length < minimum });
+    }
+    return seats.map((seat, index) => ({ ...seat, required: index < minimum }));
+  }
   const b = crewBounds(unit);
   if (!b) return undefined;
   const min = crewNumber(unit.crewMin);
@@ -6382,7 +6501,11 @@ function visibleUnits() {
 // actually read at shift change, so `visibleUnits` is split at the source and
 // everything operational goes through the operations half.
 function operationsUnits() {
-  return visibleUnits().filter((unit) => !isAdminUnit(unit));
+  return visibleUnits().filter((unit) => unit.scheduleClass !== "admin" && !isSpecialAssignment(unit));
+}
+
+function specialAssignmentUnits() {
+  return visibleUnits().filter(isSpecialAssignment).sort(byBoardOrder);
 }
 
 function adminUnits() {
@@ -6421,6 +6544,10 @@ function byBoardOrder(a, b) {
 // The units in service on a given date (replaces the old `unit.shift === shift`).
 function unitsForDate(date) {
   return operationsUnits().filter((unit) => unitRunsOn(unit, date)).sort(byBoardOrder);
+}
+
+function specialAssignmentsForDate(date) {
+  return specialAssignmentUnits().filter((unit) => unitRunsOn(unit, date));
 }
 
 // On-demand units NOT in service on this date. These are hidden from the normal
