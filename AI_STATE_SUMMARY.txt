@@ -73,7 +73,10 @@ its actual hours. An officer can deliberately move a member from a conflicting n
 unaffected normal hours remain, and the officer may open resulting required-seat gaps in the normal
 voluntary-OT board without sending a notification. Changes stay officer-controlled until normal
 schedule publication. Fixed crews can be pre-staffed across every generated block only after
-server-side active-roster, distinct-role, crew-range, and no-overlap checks succeed.
+server-side active-roster, distinct-role, crew-range, and no-overlap checks succeed. When a fixed
+crew conflicts with normal staffing, the dialog lists the exact shifts and offers an officer-confirmed
+move that retains unaffected normal hours; it may also open the resulting normal OT gaps without
+notifying anyone.
 
 PRIMARY STATE OBJECT (`state`)
 - currentUserId: string|null             — employee.id of signed-in user

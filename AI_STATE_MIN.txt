@@ -94,8 +94,11 @@ normal assignment after officer confirmation, preserving unaffected hours. The o
 open the resulting required-seat gap on the EXISTING voluntary-OT board; this creates no notice.
 The dialog's optional multi-select pre-staffs the same crew across every generated block; the
 server requires active members, distinct role-seat matches, crew limits, and zero existing or
-generated overlaps before it writes anything. Use it for fixed Military/Training crews; use daily
-block cards for changing VTO/Event staffing.
+generated overlaps before it writes anything. Normal-schedule conflicts return their exact member,
+unit, date, and hours to the dialog. Officers may cancel or explicitly remove only those overlapping
+hours and reassign the member; a second prompt can open the resulting normal required-seat gaps on
+the existing voluntary-OT board without notification. Use pre-staffing for fixed Military/Training
+crews; use daily block cards for changing VTO/Event staffing.
 No employee notice is sent by Special Assignment changes before the normal schedule is published.
 
 REMAINING SCHEDULER BINS (current as of 2026-09-25):

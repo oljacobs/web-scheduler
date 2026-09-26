@@ -2192,16 +2192,46 @@ function openSpecialAssignmentDialog() {
           const templateData = await templateResponse.json().catch(() => ({}));
           if (!templateResponse.ok) throw new Error(templateData.detail || "Could not save the staffing pattern.");
         }
-      const response = await fetch(specialAssignmentDeploymentsApiUrl(), {
+      const deploymentPayload = {
+        name: dlg.querySelector("#special-name").value.trim(), category: dlg.querySelector("#special-category").value,
+        startDate: dlg.querySelector("#special-start-date").value, endDate: dlg.querySelector("#special-end-date").value,
+        templateId: templateId || undefined, blocks: templateId ? undefined : [customBlock], employeeIds,
+      };
+      let response = await fetch(specialAssignmentDeploymentsApiUrl(), {
         method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({
-          name: dlg.querySelector("#special-name").value.trim(), category: dlg.querySelector("#special-category").value,
-          startDate: dlg.querySelector("#special-start-date").value, endDate: dlg.querySelector("#special-end-date").value,
-          templateId: templateId || undefined, blocks: templateId ? undefined : [customBlock], employeeIds,
+          ...deploymentPayload,
         }),
       });
-      const data = await response.json().catch(() => ({}));
+      let data = await response.json().catch(() => ({}));
+      let openCoverage = false;
+      let conflicts = [];
+      if (response.status === 409 && Array.isArray(data.conflicts) && data.conflicts.length) {
+        conflicts = data.conflicts;
+        const lines = conflicts.slice(0, 6).map((conflict) =>
+          `${conflict.employeeName}: ${conflict.unitName} on ${conflict.date} (${conflict.start}-${conflict.end})`).join("\n");
+        const suffix = conflicts.length > 6 ? `\n+ ${conflicts.length - 6} more conflict(s)` : "";
+        if (!window.confirm(`These members are already scheduled:\n\n${lines}${suffix}\n\nRemove only the overlapping hours from those normal assignments and reassign them to this Special Assignment?`)) {
+          save.disabled = false;
+          return;
+        }
+        openCoverage = window.confirm("Open normal overtime coverage for the affected required seats?");
+        response = await fetch(specialAssignmentDeploymentsApiUrl(), {
+          method: "POST", headers: await schedulerApiHeaders(),
+          body: JSON.stringify({ ...deploymentPayload, replaceConflicts: true }),
+        });
+        data = await response.json().catch(() => ({}));
+      }
       if (!response.ok) throw new Error(data.detail || "Could not create the special assignment.");
       await loadRemoteStateAfterAuth();
+      if (openCoverage) {
+        const byDate = new Map();
+        conflicts.forEach((conflict) => {
+          if (!byDate.has(conflict.date)) byDate.set(conflict.date, new Set());
+          byDate.get(conflict.date).add(conflict.unitId);
+        });
+        byDate.forEach((unitIds, date) => openSpecialAssignmentCoverage(date, unitIds));
+        await persistAppState("Special assignment coverage opened");
+      }
       render();
       dlg.close();
       showToast("Special assignment deployment created.", "success");
