@@ -19,6 +19,16 @@ returns. This prevents a single officer's rapid autosaves from conflicting with 
 the saved timestamp, and keeps the newest local copy only for review after refresh. `saveRemoteState`
 accepts the prepared snapshot; do not call it directly from a UI event.
 
+P1 BIN 3 — PERSISTED SEATS (LOCAL, NOT DEPLOYED): `Assignment.seat_role` is carried as `_seat`
+with each assignment block. `assignPeopleToSeats()` honors `_seat` before using its legacy greedy
+fallback, so rank changes, roster order, and removals cannot silently reseat a member. On the first
+authenticated officer session, `baselineDisplayedSeatRoles()` writes each legacy row's currently
+displayed position once; the server records one baseline audit. Old clients cannot clear a recorded
+seat. The Move dialog is the deliberate role-change path; Django records actor-attributed
+`SERVER-SEAT-MOVE-*` audit entries. Removing an officer-capability seat requires Leave vacant,
+Move an eligible member, or Create an unannounced voluntary-OT opening. It never automatically
+promotes another member or sends an OT notice.
+
 NEXT P1 — SCHEDULER INTEGRITY SWEEP: inventory every write path and permission; replace broad
 whole-state writes with targeted, object-scoped roster/unit/assignment operations; add conflict,
 double-submit, partial-failure, and authorization tests; verify Railway Postgres backup restore by

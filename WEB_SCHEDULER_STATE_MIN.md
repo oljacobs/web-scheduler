@@ -1,6 +1,6 @@
 # Web Scheduler — Living State Reference
 
-Last updated: 2026-09-25
+Last updated: 2026-09-30
 
 ## Use this first
 
@@ -59,6 +59,13 @@ not current build instructions unless this file says otherwise.
   local edit. A 409 is a real review state: it is never auto-retried, the prior saved timestamp is
   cleared, and the existing danger banner explains that the newest change remains only in browser
   recovery storage until refresh.
+- **P1 Bin 3, local and not deployed:** `Assignment.seat_role` persists the position of each
+  assignment block. `_seat` is honored before any legacy greedy seating, so a roster reorder or
+  qualification change cannot silently move a member. The first authenticated officer session
+  records the board's existing displayed positions once; Django writes the baseline and later
+  moves as server-attributed audit entries. An older client cannot clear a recorded seat. Removing
+  an officer-capability seat requires an explicit choice to leave it vacant, deliberately move an
+  eligible person, or create an unannounced voluntary-OT opening; no automatic promotion or notice.
 - Do not place unbounded history in the whole-state PUT. Use targeted API endpoints for reports,
   snapshots, or other growing data sets.
 - Stored audit/notification text must use safe fallbacks such as `unitLabel()`; never persist an

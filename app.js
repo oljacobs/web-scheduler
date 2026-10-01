@@ -1364,7 +1364,7 @@ function crewFromTemplate(unitId, date) {
     const emp = employeeById(empId);
     if (!emp || emp.status === "archived") return;
     if (crew.some((p) => p.id === emp.id)) return;
-    crew.push({ ...emp, _src: "template" });
+    crew.push({ ...emp, _src: "template", _seat: pos.role });
   });
   return crew;
 }
@@ -2918,6 +2918,7 @@ function attachUnitMoveEvents() {
       }
 
       const placed = { ...employee };
+      if (select.dataset.seatRole) placed._seat = select.dataset.seatRole;
       // Only stamp the block when it is NOT a full tour, so an ordinary
       // assignment is byte-for-byte what it was before partial shifts existed.
       if (!(start === 0 && end === tour)) {
@@ -2942,19 +2943,23 @@ function attachUnitMoveEvents() {
       const date = button.dataset.removeDate;
       const unitId = button.dataset.removeUnit;
       const employeeId = button.dataset.removeAssignment;
-      if (!state.assignments[date]) return;
-      // Remove the ONE block this × belongs to. Without the start check, removing
-      // someone's morning half would also silently delete their evening half.
       const removeStart = button.dataset.removeStart;
-      state.assignments[date][unitId] = markManual(
-        getAssignments(date, unitId).filter((person) => !(person.id === employeeId
-          && (removeStart === undefined
-              || blockOf(person, unitTourMinutes(unitById(unitId))).start === Number(removeStart))))
-      );
-      addAudit(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} on ${formatDate(date)}.`, currentUserName());
-      createNotification(`${employeeById(employeeId)?.name || "Employee"} removed from ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
+      const position = (positionsForUnit(unitById(unitId)) || [])
+        .find((pos) => pos.role === button.dataset.removeRole);
+      if (position && seatNeedsOfficer(position)) {
+        openOfficerSeatRemovalDialog({ date, unitId, employeeId, startMinute: removeStart, role: position.role });
+        return;
+      }
+      if (!removeAssignmentBlock({ date, unitId, employeeId, startMinute: removeStart })) return;
       render();
       persistAppState("Assignment removed");
+    });
+  });
+
+  [...document.querySelectorAll(".seat-move")].forEach((button) => {
+    button.addEventListener("click", () => {
+      const { movePerson: personId, moveDate: date, moveUnit: unitId, moveStart: startMinute, moveRole: fromRole } = button.dataset;
+      openSeatMoveDialog({ personId, date, unitId, startMinute, fromRole });
     });
   });
 }
@@ -2999,6 +3004,124 @@ function openSpecialAssignmentCoverage(date, affectedUnitIds) {
   showToast(gaps.length
     ? `Opened ${gaps.length} normal overtime coverage ${gaps.length === 1 ? "post" : "posts"}.`
     : "The normal assignment is open; no required overtime post was needed.", "success");
+}
+
+function seatNeedsOfficer(pos) {
+  return (Array.isArray(pos?.cap) ? pos.cap : [pos?.cap]).includes("officer");
+}
+
+function removeAssignmentBlock({ date, unitId, employeeId, startMinute, reason }) {
+  const unit = unitById(unitId);
+  if (!unit || !state.assignments[date]) return false;
+  state.assignments[date][unitId] = markManual(
+    getAssignments(date, unitId).filter((person) => !(person.id === employeeId
+      && blockOf(person, unitTourMinutes(unit)).start === Number(startMinute)))
+  );
+  const name = employeeById(employeeId)?.name || "Employee";
+  addAudit(`${name} removed from ${unitLabel(unitId)} on ${formatDate(date)}${reason ? ` — ${reason}` : ""}.`, currentUserName());
+  createNotification(`${name} removed from ${unitLabel(unitId)} for ${formatDate(date)}.`, "email", currentUserName());
+  return true;
+}
+
+function openSeatMoveDialog({ personId, unitId, date, startMinute, fromRole }) {
+  const unit = unitById(unitId);
+  const person = getAssignments(date, unitId).find((row) => row.id === personId
+    && blockOf(row, unitTourMinutes(unit)).start === Number(startMinute));
+  const positions = positionsForUnit(unit) || [];
+  if (!unit || !person || !positions.length) return;
+  const block = blockOf(person, unitTourMinutes(unit));
+  const targets = positions.filter((pos) => pos.role !== fromRole && seatAccepts(pos, resolvePerson(person)))
+    .filter((pos) => !getAssignments(date, unitId).some((row) => row._seat === pos.role
+      && blocksOverlap(blockOf(row, unitTourMinutes(unit)), block)));
+  if (!targets.length) return showToast("No open qualified position is available for that block.", "error");
+
+  document.getElementById("seat-move-dialog")?.remove();
+  const dlg = document.createElement("dialog");
+  dlg.id = "seat-move-dialog";
+  dlg.className = "app-dialog";
+  dlg.innerHTML = `<form method="dialog" class="dialog-body">
+    <h3>Move ${escapeHtml(person.name)}</h3>
+    <p class="helper-text">${escapeHtml(unit.name)} · ${formatDate(date)} · ${escapeHtml(fromRole || "unrecorded position")}.
+      This changes only this assigned block and is recorded in the schedule audit.</p>
+    <label>Move to
+      <select id="seat-move-target">${targets.map((pos) => `<option value="${escapeHtml(pos.role)}">${escapeHtml(pos.label)}</option>`).join("")}</select>
+    </label>
+    <div class="dialog-footer"><button value="cancel" class="button button-secondary">Cancel</button>
+      <button id="seat-move-save" value="save" class="button button-primary">Record move</button></div>
+  </form>`;
+  document.body.appendChild(dlg);
+  dlg.querySelector("#seat-move-save").addEventListener("click", (event) => {
+    event.preventDefault();
+    const toRole = dlg.querySelector("#seat-move-target").value;
+    if (!updateAssignedPerson(date, unitId, personId, { _seat: toRole }, startMinute)) return;
+    addAudit(`${person.name} intentionally moved from ${fromRole || "unrecorded position"} to ${toRole} on ${unit.name} for ${formatDate(date)}.`, currentUserName());
+    dlg.close();
+    render();
+    persistAppState("Position moved");
+    showToast(`${person.name} moved to ${toRole}.`, "success");
+  });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
+}
+
+function openOfficerSeatRemovalDialog({ date, unitId, employeeId, startMinute, role }) {
+  const unit = unitById(unitId);
+  const person = getAssignments(date, unitId).find((row) => row.id === employeeId
+    && blockOf(row, unitTourMinutes(unit)).start === Number(startMinute));
+  const target = (positionsForUnit(unit) || []).find((pos) => pos.role === role);
+  if (!unit || !person || !target) return;
+  const outgoing = blockOf(person, unitTourMinutes(unit));
+  const candidates = getAssignments(date, unitId).filter((row) => row.id !== employeeId && !isAbsent(row)
+    && row._seat !== role && blocksOverlap(blockOf(row, unitTourMinutes(unit)), outgoing)
+    && seatAccepts(target, resolvePerson(row)));
+  const uniqueCandidates = candidates.filter((row, index) => candidates.findIndex((other) => other.id === row.id) === index);
+
+  document.getElementById("officer-seat-removal-dialog")?.remove();
+  const dlg = document.createElement("dialog");
+  dlg.id = "officer-seat-removal-dialog";
+  dlg.className = "app-dialog";
+  dlg.innerHTML = `<form method="dialog" class="dialog-body">
+    <h3>Remove ${escapeHtml(person.name)} from ${escapeHtml(target.label)}?</h3>
+    <p class="helper-text">${escapeHtml(unit.name)} · ${formatDate(date)}. The app will not move another member into this higher-qualified seat automatically.</p>
+    <fieldset class="dialog-group dialog-decision">
+      <legend>Choose the coverage action</legend>
+      <label class="check-tile"><input type="radio" name="officer-seat-action" value="vacant" checked><span>Leave ${escapeHtml(target.label)} vacant</span></label>
+      ${uniqueCandidates.length ? `<label class="check-tile"><input type="radio" name="officer-seat-action" value="move"><span>Deliberately move an eligible member up</span></label>
+        <label id="officer-seat-candidate-wrap">Eligible member<select id="officer-seat-candidate">${uniqueCandidates.map((row) => `<option value="${escapeHtml(row.id)}" data-start="${blockOf(row, unitTourMinutes(unit)).start}">${escapeHtml(row.name)}${row._seat ? ` — from ${escapeHtml(row._seat)}` : ""}</option>`).join("")}</select></label>` : ""}
+      <label class="check-tile"><input type="radio" name="officer-seat-action" value="overtime"><span>Create an unannounced voluntary overtime opening</span></label>
+    </fieldset>
+    <p id="officer-seat-error" class="helper-text dialog-error hidden"></p>
+    <div class="dialog-footer"><button value="cancel" class="button button-secondary">Cancel</button>
+      <button id="officer-seat-remove" value="save" class="button button-primary">Remove and continue</button></div>
+  </form>`;
+  document.body.appendChild(dlg);
+  const candidateWrap = dlg.querySelector("#officer-seat-candidate-wrap");
+  dlg.querySelectorAll('[name="officer-seat-action"]').forEach((radio) => radio.addEventListener("change", () => {
+    candidateWrap?.classList.toggle("hidden", radio.value !== "move" || !radio.checked);
+  }));
+  candidateWrap?.classList.add("hidden");
+  dlg.querySelector("#officer-seat-remove").addEventListener("click", (event) => {
+    event.preventDefault();
+    const action = dlg.querySelector('[name="officer-seat-action"]:checked')?.value;
+    if (!action) return;
+    removeAssignmentBlock({ date, unitId, employeeId, startMinute, reason: `${target.label} coverage decision: ${action}` });
+    if (action === "move") {
+      const selected = dlg.querySelector("#officer-seat-candidate").selectedOptions[0];
+      const moved = employeeById(selected.value);
+      updateAssignedPerson(date, unitId, selected.value, { _seat: role }, selected.dataset.start);
+      addAudit(`${moved?.name || "Eligible member"} intentionally moved to ${target.label} after ${person.name} was removed on ${formatDate(date)}.`, currentUserName());
+    } else if (action === "overtime") {
+      const gap = coverageGaps(date, 1).find((item) => item.unitId === unitId && item.role === role);
+      if (gap) ensureOvertimePost(gap, "requested");
+      addAudit(`Unannounced voluntary overtime opening created for ${target.label} on ${unit.name} for ${formatDate(date)}.`, currentUserName());
+    }
+    dlg.close();
+    render();
+    persistAppState("Officer seat coverage decision");
+    showToast(action === "overtime" ? "Officer removed; voluntary overtime opening created without notice." : "Officer removed; coverage decision recorded.", "success");
+  });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
 }
 
 // Editing a person's hours on a seat row. Like every other edit on this board
@@ -3620,6 +3743,14 @@ async function setAuthFromToken(accessToken, account) {
   state.loginRole = employee.isSupervisor ? "supervisor" : "employee";
   state.currentRole = state.loginRole;
   state.isAuthenticated = true;
+  if (usesSchedulerApi() && state.currentRole === "supervisor") {
+    const recorded = baselineDisplayedSeatRoles();
+    if (recorded) {
+      render();
+      persistAppState("Current seat positions recorded");
+      showToast(`Recorded ${recorded} current seat position${recorded === 1 ? "" : "s"}.`, "success");
+    }
+  }
 }
 
 async function fetchGraphProfile(accessToken) {
@@ -6092,9 +6223,21 @@ function assignPeopleToSeats(unitType, people, unit, date) {
   const off = resolved.filter(isAbsent);
   const working = resolved.filter((p) => !isAbsent(p));
   // Earliest block first, so a seat fills from the start of the tour forward.
-  const pool = [...working].sort((a, b) => blockOf(a, tour).start - blockOf(b, tour).start);
+  // A recorded seat always wins. It is an officer's decision, so a later
+  // credential change or roster-order change must never quietly re-seat them.
+  // Only legacy blocks without `_seat` use the former greedy display fallback.
+  const bySeat = new Map(positions.map((pos) => [pos.role, []]));
+  const fixedExtra = [];
+  const pool = [];
+  working.forEach((person) => {
+    if (person._seat && bySeat.has(person._seat)) bySeat.get(person._seat).push(person);
+    else if (person._seat === "Extra") fixedExtra.push(person);
+    else pool.push(person);
+  });
+  pool.sort((a, b) => blockOf(a, tour).start - blockOf(b, tour).start);
   const seats = positions.map((pos) => {
-    const claimed = [];
+    const claimed = [...(bySeat.get(pos.role) || [])]
+      .sort((a, b) => blockOf(a, tour).start - blockOf(b, tour).start);
     for (;;) {
       if (tourCovered(claimed, tour)) break;
       const idx = pool.findIndex((p) => seatAccepts(pos, resolvePerson(p))
@@ -6110,7 +6253,7 @@ function assignPeopleToSeats(unitType, people, unit, date) {
       covered: claimed.length > 0 && tourCovered(claimed, tour),
     };
   });
-  return { seats, extra: pool, off };
+  return { seats, extra: [...fixedExtra, ...pool], off };
 }
 
 // Options for one seat's dropdown: active, rank-eligible for the seat, and NOT
@@ -6541,7 +6684,7 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
         ? `<div class="seat-row seat-gap">
             <span class="seat-label">${escapeHtml(label)}</span>
             <select class="assignment-select" data-date="${date}" data-unit="${unit.id}"
-                    data-start="${gap.start}" data-end="${gap.end}">
+                    data-seat-role="${escapeHtml(seat.pos.role)}" data-start="${gap.start}" data-end="${gap.end}">
               <option value="">— choose —</option>${seatDropdownOptions(seat.pos, unit, date, gap)}
             </select>
           </div>`
@@ -6605,10 +6748,10 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
         ${timeEditor}
         ${markOff}
         ${tradeEditor}
-        ${isSupervisor ? `<button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" data-remove-start="${blk.start}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
+        ${isSupervisor ? `<button class="button button-secondary button-small seat-move" data-move-person="${person.id}" data-move-date="${date}" data-move-unit="${unit.id}" data-move-start="${blk.start}" data-move-role="${escapeHtml(pos.role || "")}">Move</button><button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" data-remove-start="${blk.start}" data-remove-role="${escapeHtml(pos.role || "")}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
       </div>`;
   } else if (isSupervisor) {
-    control = `<select class="assignment-select" data-date="${date}" data-unit="${unit.id}">
+    control = `<select class="assignment-select" data-date="${date}" data-unit="${unit.id}" data-seat-role="${escapeHtml(pos.role || "")}">
         <option value="">— choose —</option>${seatDropdownOptions(pos, unit, date)}
       </select>`;
   } else {
@@ -7387,6 +7530,42 @@ function applyPersistedState(data) {
   state.selectedEmployeeId = null;
   state.employeeDraft = null;
   seedAssignments(true);
+}
+
+// The pre-seat data model did not record a position. On the first officer
+// session after this rollout, preserve the seat the board is displaying now;
+// subsequent renders use that stored decision rather than re-running the
+// greedy matcher. This is intentionally an officer-only, one-time baseline.
+function baselineDisplayedSeatRoles() {
+  let recorded = 0;
+  Object.entries(state.assignments || {}).forEach(([date, byUnit]) => {
+    Object.entries(byUnit || {}).forEach(([unitId, people]) => {
+      const unit = unitById(unitId);
+      if (!unit || !positionsForUnit(unit)) return;
+      const { seats } = assignPeopleToSeats(unit.type, people || [], unit, date);
+      seats.forEach((seat) => {
+        seat.people.forEach((placed) => {
+          const row = (people || []).find((candidate) => candidate.id === placed.id
+            && blockOf(candidate, unitTourMinutes(unit)).start === blockOf(placed, unitTourMinutes(unit)).start);
+          if (row && !row._seat) {
+            row._seat = seat.pos.role;
+            recorded += 1;
+          }
+        });
+      });
+      // A rider beyond the configured seat capacity is a deliberate extra, not
+      // an unclaimed candidate for a higher-qualified seat on the next render.
+      const placedIds = new Set(seats.flatMap((seat) => seat.people).map((row) =>
+        `${row.id}|${blockOf(row, unitTourMinutes(unit)).start}`));
+      (people || []).filter((row) => !isAbsent(row) && !row._seat
+        && !placedIds.has(`${row.id}|${blockOf(row, unitTourMinutes(unit)).start}`))
+        .forEach((row) => {
+          row._seat = "Extra";
+          recorded += 1;
+        });
+    });
+  });
+  return recorded;
 }
 
 // Migrate legacy title values to current D7FR title strings
