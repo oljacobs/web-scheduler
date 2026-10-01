@@ -21,6 +21,11 @@ Latest note (2026-09-30): whole-state scheduler saves are officer-only, require 
 state version and complete roster, and are server-audited. Cached/incomplete browser copies must
 refresh and cannot archive omitted staff or overwrite current scheduling data.
 
+Latest note (2026-10-01, local and not deployed): the SPA serializes whole-state autosaves so
+rapid edits from one officer do not reuse a state version. A genuine 409 remains a stop-and-review
+condition; it is not auto-retried, and the saved timestamp clears while the local recovery copy is
+retained.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

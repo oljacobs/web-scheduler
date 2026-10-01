@@ -12,6 +12,13 @@ server-side AuditEntry with actor and row counts. Old tabs without `stateVersion
 Use targeted endpoints for all new writes; `/state/` is compatibility-only and requires a future
 integrity sweep before broader rollout.
 
+P1 BIN 1 — SAVE QUEUE (LOCAL, NOT DEPLOYED): `persistAppState()` snapshots one whole-state
+payload at a time and queues a later local edit only after the prior accepted `stateVersion`
+returns. This prevents a single officer's rapid autosaves from conflicting with each other. A real
+409 is NEVER retried or replayed automatically: the board shows the existing danger banner, clears
+the saved timestamp, and keeps the newest local copy only for review after refresh. `saveRemoteState`
+accepts the prepared snapshot; do not call it directly from a UI event.
+
 NEXT P1 — SCHEDULER INTEGRITY SWEEP: inventory every write path and permission; replace broad
 whole-state writes with targeted, object-scoped roster/unit/assignment operations; add conflict,
 double-submit, partial-failure, and authorization tests; verify Railway Postgres backup restore by
@@ -463,9 +470,9 @@ getStaffingAlerts still returns ONE ALERT PER EMPTY SEAT (summary/week/month cou
 groupAlertsByUnit() collapses them for display -> "Batt 115 | 2 open seats", danger before
   warning, then most seats; top 6 + "+N more". Needs list goes in the title attr, not the chip.
 
-persistence.lastSavedAt is set ONLY after a confirmed server write (inside the try, not the
-  finally). In the finally it stamped a time even on failure, so #save-indicator read
-  "Saved 3:42 PM" while nothing had reached the server.
+persistence.lastSavedAt is set ONLY after a confirmed server write. The save queue clears it on
+  every failed save (especially a 409), so #save-indicator can never say "Saved" while the newest
+  change exists only in browser recovery storage.
 
 AUDIT LOG — two bugs, both fixed, do not reintroduce:
 1) AuditEntrySerializer exposed the DB pk as "id" while _write_state deduped on source_id, so

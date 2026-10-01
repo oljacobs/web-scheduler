@@ -7179,50 +7179,98 @@ async function loadRemoteState() {
   return rows[0]?.state || null;
 }
 
+// Every board edit autosaves, so several changes can happen while the first
+// request is still in flight. The server deliberately accepts exactly one
+// stateVersion at a time. Keep one request in flight and coalesce later edits
+// behind it; the next payload is built only after the accepted version returns.
+// A real 409 still stops here for an officer to review -- replaying a whole
+// department state object over another officer's change would defeat the guard.
+let persistenceLoop = null;
+let persistenceGeneration = 0;
+let pendingPersistenceReason = "";
+
 async function persistAppState(reason) {
-  state.persistence.isSaving = true;
-  try {
-    saveLocalState();
-    if (hasRemotePersistence()) {
-      await saveRemoteState();
-      state.persistence.backend = usesSchedulerApi() ? "api" : "supabase";
-      // Stamped ONLY on a confirmed server write. Previously this lived in the
-      // finally block, so a failed save still showed "Saved 3:42 PM" — the
-      // indicator reassured people at exactly the moment it should have alarmed them.
-      state.persistence.lastSavedAt = new Date().toISOString();
-      setPersistenceStatus(`Saved to ${remoteLabel()}${reason ? ` • ${reason}` : ""}`, "ok");
-    } else {
-      state.persistence.backend = "local-storage";
-      setPersistenceStatus(`Saved in browser${reason ? ` • ${reason}` : ""}`, "warning");
+  // Browser storage is a recovery copy, not a substitute for Railway. Retain
+  // it so a real conflict is reviewable without silently reposting it over
+  // another officer's accepted work.
+  saveLocalState();
+  pendingPersistenceReason = reason || pendingPersistenceReason;
+  persistenceGeneration += 1;
+
+  if (persistenceLoop) return persistenceLoop;
+
+  persistenceLoop = (async () => {
+    state.persistence.isSaving = true;
+    renderSaveIndicator();
+
+    for (;;) {
+      // Snapshot at the same time as the generation number. An edit that lands
+      // while this request is in flight gets a fresh stateVersion and payload
+      // on the next loop, rather than racing this one with the old token.
+      const saveGeneration = persistenceGeneration;
+      const saveReason = pendingPersistenceReason;
+      pendingPersistenceReason = "";
+      const savePayload = serializableState();
+
+      try {
+        if (hasRemotePersistence()) {
+          await saveRemoteState(savePayload);
+          state.persistence.backend = usesSchedulerApi() ? "api" : "supabase";
+          state.persistence.lastSavedAt = new Date().toISOString();
+          setPersistenceStatus(`Saved to ${remoteLabel()}${saveReason ? ` • ${saveReason}` : ""}`, "ok");
+        } else {
+          state.persistence.backend = "local-storage";
+          state.persistence.lastSavedAt = null;
+          setPersistenceStatus(`Saved in browser${saveReason ? ` • ${saveReason}` : ""}`, "warning");
+        }
+      } catch (error) {
+        console.error("Persist failed", error);
+        // A 409 might be another officer's accepted work. Never retry a whole
+        // state payload over it, and never leave an old "Saved" time visible.
+        state.persistence.lastSavedAt = null;
+        pendingPersistenceReason = "";
+        if (usesSchedulerApi() && error?.status === 409) {
+          state.persistence.backend = "api-conflict";
+          setPersistenceStatus(
+            "The schedule changed on the server. Refresh to review it; your newest change is only in this browser.",
+            "danger",
+          );
+        } else {
+          state.persistence.backend = hasRemotePersistence()
+            ? (usesSchedulerApi() ? "api-fallback" : "supabase-fallback")
+            : "local-storage";
+          setPersistenceStatus(error?.message || "Saved in browser fallback only", "warning");
+        }
+        break;
+      }
+
+      if (persistenceGeneration === saveGeneration) break;
     }
-  } catch (error) {
-    console.error("Persist failed", error);
-    saveLocalState();
-    state.persistence.backend = hasRemotePersistence()
-      ? (usesSchedulerApi() ? "api-fallback" : "supabase-fallback")
-      : "local-storage";
-    const message = error?.message || "Saved in browser fallback only";
-    setPersistenceStatus(message, "warning");
-  } finally {
+  })().finally(() => {
     state.persistence.isSaving = false;
-    state.persistence.lastSavedAt = new Date().toISOString();
+    persistenceLoop = null;
     renderPersistenceStatus();
-  }
+    renderSaveIndicator();
+  });
+
+  return persistenceLoop;
 }
 
-async function saveRemoteState() {
+async function saveRemoteState(payload = serializableState()) {
   if (usesSchedulerApi()) {
     const response = await fetch(schedulerStateUrl(), {
       method: "PUT",
       headers: await schedulerApiHeaders(),
-      body: JSON.stringify(serializableState()),
+      body: JSON.stringify(payload),
     });
-    const payload = await response.json().catch(() => ({}));
+    const responsePayload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.detail || `API save failed with status ${response.status}`);
+      const error = new Error(responsePayload.detail || `API save failed with status ${response.status}`);
+      error.status = response.status;
+      throw error;
     }
-    if (Number.isInteger(payload.stateVersion)) state.stateVersion = payload.stateVersion;
-    return payload;
+    if (Number.isInteger(responsePayload.stateVersion)) state.stateVersion = responsePayload.stateVersion;
+    return responsePayload;
   }
   const response = await fetch(remoteBaseUrl(), {
     method: "POST",
@@ -7231,9 +7279,13 @@ async function saveRemoteState() {
       "Content-Type": "application/json",
       Prefer: "resolution=merge-duplicates,return=minimal",
     },
-    body: JSON.stringify({ id: REMOTE_STATE_ID, state: serializableState() }),
+    body: JSON.stringify({ id: REMOTE_STATE_ID, state: payload }),
   });
-  if (!response.ok) throw new Error(`Remote save failed with status ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`Remote save failed with status ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
 }
 
 function remoteHeaders() {

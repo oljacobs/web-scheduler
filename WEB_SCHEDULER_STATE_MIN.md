@@ -54,6 +54,11 @@ not current build instructions unless this file says otherwise.
 
 - `applyPersistedState()` is an allowlist: any new API state key must be explicitly copied into
   client state or it disappears after load.
+- **P1 Bin 1, local and not deployed:** `persistAppState()` serializes whole-state autosaves. It
+  snapshots the payload and version once, waits for the accepted version, then sends any later
+  local edit. A 409 is a real review state: it is never auto-retried, the prior saved timestamp is
+  cleared, and the existing danger banner explains that the newest change remains only in browser
+  recovery storage until refresh.
 - Do not place unbounded history in the whole-state PUT. Use targeted API endpoints for reports,
   snapshots, or other growing data sets.
 - Stored audit/notification text must use safe fallbacks such as `unitLabel()`; never persist an
