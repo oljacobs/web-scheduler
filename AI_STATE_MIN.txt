@@ -12,7 +12,7 @@ server-side AuditEntry with actor and row counts. Old tabs without `stateVersion
 Use targeted endpoints for all new writes; `/state/` is compatibility-only and requires a future
 integrity sweep before broader rollout.
 
-P1 BIN 1 — SAVE QUEUE (LOCAL, NOT DEPLOYED): `persistAppState()` snapshots one whole-state
+P1 BIN 1 — SAVE QUEUE (DEPLOYED AND PRODUCTION-VERIFIED 2026-09-30): `persistAppState()` snapshots one whole-state
 payload at a time and queues a later local edit only after the prior accepted `stateVersion`
 returns. This prevents a single officer's rapid autosaves from conflicting with each other. A real
 409 is NEVER retried or replayed automatically: the board shows the existing danger banner, clears
@@ -83,6 +83,11 @@ stack above the full-width staffing message so a clear-status chip cannot compre
 
 RECENTLY COMPLETED (2026-09-25):
 P2 — dedicated 48-hour printable shift sheet with unit selection and pay-code detail: SHIPPED AND VERIFIED.
+PRINT CONTEXT REGRESSION FIX (2026-10-01, pending deploy): `printSeatRows()` resolves names and
+credentials from the live roster, but must explicitly carry assignment-block facts with it:
+`_seat`, split-tour `_start/_end`, absence `_off/_offNote/_noFill`, trade `_paid`, and
+`_pay/_payNote/_payFor`. Do not let the printed document re-run legacy greedy seating or present
+time off as working time. The print sheet is read-only; no print action may write scheduler state.
 P1 — officer manual trades: daily-roster Trade controls call the targeted Django endpoint only. The
 paid member is removed from duty, the covering member is recorded as unpaid, and a reciprocal
 banked day is added or settled server-side. The existing employee trade board is unchanged.

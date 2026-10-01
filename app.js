@@ -7666,10 +7666,23 @@ function printSeatRows(unit, date) {
     .map((stored) => {
       const live = resolvePerson(stored);
       if (!live) return null;
-      // _start/_end ride along too: without them every printed row reads as a
-      // full tour and the sheet on the wall disagrees with the board.
-      return { ...live, _pay: stored._pay, _payNote: stored._payNote, _payFor: stored._payFor,
-               _start: stored._start, _end: stored._end };
+      // These are assignment-block facts, not employee facts.  Preserve the
+      // entire scheduling context used by the print renderer: otherwise a
+      // live-roster refresh can make a stored position re-run the legacy
+      // greedy matcher, turn time off into work, or hide trade attribution.
+      return {
+        ...live,
+        _seat: stored._seat,
+        _start: stored._start,
+        _end: stored._end,
+        _off: stored._off,
+        _offNote: stored._offNote,
+        _noFill: stored._noFill,
+        _paid: stored._paid,
+        _pay: stored._pay,
+        _payNote: stored._payNote,
+        _payFor: stored._payFor,
+      };
     })
     .filter(Boolean);
   const { seats, extra } = assignPeopleToSeats(unit.type, people, unit, date);
