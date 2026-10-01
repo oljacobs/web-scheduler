@@ -10,6 +10,7 @@ const state = {
   currentView: "day",
   currentDate: todayIso(),
   scheduleStatus: "draft",
+  stateVersion: null,
   units: [],
   staffingTemplates: [],
   studentRiderFlags: [],
@@ -7200,7 +7201,8 @@ async function persistAppState(reason) {
     state.persistence.backend = hasRemotePersistence()
       ? (usesSchedulerApi() ? "api-fallback" : "supabase-fallback")
       : "local-storage";
-    setPersistenceStatus("Saved in browser fallback only", "warning");
+    const message = error?.message || "Saved in browser fallback only";
+    setPersistenceStatus(message, "warning");
   } finally {
     state.persistence.isSaving = false;
     state.persistence.lastSavedAt = new Date().toISOString();
@@ -7215,8 +7217,12 @@ async function saveRemoteState() {
       headers: await schedulerApiHeaders(),
       body: JSON.stringify(serializableState()),
     });
-    if (!response.ok) throw new Error(`API save failed with status ${response.status}`);
-    return;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.detail || `API save failed with status ${response.status}`);
+    }
+    if (Number.isInteger(payload.stateVersion)) state.stateVersion = payload.stateVersion;
+    return payload;
   }
   const response = await fetch(remoteBaseUrl(), {
     method: "POST",
@@ -7274,6 +7280,7 @@ function serializableState() {
     notifications: (state.notifications || []).slice(-HISTORY_KEEP),
     auditLog: (state.auditLog || []).slice(-HISTORY_KEEP),
     assignments: state.assignments,
+    stateVersion: state.stateVersion,
     scheduleStatus: state.scheduleStatus,
     employeeFilter: state.employeeFilter,
     activeSurface: state.activeSurface,
@@ -7309,6 +7316,7 @@ function applyPersistedState(data) {
   state.notifications = Array.isArray(data.notifications) ? data.notifications : [];
   state.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
   state.assignments = data.assignments && typeof data.assignments === "object" ? data.assignments : {};
+  state.stateVersion = Number.isInteger(data.stateVersion) ? data.stateVersion : null;
   // Pay codes are REFERENCE data: the Django API sends them down with the state,
   // and serializableState() deliberately never sends them back. Only overwrite
   // when the payload actually carries them -- a localStorage restore has no

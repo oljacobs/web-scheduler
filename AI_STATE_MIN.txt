@@ -4,6 +4,19 @@ BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
 APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
 fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
 
+WHOLE-STATE SAVE SAFETY (2026-09-30): The legacy `PUT /state/` compatibility save is
+OFFICER-ONLY. GET supplies `stateVersion`; every PUT must echo it, include every existing roster
+member, and is rejected on a version conflict or incomplete roster before any write. Server writes
+are atomic, client omission never archives/deletes employees or units, and accepted saves add a
+server-side AuditEntry with actor and row counts. Old tabs without `stateVersion` must refresh.
+Use targeted endpoints for all new writes; `/state/` is compatibility-only and requires a future
+integrity sweep before broader rollout.
+
+NEXT P1 — SCHEDULER INTEGRITY SWEEP: inventory every write path and permission; replace broad
+whole-state writes with targeted, object-scoped roster/unit/assignment operations; add conflict,
+double-submit, partial-failure, and authorization tests; verify Railway Postgres backup restore by
+restoring into an isolated copy. Do not treat this containment layer as the final data-integrity design.
+
 MANDATORY BACKFILL RETIRED (callback availability replaces it):
 `SCHEDULER_MANDATORY_BACKFILL_ENABLED` defaults FALSE. `/state/` returns
 `schedulerFeatures.mandatoryBackfill=false` and no picks while preserving historical

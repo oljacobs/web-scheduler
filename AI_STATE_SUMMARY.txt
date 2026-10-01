@@ -17,6 +17,10 @@ Latest note (2026-09-25): special assignment units now have a protected Schedule
 boundary. Officers can now create date-range special assignments with crew and role requirements;
 they display separately from apparatus readiness and never auto-create overtime.
 
+Latest note (2026-09-30): whole-state scheduler saves are officer-only, require an exact current
+state version and complete roster, and are server-audited. Cached/incomplete browser copies must
+refresh and cannot archive omitted staff or overwrite current scheduling data.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===
