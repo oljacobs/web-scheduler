@@ -19,7 +19,7 @@ returns. This prevents a single officer's rapid autosaves from conflicting with 
 the saved timestamp, and keeps the newest local copy only for review after refresh. `saveRemoteState`
 accepts the prepared snapshot; do not call it directly from a UI event.
 
-P1 BIN 3 — PERSISTED SEATS (LOCAL, NOT DEPLOYED): `Assignment.seat_role` is carried as `_seat`
+P1 BIN 3 — PERSISTED SEATS (DEPLOYED AND PRODUCTION-VERIFIED 2026-09-30): `Assignment.seat_role` is carried as `_seat`
 with each assignment block. `assignPeopleToSeats()` honors `_seat` before using its legacy greedy
 fallback, so rank changes, roster order, and removals cannot silently reseat a member. On the first
 authenticated officer session, `baselineDisplayedSeatRoles()` writes each legacy row's currently
@@ -27,7 +27,10 @@ displayed position once; the server records one baseline audit. Old clients cann
 seat. The Move dialog is the deliberate role-change path; Django records actor-attributed
 `SERVER-SEAT-MOVE-*` audit entries. Removing an officer-capability seat requires Leave vacant,
 Move an eligible member, or Create an unannounced voluntary-OT opening. It never automatically
-promotes another member or sends an OT notice.
+promotes another member or sends an OT notice. The first officer baseline recorded 4,501 displayed
+assignment blocks. A read-only production check then showed 4,500 recorded seats and five
+intentional PTO/SICK absence blocks without seats; the one-row difference is the separately audited
+officer-removal test that created an unannounced BC115 voluntary-OT opening.
 
 NEXT P1 — SCHEDULER INTEGRITY SWEEP: inventory every write path and permission; replace broad
 whole-state writes with targeted, object-scoped roster/unit/assignment operations; add conflict,
