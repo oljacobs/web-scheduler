@@ -81,6 +81,9 @@ former sign-in sidebar removed for a single responsive content column. Preserve
 44px touch targets, focus rings, responsive schedule layout, and print's black-on-white rules. On
 phones, the masthead scrolls with content rather than remaining sticky, and the four status cards
 stack above the full-width staffing message so a clear-status chip cannot compress the cards.
+DATE CONTROLS (2026-10-01): Native date inputs retain their browser date-picker behavior but use a
+dark native color scheme and an explicit light WebKit calendar indicator. Do not replace these with
+an unlabelled custom widget; the icon must remain visible on every navy form surface.
 
 RECENTLY COMPLETED (2026-09-25):
 P2 — dedicated 48-hour printable shift sheet with unit selection and pay-code detail: SHIPPED AND VERIFIED.

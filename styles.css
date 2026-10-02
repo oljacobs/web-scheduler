@@ -301,6 +301,20 @@ textarea {
   padding: 12px 14px;
 }
 
+/* Native date pickers inherit an almost-black glyph in some Chromium and
+   WebKit builds, which disappears against Scheduler's navy field surface.
+   Keep the accessible native control, but make its calendar affordance as
+   visible as the field text everywhere it appears. */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: brightness(0) invert(1);
+  opacity: 1;
+}
+
 textarea {
   resize: vertical;
 }
