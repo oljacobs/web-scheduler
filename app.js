@@ -758,13 +758,30 @@ function renderStaffingReport() {
     return;
   }
   const totals = report.totals || {};
+  const reasonLabels = {
+    unspecified: "Unspecified OT",
+    sick: "Sick-call coverage",
+    minimum_staffing: "Minimum staffing",
+    severe_weather: "Severe weather",
+    activation: "Operational activation",
+    training: "Training",
+    deployment: "Deployment backfill",
+    special_event: "Special-event backfill",
+    holdover: "Holdover / extended duty",
+    unclassified_legacy: "Legacy unclassified OT",
+  };
+  const overtimeBreakdown = Object.entries(totals.overtimeHoursByReason || {})
+    .filter(([, hours]) => Number(hours) > 0)
+    .map(([reason, hours]) => `<li><strong>${escapeHtml(reasonLabels[reason] || reason)}</strong><span>${Number(hours).toFixed(1)} hours</span></li>`)
+    .join("");
   message.textContent = `Captured ${report.captureKind.replace("_", " ")} history from ${report.start} through ${report.end}.`;
   summary.innerHTML = `
     <div class="summary-card"><span>Unit snapshots</span><strong>${totals.unitSnapshots || 0}</strong></div>
     <div class="summary-card"><span>Below minimum</span><strong>${totals.unitsBelowMinimum || 0}</strong></div>
     <div class="summary-card"><span>Overtime hours</span><strong>${Number(totals.overtimeHours || 0).toFixed(1)}</strong></div>
     <div class="summary-card"><span>Forced posts</span><strong>${totals.forcedOvertimePosts || 0}</strong></div>`;
-  list.innerHTML = (report.snapshots || []).map((row) => `<article class="queue-item"><div class="unit-card-header"><div><strong>${escapeHtml(row.unitName)}</strong><p class="helper-text">${escapeHtml(row.shiftDate)} · ${row.requiredStaff == null ? "Minimum not configured" : `${row.staffedCount}/${row.requiredStaff} staffed`} · ${Number(row.overtimeHours || 0).toFixed(1)} OT hours</p></div><span class="badge ${row.minimumStaffingMet === false ? "badge-danger" : "badge-soft"}">${row.minimumStaffingMet === false ? "Below minimum" : row.minimumStaffingMet === true ? "Minimum met" : "Not rated"}</span></div></article>`).join("") || "<p class=\"helper-text\">No captured snapshots match this range.</p>";
+  const rows = (report.snapshots || []).map((row) => `<article class="queue-item"><div class="unit-card-header"><div><strong>${escapeHtml(row.unitName)}</strong><p class="helper-text">${escapeHtml(row.shiftDate)} · ${row.requiredStaff == null ? "Minimum not configured" : `${row.staffedCount}/${row.requiredStaff} staffed`} · ${Number(row.overtimeHours || 0).toFixed(1)} OT hours</p></div><span class="badge ${row.minimumStaffingMet === false ? "badge-danger" : "badge-soft"}">${row.minimumStaffingMet === false ? "Below minimum" : row.minimumStaffingMet === true ? "Minimum met" : "Not rated"}</span></div></article>`).join("");
+  list.innerHTML = `${overtimeBreakdown ? `<article class="queue-item"><strong>Overtime by cause</strong><ul class="accountability-breakdown">${overtimeBreakdown}</ul></article>` : ""}${rows || "<p class=\"helper-text\">No captured snapshots match this range.</p>"}`;
 }
 
 async function loadStaffingReport() {
@@ -4843,7 +4860,7 @@ function forceInToGap(gapKeyStr, gaps) {
   if (!state.assignments[gap.date]) state.assignments[gap.date] = {};
   state.assignments[gap.date][gap.unitId] = markManual([
     ...getAssignments(gap.date, gap.unitId),
-    first.employee,
+    { ...first.employee, _type: "overtime", _pay: "MOT" },
   ]);
 
   queueNotification({
@@ -5146,7 +5163,10 @@ function awardOvertime(postId, employeeId) {
 
   if (!state.assignments[post.date]) state.assignments[post.date] = {};
   const existing = getAssignments(post.date, post.unitId);
-  state.assignments[post.date][post.unitId] = markManual([...existing, employee]);
+  state.assignments[post.date][post.unitId] = markManual([
+    ...existing,
+    { ...employee, _type: "overtime", _pay: "VOT" },
+  ]);
 
   const unitName = unitById(post.unitId)?.name || post.unitId;
   queueNotification({

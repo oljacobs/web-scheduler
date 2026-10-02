@@ -991,6 +991,25 @@ textarea:disabled {
   border-radius: 16px;
 }
 
+.accountability-breakdown {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+}
+
+.accountability-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.42rem 0;
+  border-top: 1px solid var(--line, rgba(255, 255, 255, 0.14));
+}
+
+.accountability-breakdown span {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .preview-table {
   width: 100%;
   border-collapse: collapse;
