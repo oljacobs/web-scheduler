@@ -4722,13 +4722,14 @@ function buildMandatoryTemplateCsv(fiscalYear, platoon) {
   // The platoon column supervisors actually need is the FORCED pool, not who is
   // on duty — those are different platoons on every date. Both are emitted so the
   // sheet is self-explanatory.
-  const rows = ["date,onDutyPlatoon,mandatoryPlatoon,employeeEmailOrBadge,order,notes"];
+  const rows = ["date,onDutyPlatoon,mandatoryPlatoon,designation,employeeEmailOrBadge,order,notes"];
   let date = start;
   while (date <= end) {
     const onDuty = getShiftForDate(date);
     const eligible = mandatoryEligibleShift(date);
     if (!platoon || platoon === "all" || eligible === platoon) {
-      rows.push(`${date},${onDuty},${eligible || ""},,1,`);
+      rows.push(`${date},${onDuty},${eligible || ""},Primary,,1,`);
+      rows.push(`${date},${onDuty},${eligible || ""},Secondary,,2,`);
     }
     date = addDays(date, 1);
   }
@@ -4802,10 +4803,14 @@ function previewMandatoryImport(text) {
       });
       return;
     }
+    const designation = String(row.designation || "").trim().toLowerCase();
+    const order = designation === "primary" ? 1
+      : designation === "secondary" ? 2
+        : (Number(row.order) > 0 ? Number(row.order) : 1);
     validRows.push({
       employeeId: emp.id,
       date,
-      order: Number(row.order) > 0 ? Number(row.order) : 1,
+      order,
       fiscalYear: currentFiscalYear(date),
       notes: (row.notes || "").slice(0, 200),
     });

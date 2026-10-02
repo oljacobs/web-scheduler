@@ -632,7 +632,9 @@ mandatoryEligibleShift(date) -> the ONE platoon that may be forced that date. No
   REJECTS (not warns) a person from the wrong platoon — it is a rest-rule violation, not a typo.
   The template's platoon filter means "dates this platoon can be FORCED", not "dates it is on duty".
 buildMandatoryTemplateCsv(fiscalYear, platoon) emits a sheet with date+platoons ALREADY FILLED
-  (365 rows, or ~121 for one platoon) so supervisors only type names — the platoon maths is
+  and TWO call-order rows per eligible date: Primary order 1 and Secondary order 2. The importer
+  respects the `designation` column while remaining compatible with older one-row sheets. Supervisors
+  only type names — the platoon maths is
   where hand-entry errors would come from. Import matches on email, then badge, then id.
 Import is idempotent on (employee,date): re-uploading a corrected sheet updates, never duplicates.
 mandatoryForDate(date) -> designated people, first-called first.
