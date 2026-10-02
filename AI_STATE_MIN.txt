@@ -97,6 +97,10 @@ minimum staffing, weather, activation, training, and `HOLDOT` for extended duty.
 codes are OT-reportable; base deployment codes (such as TIFMAS) are not because Paycom determines
 their treatment from normal-shift overlap. Whole-state assignment transport must preserve `_type`;
 legacy typed OT without a code reports as unclassified rather than disappearing.
+ACCOUNTABILITY CAPTURE (2026-10-01, pending deploy): Admin → Accountability has a supervisor-only
+“Capture current schedule” action. It sends the selected one-to-31-date range plus the selected
+`published`, `nightly`, or `shift_end` record type to the server. Capture records the board as it is
+now, reloads the report, and reports existing records rather than overwriting immutable history.
 P1 — officer manual trades: daily-roster Trade controls call the targeted Django endpoint only. The
 paid member is removed from duty, the covering member is recorded as unpaid, and a reciprocal
 banked day is added or settled server-side. The existing employee trade board is unchanged.

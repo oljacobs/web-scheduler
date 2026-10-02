@@ -216,7 +216,7 @@ function cacheDom() {
     "mandatory-import-preview", "mandatory-summary",
     "callback-horizon-days", "save-callback-settings-btn", "callback-settings-message",
     "callback-candidate-start-date", "callback-candidate-end-date", "callback-candidate-start", "callback-candidate-end", "callback-candidate-cap", "callback-overtime-post", "callback-specific-time-toggle", "callback-specific-time-fields", "find-callback-candidates-btn", "callback-candidate-list", "callback-history-list",
-    "snapshot-report-start", "snapshot-report-end", "snapshot-report-kind", "load-snapshot-report-btn", "snapshot-report-message", "snapshot-report-summary", "snapshot-report-list",
+    "snapshot-report-start", "snapshot-report-end", "snapshot-report-kind", "load-snapshot-report-btn", "capture-snapshot-btn", "snapshot-report-message", "snapshot-report-summary", "snapshot-report-list",
     "tool-drawer", "drawer-badge", "reserve-panel",
     "surface-schedule-btn", "surface-admin-btn", "schedule-surface", "admin-surface",
   ];
@@ -292,6 +292,7 @@ function wireEvents() {
   dom["save-callback-settings-btn"]?.addEventListener("click", saveCallbackSettings);
   dom["find-callback-candidates-btn"]?.addEventListener("click", findCallbackCandidates);
   dom["load-snapshot-report-btn"]?.addEventListener("click", loadStaffingReport);
+  dom["capture-snapshot-btn"]?.addEventListener("click", captureSelectedStaffingSnapshots);
   dom["callback-specific-time-toggle"]?.addEventListener("click", () => {
     state.callbackSpecificTime = !state.callbackSpecificTime;
     renderCallbackSettings();
@@ -735,14 +736,57 @@ function staffingSnapshotApiUrl(path) {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/staffing-snapshots/${path}`;
 }
 
-async function capturePublishedSnapshots(dates) {
+async function captureStaffingSnapshots(dates, captureKind = "published") {
   if (!usesSchedulerApi()) return;
   const response = await fetch(staffingSnapshotApiUrl("capture/"), {
     method: "POST",
     headers: await schedulerApiHeaders(),
-    body: JSON.stringify({ dates }),
+    body: JSON.stringify({ dates, captureKind }),
   });
-  if (!response.ok) throw new Error("The published schedule was saved, but its history snapshot could not be captured.");
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "The staffing snapshot could not be captured.");
+  return data;
+}
+
+async function capturePublishedSnapshots(dates) {
+  try {
+    await captureStaffingSnapshots(dates, "published");
+  } catch (_) {
+    throw new Error("The published schedule was saved, but its history snapshot could not be captured.");
+  }
+}
+
+function selectedSnapshotDates(start, end) {
+  if (!start || !end || start > end) return [];
+  const dates = [];
+  for (let cursor = start; cursor <= end && dates.length <= 31; cursor = addDays(cursor, 1)) {
+    dates.push(cursor);
+  }
+  return dates.length <= 31 ? dates : [];
+}
+
+async function captureSelectedStaffingSnapshots() {
+  if (!usesSchedulerApi() || state.currentRole !== "supervisor") return;
+  const start = dom["snapshot-report-start"]?.value || todayIso();
+  const end = dom["snapshot-report-end"]?.value || start;
+  const captureKind = dom["snapshot-report-kind"]?.value || "nightly";
+  const dates = selectedSnapshotDates(start, end);
+  if (!dates.length) {
+    showToast("Choose an ordered date range of up to 31 days to capture.", "error");
+    return;
+  }
+  const button = dom["capture-snapshot-btn"];
+  if (button) button.disabled = true;
+  try {
+    const result = await captureStaffingSnapshots(dates, captureKind);
+    const label = captureKind.replace("_", " ");
+    showToast(`${result.created} ${label} snapshot${result.created === 1 ? "" : "s"} captured; ${result.existing} already existed.`, "success");
+    await loadStaffingReport();
+  } catch (error) {
+    showToast(error.message || "Could not capture the current schedule.", "error");
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function renderStaffingReport() {
