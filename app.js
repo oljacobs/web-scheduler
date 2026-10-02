@@ -362,8 +362,8 @@ function wireEvents() {
 function initializeControls() {
   dom["date-input"].value = state.currentDate;
   dom["schedule-status"].value = state.scheduleStatus;
-  // Default to the fiscal year people are picking for: after Oct 1 that's the
-  // current one, before it that's the one about to start.
+  // Default to the fiscal year people are picking for. D7FR names a fiscal
+  // year by its ending calendar year: FY2027 is 2026-10-01 through 2027-09-30.
   if (dom["mandatory-fy"] && !dom["mandatory-fy"].value) {
     dom["mandatory-fy"].value = String(planningFiscalYear());
   }
@@ -4632,16 +4632,16 @@ function mandatoryEligibleShift(date) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-// Fiscal year runs Oct 1 -> Sep 30 and is NAMED BY ITS START YEAR.
-// FY2027 = 2026-10-01 .. 2027-09-30.
-function fiscalYearBounds(startYear) {
-  return { start: `${startYear}-10-01`, end: `${startYear + 1}-09-30` };
+// Fiscal year runs Oct 1 -> Sep 30 and is NAMED BY ITS END YEAR, which is the
+// department standard. FY2027 = 2026-10-01 .. 2027-09-30.
+function fiscalYearBounds(fiscalYear) {
+  return { start: `${fiscalYear - 1}-10-01`, end: `${fiscalYear}-09-30` };
 }
 
 function currentFiscalYear(dateIso) {
   const d = dateIso || todayIso();
   const [y, m] = d.split("-").map(Number);
-  return m >= 10 ? y : y - 1;
+  return m >= 10 ? y + 1 : y;
 }
 
 // The year supervisors are PREPARING, which is not the year we are in. Picks are
@@ -4650,14 +4650,14 @@ function currentFiscalYear(dateIso) {
 function planningFiscalYear(dateIso) {
   const d = dateIso || todayIso();
   const [y, m] = d.split("-").map(Number);
-  return m >= 7 ? y : y - 1;
+  return m >= 7 ? y + 1 : y;
 }
 
 // The whole point of generating rather than handing over a blank sheet: the app
 // already knows which platoon is on duty on every date, so supervisors never have
 // to work that out by hand — which is where the errors would come from.
-function buildMandatoryTemplateCsv(startYear, platoon) {
-  const { start, end } = fiscalYearBounds(startYear);
+function buildMandatoryTemplateCsv(fiscalYear, platoon) {
+  const { start, end } = fiscalYearBounds(fiscalYear);
   // The platoon column supervisors actually need is the FORCED pool, not who is
   // on duty — those are different platoons on every date. Both are emitted so the
   // sheet is self-explanatory.
@@ -4675,10 +4675,10 @@ function buildMandatoryTemplateCsv(startYear, platoon) {
 }
 
 function downloadMandatoryTemplate() {
-  const startYear = Number(dom["mandatory-fy"]?.value) || planningFiscalYear();
+  const fiscalYear = Number(dom["mandatory-fy"]?.value) || planningFiscalYear();
   const platoon = dom["mandatory-platoon"]?.value || "all";
   const label = platoon === "all" ? "all" : platoon.toLowerCase();
-  downloadCsv(`d7fr-mandatory-fy${startYear + 1}-${label}.csv`, buildMandatoryTemplateCsv(startYear, platoon));
+  downloadCsv(`d7fr-mandatory-fy${fiscalYear}-${label}.csv`, buildMandatoryTemplateCsv(fiscalYear, platoon));
 }
 
 // Matched on email first, then badge — the two identifiers a supervisor actually
@@ -4899,8 +4899,8 @@ function renderMandatoryImportPreview() {
 function renderMandatorySummary() {
   const el = dom["mandatory-summary"];
   if (!el) return;
-  const startYear = Number(dom["mandatory-fy"]?.value) || planningFiscalYear();
-  const { start, end } = fiscalYearBounds(startYear);
+  const fiscalYear = Number(dom["mandatory-fy"]?.value) || planningFiscalYear();
+  const { start, end } = fiscalYearBounds(fiscalYear);
   const picks = (state.mandatoryBackfill || []).filter((m) => m.date >= start && m.date <= end);
   const byDate = new Set(picks.map((m) => m.date));
 

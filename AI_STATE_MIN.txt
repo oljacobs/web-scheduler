@@ -37,13 +37,14 @@ whole-state writes with targeted, object-scoped roster/unit/assignment operation
 double-submit, partial-failure, and authorization tests; verify Railway Postgres backup restore by
 restoring into an isolated copy. Do not treat this containment layer as the final data-integrity design.
 
-MANDATORY BACKFILL RETIRED (callback availability replaces it):
-`SCHEDULER_MANDATORY_BACKFILL_ENABLED` defaults FALSE. `/state/` returns
-`schedulerFeatures.mandatoryBackfill=false` and no picks while preserving historical
-`MandatoryBackfill` rows. The SPA hides its tab and Force button. Cached clients cannot
-write forced posts/assignments, and `send_queued_notifications` skips queued subjects beginning
-`MANDATORY overtime`. Keep normal voluntary-OT notifications. Do not enable this flag without an
-explicit decision to restore the retired system.
+MANDATORY BACKFILL RESTORATION (approved 2026-10-01, pending deployment):
+`SCHEDULER_MANDATORY_BACKFILL_ENABLED` defaults FALSE and must remain false outside the explicitly
+approved Railway production service. When true, `/state/` returns the preserved `MandatoryBackfill`
+rows and the SPA exposes both the officer-only Admin → Mandatory fiscal calendar/import and the
+daily Force action. A forced assignment is only available after an officer has notified a required
+gap with zero volunteers; it uses the pre-picked, qualified, 72-hour-safe pool in list order and
+adds an auditable `forced=true` OT post. This does NOT enable `NOTIFICATIONS_ENABLED` or deliver
+the queued outbox.
 
 CALLBACK AVAILABILITY (P1 Bins 1–7, SHIPPED AND VERIFIED):
 `CallbackAvailabilitySettings` is a PostgreSQL singleton (id=1),
@@ -166,7 +167,8 @@ P3 — email identities: the generic D7FR Scheduler sender now uses category sub
   to only those mailboxes, and map notification categories to the correct sender.
 Operations decisions — officers/admin may enter SICK and FMLA schedule absences; FMLA payroll remains
 admin-only. Light duty uses one shared six-seat admin unit. Still decide callback ranking/cycle/decline
-policy and test a Railway Postgres backup/restore process. Mandatory escalation is retired, not active work.
+policy and test a Railway Postgres backup/restore process. Mandatory backfill is restored by
+leadership decision, pending deployment and production feature-flag enablement.
 
 STATE keys:
 currentUserId, currentUserDisplayName, currentUserTitle, currentUserEmail, currentUserEntraId,
@@ -608,15 +610,16 @@ Mandatory backfill (Admin -> Mandatory):
 state.mandatoryBackfill=[{employeeId,date,order,fiscalYear,notes}]; Django MandatoryBackfill
   unique(employee,date), migration 0007. NOT a rotation — employees pick their forced-hire dates
   at the start of the fiscal year and supervisors enter them, so it is a STORED CALENDAR.
-FY runs Oct 1 -> Sep 30 and is NAMED BY START YEAR: fiscalYearBounds(2026) = FY2027.
-  currentFiscalYear() = the FY we are in; planningFiscalYear() = the one being prepared (Jul
-  onward rolls forward). The UI defaults to PLANNING — picks are entered before Oct 1.
+FY runs Oct 1 -> Sep 30 and is NAMED BY END YEAR: fiscalYearBounds(2027) = FY2027
+  (2026-10-01 through 2027-09-30). currentFiscalYear() = the FY we are in;
+  planningFiscalYear() = the one being prepared (Jul onward rolls forward). The UI defaults to
+  PLANNING — picks are entered before Oct 1.
 mandatoryEligibleShift(date) -> the ONE platoon that may be forced that date. Nobody may work 72
   hrs straight, so it is the platoon working NEITHER date-1 NOR date+1 (and not the on-duty one).
   C day1 -> A pool; C day2 -> B pool. Derived from rotationPattern, never hardcoded. The import
   REJECTS (not warns) a person from the wrong platoon — it is a rest-rule violation, not a typo.
   The template's platoon filter means "dates this platoon can be FORCED", not "dates it is on duty".
-buildMandatoryTemplateCsv(startYear, platoon) emits a sheet with date+platoons ALREADY FILLED
+buildMandatoryTemplateCsv(fiscalYear, platoon) emits a sheet with date+platoons ALREADY FILLED
   (365 rows, or ~121 for one platoon) so supervisors only type names — the platoon maths is
   where hand-entry errors would come from. Import matches on email, then badge, then id.
 Import is idempotent on (employee,date): re-uploading a corrected sheet updates, never duplicates.
