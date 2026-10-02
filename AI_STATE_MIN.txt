@@ -84,6 +84,15 @@ stack above the full-width staffing message so a clear-status chip cannot compre
 DATE CONTROLS (2026-10-01): Native date inputs retain their browser date-picker behavior but use a
 dark native color scheme and an explicit light WebKit calendar indicator. Do not replace these with
 an unlabelled custom widget; the icon must remain visible on every navy form surface.
+HUB DNS INCIDENT (2026-10-01, repaired): `hub.d7fr.org` intermittently returned `NXDOMAIN` even
+though the static Vercel Hub and its QR codes were healthy. GoDaddy authoritative nameserver
+`ns56.domaincontrol.com` served stale/inconsistent zone data (serial `2026070301`) while ns55 had
+the Hub CNAME. Saving the CNAME at GoDaddy synchronized both authorities at serial `2026100200`:
+both now serve `hub.d7fr.org CNAME 0ac12e3113800e8d.vercel-dns-017.com` with TTL 601, and public
+Cloudflare, Google, and Quad9 resolvers returned `NOERROR`. Do not remake QR codes or alter Hub
+application code for an NXDOMAIN incident. If it recurs, compare both authoritative SOA serials
+and open a GoDaddy DNS support case for replica synchronization; allow the 600-second negative TTL
+to expire before judging resolver recovery.
 
 RECENTLY COMPLETED (2026-09-25):
 P2 — dedicated 48-hour printable shift sheet with unit selection and pay-code detail: SHIPPED AND VERIFIED.
