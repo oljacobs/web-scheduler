@@ -46,6 +46,18 @@ gap with zero volunteers; it uses the pre-picked, qualified, 72-hour-safe pool i
 adds an auditable `forced=true` OT post. This does NOT enable `NOTIFICATIONS_ENABLED` or deliver
 the queued outbox.
 
+MANDATORY FY IMPORT (implemented 2026-10-07; production verification pending): The downloadable
+FY/platoon CSV uses the exact header `date,onDutyPlatoon,mandatoryPlatoon,designation,employeeEmailOrBadge,order,notes`.
+It contains Primary (order 1) and Secondary (order 2) rows for every duty date; FY is named for its
+ending year (FY2027 = 2026-10-01 through 2027-09-30). Blank employee rows remain valid so an officer
+can download and progressively fill the official sheet. Every populated row is checked against the
+date-derived on-duty and eligible mandatory platoons, designation/order, a unique date/designation,
+an active roster person, and the 72-hour rule before import. The importer creates an ordered
+mandatory candidate list only: it never auto-places a person in a daily seat. A later officer Force
+action against a real notified gap is the auditable assignment decision. `renderMandatorySummary()`
+must display `fiscalYear`; do not reintroduce the undefined `startYear` reference that interrupted
+post-login rendering.
+
 CALLBACK AVAILABILITY (P1 Bins 1–7, SHIPPED AND VERIFIED):
 `CallbackAvailabilitySettings` is a PostgreSQL singleton (id=1),
 with `horizon_days` strictly 14, 21, or 30 (default 21), `updated_by`, and `updated_at`.
@@ -120,7 +132,9 @@ P1 — student riders: the Day roster shows a compact “Student rider” unit f
 officers can use the optional Students toggle to add, edit, or remove one EMT or Paramedic student
 per apparatus per date; every rider is a fixed 12-hour shift and becomes read-only when the shift
 begins. Names and school are fetched only through the medical-officer endpoint; the shared state
-contains unit/date flags only.
+contains unit/date flags only. `mof` is a qualification, not a rank: a Captain or Lieutenant who
+holds that qualification may manage student riders, while every other officer must not see the
+Students control. The backend enforces this independently of the UI.
 P1 — notification activation: as of 2026-09-25, the production pre-activation outbox was safely
 retired to `skipped` (45 rows; none deleted), leaving zero deliverable backlog. Delivery remains off
 until an explicit rollout. The backend repo's `SCHEDULER_NOTIFICATION_RUNBOOK.md` is the operational
@@ -401,7 +415,7 @@ PRINT (renderPrintSheet / openPrintOptions / attachPrintEvents):
   against each person. Deliberately NOT the day view with print CSS: the screen is a
   staffing tool, the sheet is a shift document.
 
-SEAT RADIOS (local implementation, pending deploy 2026-10-07): `SeatRadioAssignment` is an
+SEAT RADIOS (implemented 2026-10-07; production verification pending): `SeatRadioAssignment` is an
 additive backend relation keyed by date + Unit + persisted `seat_role`; it is not an Assignment
 field and is never sent through the whole-state PUT. Officers update it only through targeted
 `PUT /api/scheduler/seat-radios/`, which validates the approved radio list, advances the shared

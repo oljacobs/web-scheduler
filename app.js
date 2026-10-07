@@ -2900,9 +2900,13 @@ function renderPermissionStates() {
   dom["schedule-status"].disabled = supervisorLocked;
   // Crew retain read-only schedule, radio, pay-code, and time information, but
   // do not see controls that only an officer is allowed to use.
-  ["pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle"].forEach((id) => {
+  ["pay-codes-toggle", "hours-toggle", "trades-toggle"].forEach((id) => {
     dom[id]?.classList.toggle("hidden", supervisorLocked);
   });
+  // Student riders are an MOF qualification, not a rank. A Captain or
+  // Lieutenant who is not qualified as the Medical Officer must not see this
+  // control; the API independently enforces the same rule.
+  dom["student-riders-toggle"]?.classList.toggle("hidden", !canManageStudentRiders());
   // Employee import
   dom["import-file"].disabled = supervisorLocked;
   dom["preview-import-btn"].disabled = supervisorLocked;

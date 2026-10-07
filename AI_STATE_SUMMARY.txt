@@ -26,6 +26,14 @@ rapid edits from one officer do not reuse a state version. A genuine 409 remains
 condition; it is not auto-retried, and the saved timestamp clears while the local recovery copy is
 retained.
 
+Latest note (2026-10-07, implementation committed; production verification pending): daily seat
+radios use an additive, targeted officer-only API relation and print beside the assigned member.
+Mandatory FY imports accept the official two-row-per-date CSV, validate populated rows against
+the derived platoon/order/72-hour rules, and remain a candidate list rather than automatic seat
+placement. The mandatory summary uses the FY value directly, fixing the `startYear is not defined`
+post-login render error. Student-rider controls are visible only to Medical Officers by `mof`
+qualification; a Captain or Lieutenant without that qualification does not see the control.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

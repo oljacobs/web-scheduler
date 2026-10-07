@@ -1,6 +1,6 @@
 # Web Scheduler — Living State Reference
 
-Last updated: 2026-09-30
+Last updated: 2026-10-07
 
 ## Use this first
 
@@ -75,6 +75,19 @@ not current build instructions unless this file says otherwise.
   unresolved lookup as `undefined`.
 - New writes must preserve current Django authorization, CSRF/session or bearer-token protections,
   server-side validation, auditability, and existing role boundaries.
+- **Daily seat radios (implemented; production verification pending):** use the additive
+  `SeatRadioAssignment` relation keyed by date, unit, and persisted seat role. It is read through
+  `/state/` but written only through officer-authorized `PUT /seat-radios/`; never include it in a
+  whole-state save. The Day roster shows officers the approved-radio select and crew a read-only
+  value; the print sheet includes the assigned radio.
+- **Mandatory FY import (implemented; production verification pending):** the official CSV has two
+  rows per duty date, Primary/order 1 and Secondary/order 2. Blank employee rows are allowed;
+  populated rows must match the date-derived platoons, designation/order, roster member, and
+  72-hour rule. Import records candidates only, never an automatic daily seat assignment. An officer
+  later decides whether to Force-assign a candidate for a real eligible gap.
+- **Roster-control visibility:** Pay Codes, Hours, and Trades are officer controls. Student riders
+  are tighter: only a member with the `mof` qualification may see or manage them, regardless of
+  Captain/Lieutenant rank. The server enforces the same qualification check.
 
 ## Current documentation status
 
