@@ -38,6 +38,10 @@ const state = {
   // Reference data pushed down by the server (never sent back up). Empty in
   // Supabase/localStorage mode, which is why every reader guards on it.
   payCodes: [],
+  // Server-owned, officer-managed daily seat radios. Never include this in the
+  // compatibility whole-state save; updates use /seat-radios/ only.
+  seatRadioAssignments: [],
+  radioOptions: [],
   activeSurface: "schedule",
   activeAdminTab: "employees",
   employeeFilter: { search: "", shift: "all", status: "active", sort: "name" },
@@ -728,6 +732,30 @@ function manualTradesApiUrl() {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/manual-trades/`;
 }
 
+function seatRadiosApiUrl() {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/seat-radios/`;
+}
+
+function radioForSeat(date, unitId, seatRole) {
+  return (state.seatRadioAssignments || []).find((row) =>
+    row.date === date && row.unitId === unitId && row.seatRole === seatRole)?.radio || "";
+}
+
+async function saveSeatRadio(date, unitId, seatRole, radio) {
+  const response = await fetch(seatRadiosApiUrl(), {
+    method: "PUT", headers: await schedulerApiHeaders(),
+    body: JSON.stringify({ date, unitId, seatRole, radio }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || "Could not save the radio assignment.");
+  const rows = state.seatRadioAssignments || [];
+  state.seatRadioAssignments = radio
+    ? [...rows.filter((row) => !(row.date === date && row.unitId === unitId && row.seatRole === seatRole)),
+       { date, unitId, seatRole, radio }]
+    : rows.filter((row) => !(row.date === date && row.unitId === unitId && row.seatRole === seatRole));
+  if (Number.isInteger(data.stateVersion)) state.stateVersion = data.stateVersion;
+}
+
 function studentRidersApiUrl(path = "") {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/student-riders/${path}`;
 }
@@ -1236,6 +1264,7 @@ function renderSchedule() {
   attachUnitMoveEvents();
   attachSeatTimeEvents(dom["schedule-container"]);
   attachPayCodeEvents(dom["schedule-container"]);
+  attachSeatRadioEvents(dom["schedule-container"]);
   attachManualTradeEvents(dom["schedule-container"]);
   attachStudentRiderEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
@@ -2869,6 +2898,11 @@ function renderPermissionStates() {
   dom["notify-btn"].disabled = employeeLocked;
   dom["print-btn"].disabled = employeeLocked;
   dom["schedule-status"].disabled = supervisorLocked;
+  // Crew retain read-only schedule, radio, pay-code, and time information, but
+  // do not see controls that only an officer is allowed to use.
+  ["pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle"].forEach((id) => {
+    dom[id]?.classList.toggle("hidden", supervisorLocked);
+  });
   // Employee import
   dom["import-file"].disabled = supervisorLocked;
   dom["preview-import-btn"].disabled = supervisorLocked;
@@ -4762,6 +4796,7 @@ function previewMandatoryImport(text) {
   const warnings = [];
   const validRows = [];
   const seen = new Set();
+  const seenDesignations = new Set();
 
   rows.forEach((row, index) => {
     const line = index + 2;
@@ -4773,6 +4808,22 @@ function previewMandatoryImport(text) {
       errors.push({ message: `Row ${line}: date must be YYYY-MM-DD (got "${date}").` });
       return;
     }
+    const expectedOnDuty = getShiftForDate(date);
+    const expectedMandatory = mandatoryEligibleShift(date);
+    const onDuty = String(row.ondutyplatoon || "").trim().toUpperCase();
+    const mandatory = String(row.mandatoryplatoon || "").trim().toUpperCase();
+    const designation = String(row.designation || "").trim().toLowerCase();
+    const expectedOrder = designation === "primary" ? 1 : designation === "secondary" ? 2 : 0;
+    if (onDuty !== expectedOnDuty || mandatory !== expectedMandatory || !expectedOrder || Number(row.order) !== expectedOrder) {
+      errors.push({ message: `Row ${line}: date, platoon, designation, or call order does not match the mandatory template.` });
+      return;
+    }
+    const designationKey = `${date}|${designation}`;
+    if (seenDesignations.has(designationKey)) {
+      errors.push({ message: `Row ${line}: ${designation} is listed more than once for ${date}.` });
+      return;
+    }
+    seenDesignations.add(designationKey);
     const emp = findEmployeeByIdentifier(token);
     if (!emp) {
       errors.push({ message: `Row ${line}: no employee matches "${token}".` });
@@ -4803,14 +4854,10 @@ function previewMandatoryImport(text) {
       });
       return;
     }
-    const designation = String(row.designation || "").trim().toLowerCase();
-    const order = designation === "primary" ? 1
-      : designation === "secondary" ? 2
-        : (Number(row.order) > 0 ? Number(row.order) : 1);
     validRows.push({
       employeeId: emp.id,
       date,
-      order,
+      order: expectedOrder,
       fiscalYear: currentFiscalYear(date),
       notes: (row.notes || "").slice(0, 200),
     });
@@ -4980,7 +5027,7 @@ function renderMandatorySummary() {
   }
   const people = new Set(picks.map((m) => m.employeeId)).size;
   el.innerHTML = `<div class="status-box ${covered < dutyDates ? "status-box-warning" : ""}">
-    <strong>FY${startYear + 1}</strong> (${formatDate(start)} – ${formatDate(end)}):
+    <strong>FY${fiscalYear}</strong> (${formatDate(start)} – ${formatDate(end)}):
     ${covered} of ${dutyDates} dates have someone designated, across ${people}
     ${people === 1 ? "person" : "people"}.
     ${covered < dutyDates ? `<br /><span class="helper-text">${dutyDates - covered} dates still have nobody on the mandatory list.</span>` : ""}
@@ -6633,6 +6680,23 @@ function flashPayFieldSaved(el, promise) {
   });
 }
 
+function attachSeatRadioEvents(scope) {
+  if (!scope) return;
+  scope.querySelectorAll("[data-seat-radio]").forEach((select) => {
+    select.addEventListener("change", async () => {
+      select.disabled = true;
+      try {
+        await saveSeatRadio(select.dataset.date, select.dataset.unit, select.dataset.seatRole, select.value);
+        showToast(select.value ? `Radio ${select.value} assigned.` : "Radio assignment cleared.", "success");
+        render();
+      } catch (error) {
+        showToast(error.message || "Could not save the radio assignment.", "error");
+        select.disabled = false;
+      }
+    });
+  });
+}
+
 function attachPayCodeEvents(scope) {
   const root = scope || document;
 
@@ -6733,8 +6797,9 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
   const tour = unitTourMinutes(unit);
   const split = seat.people.length > 1 || seat.people.some((p) => !isFullTour(p, tour));
 
+  const radio = seatRadioHtml(seat.pos, unit, date, isSupervisor);
   if (!seat.people.length) {
-    return seatRowHtml(seat.pos, null, unit, date, isSupervisor, required);
+    return seatRowHtml(seat.pos, null, unit, date, isSupervisor, required) + radio;
   }
 
   let html = seat.people.map((person, i) => seatRowHtml(
@@ -6761,7 +6826,18 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
             <span class="seat-empty">${required ? "Unfilled" : "—"}</span></div>`;
     });
   }
-  return html;
+  return html + radio;
+}
+
+function seatRadioHtml(pos, unit, date, isSupervisor) {
+  if (!usesSchedulerApi() || state.currentView !== "day" || !pos.role) return "";
+  const radio = radioForSeat(date, unit.id, pos.role);
+  if (!isSupervisor) return radio
+    ? `<div class="seat-radio"><span>Radio</span><strong>${escapeHtml(radio)}</strong></div>` : "";
+  const options = (state.radioOptions || []).map((value) =>
+    `<option value="${escapeHtml(value)}"${value === radio ? " selected" : ""}>${escapeHtml(value)}</option>`).join("");
+  return `<label class="seat-radio"><span>Radio</span><select data-seat-radio data-date="${date}" data-unit="${unit.id}" data-seat-role="${escapeHtml(pos.role)}">
+    <option value="">— none —</option>${options}</select></label>`;
 }
 
 // One seat row: shows the assigned person (with Remove) or a pick dropdown.
@@ -7586,6 +7662,8 @@ function applyPersistedState(data) {
   // when the payload actually carries them -- a localStorage restore has no
   // payCodes key, and blanking the list there would silently kill the picker.
   if (Array.isArray(data.payCodes)) state.payCodes = data.payCodes;
+  if (Array.isArray(data.radioOptions)) state.radioOptions = data.radioOptions;
+  if (Array.isArray(data.seatRadioAssignments)) state.seatRadioAssignments = data.seatRadioAssignments;
   state.scheduleStatus = data.scheduleStatus || "draft";
   state.employeeFilter = {
     search: data.employeeFilter?.search || "",
@@ -7766,22 +7844,22 @@ function printSeatRows(unit, date) {
     const label = seat.pos.label || seat.pos.role || "Seat";
     const required = seatIsRequired(seat.pos);
     if (!seat.people.length) {
-      rows.push({ label, person: null, required });
+      rows.push({ label, person: null, required, radio: radioForSeat(date, unit.id, seat.pos.role) });
       return;
     }
     seat.people.forEach((person, i) => {
       rows.push({
         label: i === 0 ? label : `${label} (cont.)`,
-        person, required, hours: blockLabel(person, unit),
+        person, required, hours: blockLabel(person, unit), radio: radioForSeat(date, unit.id, seat.pos.role),
       });
     });
     if (!seat.covered) {
       seat.gaps.forEach((gap) => {
-        rows.push({ label: `${label} — OPEN ${windowLabel(gap, unit)}`, person: null, required });
+        rows.push({ label: `${label} — OPEN ${windowLabel(gap, unit)}`, person: null, required, radio: radioForSeat(date, unit.id, seat.pos.role) });
       });
     }
   });
-  extra.forEach((person) => rows.push({ label: "Rider", person, required: false }));
+  extra.forEach((person) => rows.push({ label: "Rider", person, required: false, radio: "" }));
   return rows;
 }
 
@@ -7818,7 +7896,7 @@ function renderPrintSheet() {
             (pay.forName ? ` for ${pay.forName}` : "") +
             (pay.note ? `<span class="print-note"> — ${pay.note}</span>` : "")
           : "";
-        return `<tr><th>${row.label}</th><td>${name}</td><td>${codeCell}</td></tr>`;
+        return `<tr><th>${row.label}</th><td>${name}</td><td>${row.radio || ""}</td><td>${codeCell}</td></tr>`;
       }).join("");
       return `
         <section class="print-unit">

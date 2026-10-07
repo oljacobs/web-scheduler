@@ -901,6 +901,17 @@ textarea:disabled {
   padding-top: 2px;
 }
 
+.seat-radio {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.seat-radio select { width: auto; min-width: 9rem; min-height: 36px; }
+
 .pay-chip {
   font-size: 0.72rem;
   font-weight: 700;

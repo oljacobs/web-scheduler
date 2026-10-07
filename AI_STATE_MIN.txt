@@ -401,6 +401,14 @@ PRINT (renderPrintSheet / openPrintOptions / attachPrintEvents):
   against each person. Deliberately NOT the day view with print CSS: the screen is a
   staffing tool, the sheet is a shift document.
 
+SEAT RADIOS (local implementation, pending deploy 2026-10-07): `SeatRadioAssignment` is an
+additive backend relation keyed by date + Unit + persisted `seat_role`; it is not an Assignment
+field and is never sent through the whole-state PUT. Officers update it only through targeted
+`PUT /api/scheduler/seat-radios/`, which validates the approved radio list, advances the shared
+state revision, and writes an audit row. The state GET returns assignments and radio options for
+read-only crew display. Day-view seat cards render an officer select or crew read-only value;
+the dedicated print sheet renders the radio beside the employee and pay-code detail.
+
 Core entities:
 Employee{id, entraId?, name, shift(A|B|C|ADMIN|null), title, certs[], rideUp[], email, isSupervisor,
   status, lightDutyStart?, lightDutyEnd?, lightDutyNote?}
