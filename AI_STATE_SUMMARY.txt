@@ -57,6 +57,11 @@ Oren-only allowlist until the next approved recipient test.
 Latest note (2026-10-08, local and not deployed): App / IT filings now notify the configured IT
 contact immediately. Later status and closure notices remain reporter-only; the daily digest is an
 open-work summary rather than a delayed initial notice.
+
+Latest note (2026-10-08, local and not deployed): Maintenance filing routes are configuration-led:
+apparatus to Fleet, technical/App IT to IT, standard Equipment to its maintenance contact, and all
+Station/facility requests to the facilities recipients. Reporter status and work-order updates stay
+separate.
 The direct workflow is targeted and audited; legacy whole-state saves cannot alter its rows.
 
 web-scheduler app quick context (app.js)

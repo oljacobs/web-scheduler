@@ -163,6 +163,11 @@ APP / IT ROUTING (implemented locally 2026-10-08; production verification pendin
 filing queues the configured `IT_CONTACT_EMAIL` notice. Status and closure notices go only to the
 actual reporter; they do not copy the IT contact. The daily IT digest is a summary, not the first
 filing notification.
+MAINTENANCE FILING ROUTES (implemented locally 2026-10-08; production verification pending):
+Apparatus → Fleet inbox; App / IT and Technical Equipment → IT contact; other Equipment → configured
+equipment-maintenance contact; every Station / facility request → configured facilities recipients.
+Recipient addresses stay in Railway variables. Status and work-order lifecycle notices remain
+reporter-only.
 Before any future `NOTIFICATIONS_ENABLED=true`, inspect the current shared scheduler/checklist
 outbox and explicitly mark stale queued messages `skipped`; never enable delivery against an unknown
 backlog, or old reports may send in a burst.
