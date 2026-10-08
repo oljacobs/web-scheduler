@@ -150,9 +150,13 @@ contains unit/date flags only. `mof` is a qualification, not a rank: a Captain o
 holds that qualification may manage student riders, while every other officer must not see the
 Students control. The backend enforces this independently of the UI.
 P1 — notification activation: as of 2026-09-25, the production pre-activation outbox was safely
-retired to `skipped` (45 rows; none deleted), leaving zero deliverable backlog. Delivery remains off
-until an explicit rollout. The backend repo's `SCHEDULER_NOTIFICATION_RUNBOOK.md` is the operational
-source for queue checks, controlled digest tests, kill switch, and the separate hourly Railway cron.
+retired to `skipped` (45 rows; none deleted), leaving zero deliverable backlog. The backend repo's
+`SCHEDULER_NOTIFICATION_RUNBOOK.md` is the operational source for queue checks, controlled digest
+tests, kill switch, and the separate hourly Railway cron.
+NOTIFICATION LIMITED ROLLOUT (2026-10-08): A live queue preview found no queued messages, Graph
+token acquisition and a direct test email succeeded, and `NOTIFICATIONS_ENABLED=true` was enabled
+with the existing three-address test allowlist retained. Do not clear that allowlist until one real
+outbox event is delivered and reviewed. `scheduler-send` remains the five-minute delivery worker.
 Before any future `NOTIFICATIONS_ENABLED=true`, inspect the current shared scheduler/checklist
 outbox and explicitly mark stale queued messages `skipped`; never enable delivery against an unknown
 backlog, or old reports may send in a burst.

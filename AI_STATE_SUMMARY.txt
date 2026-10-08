@@ -48,6 +48,10 @@ Latest note (2026-10-08, local and not deployed): The employee Trade board now s
 direct request as well as the existing open board. The requester initiates only their own active
 assignment, the named colleague must accept, and an officer must approve before the seat moves; the
 requester can withdraw while it remains pending.
+
+Latest note (2026-10-08, live limited rollout): Notification delivery is enabled only for the
+three existing test allowlist addresses after a zero-queue preview and successful Graph mail test.
+Keep the allowlist until a real outbox event has been delivered and reviewed.
 The direct workflow is targeted and audited; legacy whole-state saves cannot alter its rows.
 
 web-scheduler app quick context (app.js)
