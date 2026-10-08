@@ -2520,6 +2520,26 @@ textarea:disabled {
   flex: 1 1 130px;
 }
 
+.mandatory-daily-panel {
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--panel-border);
+  border-left: 4px solid var(--warning, #d79d3b);
+  border-radius: var(--radius, 0.65rem);
+  background: var(--panel);
+}
+.mandatory-daily-panel h3 { margin: 0; }
+.mandatory-daily-panel > p { margin: 0.25rem 0 0.7rem; }
+.mandatory-daily-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.6rem 0; border-top: 1px solid var(--panel-border);
+}
+.mandatory-daily-row > div:first-child { display: grid; gap: 0.1rem; }
+.mandatory-daily-row span { color: var(--text-muted); font-size: 0.9rem; }
+@media (max-width: 640px) {
+  .mandatory-daily-row { align-items: flex-start; flex-direction: column; }
+}
+
 .coverage-item + .coverage-item {
   margin-top: 10px;
 }
@@ -2808,12 +2828,15 @@ textarea:disabled {
     text-align: left; font-weight: 600; color: #444;
     width: 5.5em; padding: 0.5pt 4pt 0.5pt 0; vertical-align: top;
   }
+  .print-unit thead th { border-bottom: 0.5pt solid #777; font-size: 7.5pt; text-transform: uppercase; }
+  .print-unit thead th:first-child { width: 5.5em; }
   .print-unit td { padding: 0.5pt 0; vertical-align: top; }
   .print-open { font-weight: 700; }
   /* Split-tour hours on the wall sheet. Only printed when a seat is actually
      split, so an ordinary row still reads as just a name. */
   .print-hours { font-size: 0.72em; font-weight: 600; white-space: nowrap; }
   .print-code { font-weight: 700; letter-spacing: 0.02em; }
+  .print-radio { font-weight: 700; white-space: nowrap; }
   .print-note { color: #444; }
 
   @page { margin: 10mm; }

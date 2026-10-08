@@ -58,6 +58,13 @@ action against a real notified gap is the auditable assignment decision. `render
 must display `fiscalYear`; do not reintroduce the undefined `startYear` reference that interrupted
 post-login rendering.
 
+DAILY MANDATORY PANEL (implemented locally 2026-10-07; production verification pending): When
+mandatory backfill is enabled, an officer Day view lists the people designated for that exact date.
+They stay in their normal seat until an officer selects a Force action for an eligible, already-notified
+gap with zero volunteers; the panel reuses `forceInToGap()` and cannot bypass its 72-hour,
+qualification, notification, audit, or confirmation rules. The annual summary's remaining-date count
+is not a daily-roster count: it reports fiscal-duty dates without any uploaded candidate.
+
 CALLBACK AVAILABILITY (P1 Bins 1–7, SHIPPED AND VERIFIED):
 `CallbackAvailabilitySettings` is a PostgreSQL singleton (id=1),
 with `horizon_days` strictly 14, 21, or 30 (default 21), `updated_by`, and `updated_at`.

@@ -34,6 +34,11 @@ placement. The mandatory summary uses the FY value directly, fixing the `startYe
 post-login render error. Student-rider controls are visible only to Medical Officers by `mof`
 qualification; a Captain or Lieutenant without that qualification does not see the control.
 
+Latest note (2026-10-07, local and not deployed): The officer Day view now exposes a daily
+Mandatory panel from the imported candidates. It preserves normal seats until a real notified gap
+with zero volunteers is forced through the existing guarded Force path. The print sheet explicitly
+labels the dedicated radio column and prints `Radio:` beside the assigned value.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

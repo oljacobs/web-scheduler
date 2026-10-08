@@ -1267,6 +1267,7 @@ function renderSchedule() {
   attachSeatRadioEvents(dom["schedule-container"]);
   attachManualTradeEvents(dom["schedule-container"]);
   attachStudentRiderEvents(dom["schedule-container"]);
+  attachMandatoryDailyEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
   attachUnitServiceEvents(dom["schedule-container"]);
 }
@@ -1741,10 +1742,41 @@ function renderTimelineCard(date) {
           <span class="pill pill-highlight">${alerts.filter((item) => item.level === "warning").length} watch items</span>
         </div>
       </div>
+      ${renderMandatoryDailyPanel(date)}
       <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
       ${specialMarkup ? `<section class="special-assignment-section"><h3>Special assignments</h3><p class="helper-text">These are Scheduler-only details. They block double-booking but do not affect apparatus readiness.</p><div class="timeline-grid">${specialMarkup}</div></section>` : ""}
     </article>
   `;
+}
+
+// Mandatory picks are planning data, not automatic assignments. Keep them on
+// the officer's daily board so the person on the hook is visible when a real,
+// already-notified coverage gap needs a documented Force decision.
+function renderMandatoryDailyPanel(date) {
+  if (!mandatoryBackfillEnabled() || state.currentRole !== "supervisor") return "";
+  const candidates = mandatoryForDate(date);
+  if (!candidates.length) return "";
+  const gaps = coverageGaps(date, 1);
+  const rows = candidates.map((candidate) => {
+    const eligible = gaps.filter((gap) => forceCandidatesForGap(gap)
+      .some((row) => row.employee.id === candidate.employee.id));
+    const forceable = eligible.filter((gap) => gap.post?.notifiedAt && !(gap.post?.applicants || []).length);
+    const action = forceable.length
+      ? forceable.map((gap) => `<button class="button button-secondary button-small" data-daily-force-gap="${gap.key}">Force to ${escapeHtml(gap.unitName)} — ${escapeHtml(gap.label)}</button>`).join("")
+      : eligible.length
+        ? '<span class="helper-text">Coverage must be announced before a Force decision.</span>'
+        : '<span class="helper-text">No eligible open seat today.</span>';
+    return `<div class="mandatory-daily-row"><div><strong>#${candidate.order || 1} ${escapeHtml(candidate.employee.name)}</strong><span>${escapeHtml(candidate.employee.title || candidate.employee.shift || "")}</span></div><div class="button-row">${action}</div></div>`;
+  }).join("");
+  return `<section class="mandatory-daily-panel" aria-label="Mandatory backfill for ${formatDate(date)}">
+    <h3>Mandatory backfill</h3><p class="helper-text">People designated for this date. They remain in their normal seat until an officer makes a Force assignment for a qualifying, notified gap.</p>${rows}
+  </section>`;
+}
+
+function attachMandatoryDailyEvents(root) {
+  root?.querySelectorAll("[data-daily-force-gap]").forEach((button) => {
+    button.addEventListener("click", () => forceInToGap(button.dataset.dailyForceGap, coverageGaps(state.currentDate, 1)));
+  });
 }
 
 // Supervisor-only tray of on-demand apparatus not currently in service for this
@@ -7900,12 +7932,12 @@ function renderPrintSheet() {
             (pay.forName ? ` for ${pay.forName}` : "") +
             (pay.note ? `<span class="print-note"> — ${pay.note}</span>` : "")
           : "";
-        return `<tr><th>${row.label}</th><td>${name}</td><td>${row.radio || ""}</td><td>${codeCell}</td></tr>`;
+        return `<tr><th>${row.label}</th><td>${name}</td><td>${row.radio ? `<span class="print-radio">Radio: ${escapeHtml(row.radio)}</span>` : ""}</td><td>${codeCell}</td></tr>`;
       }).join("");
       return `
         <section class="print-unit">
           <h3>${unit.name}</h3>
-          <table>${rows}</table>
+          <table><thead><tr><th>Seat</th><th>Employee</th><th>Assigned radio</th><th>Time / pay code</th></tr></thead><tbody>${rows}</tbody></table>
         </section>`;
     }).join("");
     return `<div class="print-day"><h2>${formatDate(date)} · ${getShiftForDate(date) || "—"} shift</h2>
