@@ -188,6 +188,13 @@ the existing voluntary-OT board without notification. Use pre-staffing for fixed
 crews; use daily block cards for changing VTO/Event staffing.
 No employee notice is sent by Special Assignment changes before the normal schedule is published.
 
+SPECIAL ASSIGNMENT CANCELLATION (implemented locally 2026-10-07; production verification pending):
+Manage → Units has an officer-only Cancel special assignment action. It uses a targeted DELETE,
+does not erase the deployment audit, removes active special shifts, and hides their generated units.
+Creation snapshots every normal assignment displaced by an officer-confirmed overlap. Cancellation
+restores that snapshot only when its retained fragments and seat remain unchanged; otherwise it
+leaves current scheduling intact and reports officer review required. Never guess a restoration.
+
 REMAINING SCHEDULER BINS (current as of 2026-09-25):
 P2 — add schedule-side App/IT feedback capture with page and signed-in reporter context.
 P2 — STAFFING SNAPSHOTS / ACCOUNTABILITY REPORTING BUILT AND MANUALLY VERIFIED:

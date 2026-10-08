@@ -39,6 +39,11 @@ Mandatory panel from the imported candidates. It preserves normal seats until a 
 with zero volunteers is forced through the existing guarded Force path. The print sheet explicitly
 labels the dedicated radio column and prints `Radio:` beside the assigned value.
 
+Latest note (2026-10-07, local and not deployed): Special assignments now have a targeted,
+officer-only cancellation flow. It retains the deployment/cancellation audit, removes active special
+shifts, and restores only an unchanged snapshot of a normal shift displaced at creation; conflicts
+remain for officer review instead of overwriting later scheduling work.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

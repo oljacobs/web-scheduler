@@ -187,7 +187,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle", "add-special-assignment",
+    "pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle", "add-special-assignment", "cancel-special-assignment",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
@@ -270,6 +270,7 @@ function wireEvents() {
   dom["trades-toggle"]?.addEventListener("click", toggleTradesUi);
   dom["student-riders-toggle"]?.addEventListener("click", toggleStudentRidersUi);
   dom["add-special-assignment"]?.addEventListener("click", openSpecialAssignmentDialog);
+  dom["cancel-special-assignment"]?.addEventListener("click", openSpecialAssignmentCancellationDialog);
   dom["notify-btn"].addEventListener("click", createDailyDigest);
 
   // Employee import
@@ -2036,6 +2037,9 @@ function renderUnitControls() {
   if (dom["add-special-assignment"]) {
     dom["add-special-assignment"].disabled = supervisorLocked || !usesSchedulerApi();
   }
+  if (dom["cancel-special-assignment"]) {
+    dom["cancel-special-assignment"].disabled = supervisorLocked || !usesSchedulerApi();
+  }
 
   // Listed in the order they appear on the board, because that is the thing
   // being edited. Showing them in some other order and then offering "move up"
@@ -2210,8 +2214,62 @@ function specialAssignmentTemplatesApiUrl() {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/special-assignment-templates/`;
 }
 
-function specialAssignmentDeploymentsApiUrl() {
-  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/special-assignment-deployments/`;
+function specialAssignmentDeploymentsApiUrl(deploymentId = "") {
+  const base = `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/special-assignment-deployments/`;
+  return deploymentId ? `${base}${deploymentId}/` : base;
+}
+
+async function openSpecialAssignmentCancellationDialog() {
+  if (state.currentRole !== "supervisor" || !usesSchedulerApi()) {
+    showToast("Supervisor sign-in and the scheduler server are required.", "error");
+    return;
+  }
+  let deployments;
+  try {
+    const response = await fetch(specialAssignmentDeploymentsApiUrl(), { headers: await schedulerApiHeaders() });
+    if (!response.ok) throw new Error("Could not load special assignments.");
+    deployments = (await response.json()).filter((deployment) => deployment.status !== "cancelled");
+  } catch (error) {
+    showToast(error.message || "Could not load special assignments.", "error");
+    return;
+  }
+  if (!deployments.length) {
+    showToast("There are no active special assignments to cancel.", "error");
+    return;
+  }
+  document.getElementById("special-assignment-cancel-dialog")?.remove();
+  const dlg = document.createElement("dialog");
+  dlg.id = "special-assignment-cancel-dialog";
+  dlg.className = "app-dialog";
+  dlg.innerHTML = `<form method="dialog" class="dialog-body"><h3>Cancel special assignment</h3>
+    <p class="helper-text">Cancellation removes active special shifts, preserves an audit record, and restores a displaced normal assignment only when it has not changed since deployment.</p>
+    <label>Assignment <select id="cancel-special-deployment">${deployments.map((deployment) => `<option value="${deployment.id}">${escapeHtml(deployment.name)} · ${deployment.start_date}–${deployment.end_date}</option>`).join("")}</select></label>
+    <p id="special-cancel-error" class="helper-text dialog-error hidden"></p>
+    <div class="dialog-footer"><button value="cancel" formnovalidate class="button button-secondary">Keep assignment</button><button id="special-cancel-confirm" value="cancel" class="button button-danger">Cancel assignment</button></div></form>`;
+  document.body.appendChild(dlg);
+  dlg.querySelector("#special-cancel-confirm").addEventListener("click", async (event) => {
+    event.preventDefault();
+    const selected = deployments.find((deployment) => String(deployment.id) === dlg.querySelector("#cancel-special-deployment").value);
+    if (!selected || !window.confirm(`Cancel ${selected.name}? This removes its active special shifts. The cancellation remains in the audit log.`)) return;
+    const button = dlg.querySelector("#special-cancel-confirm");
+    button.disabled = true;
+    try {
+      const response = await fetch(specialAssignmentDeploymentsApiUrl(selected.id), { method: "DELETE", headers: await schedulerApiHeaders() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not cancel the special assignment.");
+      await loadRemoteStateAfterAuth();
+      render();
+      dlg.close();
+      const review = data.reviewRequired?.length ? ` ${data.reviewRequired.length} restoration(s) need officer review.` : "";
+      showToast(`Special assignment cancelled.${data.restored ? ` ${data.restored} normal assignment(s) restored.` : ""}${review}`, "success");
+    } catch (error) {
+      dlg.querySelector("#special-cancel-error").textContent = error.message || "Could not cancel the special assignment.";
+      dlg.querySelector("#special-cancel-error").classList.remove("hidden");
+      button.disabled = false;
+    }
+  });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
 }
 
 function openSpecialAssignmentDialog() {
