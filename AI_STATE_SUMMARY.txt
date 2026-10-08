@@ -49,10 +49,9 @@ direct request as well as the existing open board. The requester initiates only 
 assignment, the named colleague must accept, and an officer must approve before the seat moves; the
 requester can withdraw while it remains pending.
 
-Latest note (2026-10-08, live limited rollout): Notification delivery is enabled only for
-ojacobs@d7fr.org after a zero-queue preview and successful Graph mail test. A direct-trade outbox
-canary was delivered to one temporarily allowlisted recipient and recorded as sent; keep the
-Oren-only allowlist until the next approved recipient test.
+Latest note (2026-10-08, live): Notification delivery is enabled with no allowlist restriction.
+Graph mail and the direct-trade outbox canary were confirmed. The final preview had no deliverable
+backlog; legacy no-recipient rows will be skipped rather than sent.
 
 Latest note (2026-10-08, local and not deployed): App / IT filings now notify the configured IT
 contact immediately. Later status and closure notices remain reporter-only; the daily digest is an

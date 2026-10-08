@@ -153,12 +153,10 @@ P1 — notification activation: as of 2026-09-25, the production pre-activation 
 retired to `skipped` (45 rows; none deleted), leaving zero deliverable backlog. The backend repo's
 `SCHEDULER_NOTIFICATION_RUNBOOK.md` is the operational source for queue checks, controlled digest
 tests, kill switch, and the separate hourly Railway cron.
-NOTIFICATION LIMITED ROLLOUT (2026-10-08): A live queue preview found no queued messages, Graph
-token acquisition and a direct test email succeeded, and `NOTIFICATIONS_ENABLED=true` was enabled
-with `ojacobs@d7fr.org` as the only retained test allowlist address. A targeted direct-trade outbox
-notice was delivered to one temporarily allowlisted recipient and recorded as sent; two other
-non-allowlisted test rows were marked skipped, not deleted. Do not widen the allowlist until an
-approved recipient test. `scheduler-send` remains the five-minute delivery worker.
+NOTIFICATION GO-LIVE (2026-10-08): `NOTIFICATIONS_ENABLED=true` is live with no allowlist
+restriction. Graph token acquisition, direct test mail, and a targeted direct-trade outbox canary
+were confirmed. The final preview had no deliverable backlog; 25 legacy rows lacked a recipient
+email and will be marked skipped, not sent. `scheduler-send` remains the five-minute delivery worker.
 APP / IT ROUTING (implemented locally 2026-10-08; production verification pending): every App / IT
 filing queues the configured `IT_CONTACT_EMAIL` notice. Status and closure notices go only to the
 actual reporter; they do not copy the IT contact. The daily IT digest is a summary, not the first
