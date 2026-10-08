@@ -53,6 +53,10 @@ Latest note (2026-10-08, live limited rollout): Notification delivery is enabled
 ojacobs@d7fr.org after a zero-queue preview and successful Graph mail test. A direct-trade outbox
 canary was delivered to one temporarily allowlisted recipient and recorded as sent; keep the
 Oren-only allowlist until the next approved recipient test.
+
+Latest note (2026-10-08, local and not deployed): App / IT filings now notify the configured IT
+contact immediately. Later status and closure notices remain reporter-only; the daily digest is an
+open-work summary rather than a delayed initial notice.
 The direct workflow is targeted and audited; legacy whole-state saves cannot alter its rows.
 
 web-scheduler app quick context (app.js)
