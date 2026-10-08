@@ -155,8 +155,10 @@ retired to `skipped` (45 rows; none deleted), leaving zero deliverable backlog. 
 tests, kill switch, and the separate hourly Railway cron.
 NOTIFICATION LIMITED ROLLOUT (2026-10-08): A live queue preview found no queued messages, Graph
 token acquisition and a direct test email succeeded, and `NOTIFICATIONS_ENABLED=true` was enabled
-with the existing three-address test allowlist retained. Do not clear that allowlist until one real
-outbox event is delivered and reviewed. `scheduler-send` remains the five-minute delivery worker.
+with `ojacobs@d7fr.org` as the only retained test allowlist address. A targeted direct-trade outbox
+notice was delivered to one temporarily allowlisted recipient and recorded as sent; two other
+non-allowlisted test rows were marked skipped, not deleted. Do not widen the allowlist until an
+approved recipient test. `scheduler-send` remains the five-minute delivery worker.
 Before any future `NOTIFICATIONS_ENABLED=true`, inspect the current shared scheduler/checklist
 outbox and explicitly mark stale queued messages `skipped`; never enable delivery against an unknown
 backlog, or old reports may send in a burst.
