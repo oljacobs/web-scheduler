@@ -156,7 +156,7 @@ tests, kill switch, and the separate hourly Railway cron.
 NOTIFICATION GO-LIVE (2026-10-08): `NOTIFICATIONS_ENABLED=true` is live with no allowlist
 restriction. Graph token acquisition, direct test mail, and a targeted direct-trade outbox canary
 were confirmed. The final preview had no deliverable backlog; 25 legacy rows lacked a recipient
-email and will be marked skipped, not sent. `scheduler-send` remains the five-minute delivery worker.
+email and were marked skipped with zero mail sent. `scheduler-send` remains the five-minute delivery worker.
 APP / IT ROUTING (implemented locally 2026-10-08; production verification pending): every App / IT
 filing queues the configured `IT_CONTACT_EMAIL` notice. Status and closure notices go only to the
 actual reporter; they do not copy the IT contact. The daily IT digest is a summary, not the first

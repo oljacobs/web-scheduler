@@ -51,7 +51,7 @@ requester can withdraw while it remains pending.
 
 Latest note (2026-10-08, live): Notification delivery is enabled with no allowlist restriction.
 Graph mail and the direct-trade outbox canary were confirmed. The final preview had no deliverable
-backlog; legacy no-recipient rows will be skipped rather than sent.
+backlog; 25 legacy no-recipient rows were skipped rather than sent.
 
 Latest note (2026-10-08, local and not deployed): App / IT filings now notify the configured IT
 contact immediately. Later status and closure notices remain reporter-only; the daily digest is an
