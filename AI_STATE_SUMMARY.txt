@@ -44,6 +44,12 @@ officer-only cancellation flow. It retains the deployment/cancellation audit, re
 shifts, and restores only an unchanged snapshot of a normal shift displaced at creation; conflicts
 remain for officer review instead of overwriting later scheduling work.
 
+Latest note (2026-10-08, local and not deployed): The employee Trade board now supports a named
+direct request as well as the existing open board. The requester initiates only their own active
+assignment, the named colleague must accept, and an officer must approve before the seat moves; the
+requester can withdraw while it remains pending.
+The direct workflow is targeted and audited; legacy whole-state saves cannot alter its rows.
+
 web-scheduler app quick context (app.js)
 
 === MAJOR UPDATE (2026-09-16 session) — partial tours, admin/light duty, PTO ===

@@ -190,7 +190,7 @@ function cacheDom() {
     "pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle", "add-special-assignment", "cancel-special-assignment",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
-    "trade-board", "trade-post-shift", "trade-post-notes", "trade-post-btn", "trade-balance",
+    "trade-board", "trade-post-shift", "trade-post-notes", "trade-direct-partner", "trade-post-btn", "trade-balance",
     "unit-toggle-list", "notification-center",
     "approval-queue", "audit-log", "print-btn", "notify-btn",
     "print-options", "print-sheet",
@@ -289,6 +289,7 @@ function wireEvents() {
   dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
   dom["coverage-days"]?.addEventListener("change", renderCoveragePanel);
   dom["trade-post-btn"]?.addEventListener("click", postTrade);
+  dom["trade-post-shift"]?.addEventListener("change", renderTradeBoard);
   dom["download-mandatory-btn"]?.addEventListener("click", downloadMandatoryTemplate);
   dom["mandatory-fy"]?.addEventListener("change", renderMandatorySummary);
   dom["mandatory-platoon"]?.addEventListener("change", renderMandatorySummary);
@@ -731,6 +732,19 @@ function callbackApiUrl(path) {
 
 function manualTradesApiUrl() {
   return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/manual-trades/`;
+}
+
+function directTradesApiUrl(path = "") {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/direct-trades/${path}`;
+}
+
+async function refreshTargetedSchedulerState() {
+  const remoteState = await loadRemoteState();
+  applyPersistedState(remoteState);
+  state.persistence.backend = "api";
+  state.persistence.lastSavedAt = new Date().toISOString();
+  saveLocalState();
+  render();
 }
 
 function seatRadiosApiUrl() {
@@ -4275,12 +4289,13 @@ function postableShiftsFor(employeeId, horizonDays) {
       const mine = seats.find((st) => st.people.some((pp) => pp && pp.id === employeeId));
       const myBlock = (people || []).find((pp) => pp && pp.id === employeeId);
       const hours = myBlock ? blockLabel(myBlock, unit) : "";
+      const block = myBlock ? blockOf(myBlock, unitTourMinutes(unit)) : { start: 0 };
       out.push({
         date, unitId,
         unitName: unit?.name || unitId,
         role: mine?.pos?.role || "",
         label: (mine?.pos?.label || "Rider") + (hours ? ` (${hours})` : ""),
-        hours,
+        hours, startMinute: block.start,
       });
     });
     date = addDays(date, 1);
@@ -4312,17 +4327,40 @@ function canAcceptTrade(trade, employeeId) {
   if (!emp || emp.status === "archived") return false;
   if (trade.status !== "posted") return false;
   if (trade.employeeId === employeeId) return false;            // not your own
+  if (trade.type === "direct" && trade.partnerId !== employeeId) return false;
   if (assignedEmployeeIdsForDate(trade.date).has(employeeId)) return false;
   return tradeCrewIsLegal(trade, emp);
 }
 
-function postTrade() {
+async function postTrade() {
   const value = dom["trade-post-shift"]?.value;
   if (!state.currentUserId || !value) {
     showToast("Choose one of your shifts to post.", "error");
     return;
   }
-  const [date, unitId, role] = value.split("|");
+  const [date, unitId, role, rawStartMinute] = value.split("|");
+  const startMinute = Number.parseInt(rawStartMinute, 10) || 0;
+  const partnerId = dom["trade-direct-partner"]?.value || "";
+  const note = (dom["trade-post-notes"]?.value || "").slice(0, 300);
+  if (partnerId) {
+    if (!usesSchedulerApi()) {
+      showToast("Direct trades require the secured scheduler service.", "error");
+      return;
+    }
+    try {
+      const response = await fetch(directTradesApiUrl(), {
+        method: "POST", headers: await schedulerApiHeaders(),
+        body: JSON.stringify({ date, unitId, startMinute, partnerId, note }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not send the direct trade request.");
+      await refreshTargetedSchedulerState();
+      showToast("Direct trade request sent. It needs their acceptance and officer approval.", "success");
+    } catch (error) {
+      showToast(error.message || "Could not send the direct trade request.", "error");
+    }
+    return;
+  }
   const trade = {
     id: `TR-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     status: "posted",
@@ -4332,7 +4370,7 @@ function postTrade() {
     unitId,
     role: role || "",
     type: "trade",
-    notes: (dom["trade-post-notes"]?.value || "").slice(0, 300),
+    notes: note,
     acceptedAt: null,
     approvedBy: "",
     createdBy: currentUserName(),
@@ -4345,11 +4383,25 @@ function postTrade() {
   showToast("Posted to the trade board.", "success");
 }
 
-function cancelTrade(tradeId) {
+async function cancelTrade(tradeId) {
   const trade = tradeById(tradeId);
   if (!trade || trade.employeeId !== state.currentUserId) return;
   if (trade.status !== "posted") {
     showToast("Already accepted — a supervisor has to resolve it.", "error");
+    return;
+  }
+  if (trade.type === "direct") {
+    try {
+      const response = await fetch(directTradesApiUrl(`${encodeURIComponent(tradeId)}/withdraw/`), {
+        method: "POST", headers: await schedulerApiHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not withdraw the direct trade.");
+      await refreshTargetedSchedulerState();
+      showToast("Direct trade request withdrawn.", "success");
+    } catch (error) {
+      showToast(error.message || "Could not withdraw the direct trade.", "error");
+    }
     return;
   }
   trade.status = "cancelled";
@@ -4360,11 +4412,25 @@ function cancelTrade(tradeId) {
 
 // Accepting is BINDING — it goes straight to a supervisor, no second confirm
 // from the poster.
-function acceptTrade(tradeId) {
+async function acceptTrade(tradeId) {
   const trade = tradeById(tradeId);
   if (!trade || !state.currentUserId) return;
   if (!canAcceptTrade(trade, state.currentUserId)) {
     showToast("You are not eligible to cover this shift.", "error");
+    return;
+  }
+  if (trade.type === "direct") {
+    try {
+      const response = await fetch(directTradesApiUrl(`${encodeURIComponent(tradeId)}/accept/`), {
+        method: "POST", headers: await schedulerApiHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not accept the direct trade.");
+      await refreshTargetedSchedulerState();
+      showToast("Accepted — this is now waiting for officer approval.", "success");
+    } catch (error) {
+      showToast(error.message || "Could not accept the direct trade.", "error");
+    }
     return;
   }
   trade.partnerId = state.currentUserId;
@@ -4414,13 +4480,27 @@ function shiftDebtBalance(employeeId) {
   return { owed, owes, net: owed - owes };
 }
 
-function approveTrade(tradeId) {
+async function approveTrade(tradeId) {
   if (state.currentRole !== "supervisor") return;
   const trade = tradeById(tradeId);
   if (!trade || trade.status !== "accepted") return;
   const accepter = employeeById(trade.partnerId);
   const poster = employeeById(trade.employeeId);
   if (!accepter || !poster) return;
+  if (trade.type === "direct") {
+    try {
+      const response = await fetch(directTradesApiUrl(`${encodeURIComponent(tradeId)}/decision/`), {
+        method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({ decision: "approve" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not approve the direct trade.");
+      await refreshTargetedSchedulerState();
+      showToast("Direct trade approved.", "success");
+    } catch (error) {
+      showToast(error.message || "Could not approve the direct trade.", "error");
+    }
+    return;
+  }
   if (!tradeCrewIsLegal(trade, accepter)) {
     showToast("That trade would leave a required seat unfilled.", "error");
     return;
@@ -4466,10 +4546,24 @@ function approveTrade(tradeId) {
   showToast(`Approved — ${accepter.name} covers ${formatDate(trade.date)}.`, "success");
 }
 
-function denyTrade(tradeId) {
+async function denyTrade(tradeId) {
   if (state.currentRole !== "supervisor") return;
   const trade = tradeById(tradeId);
   if (!trade) return;
+  if (trade.type === "direct") {
+    try {
+      const response = await fetch(directTradesApiUrl(`${encodeURIComponent(tradeId)}/decision/`), {
+        method: "POST", headers: await schedulerApiHeaders(), body: JSON.stringify({ decision: "deny" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not deny the direct trade.");
+      await refreshTargetedSchedulerState();
+      showToast("Direct trade not approved.", "success");
+    } catch (error) {
+      showToast(error.message || "Could not deny the direct trade.", "error");
+    }
+    return;
+  }
   trade.status = "denied";
   trade.approvedBy = currentUserName();
   [trade.employeeId, trade.partnerId].filter(Boolean).forEach((id) => {
@@ -4494,13 +4588,30 @@ function renderTradeBoard() {
   // Post form: only your OWN upcoming shifts, so nobody can post someone else's.
   const postable = me ? postableShiftsFor(me, 120) : [];
   if (dom["trade-post-shift"]) {
+    const selectedShift = dom["trade-post-shift"].value;
     dom["trade-post-shift"].innerHTML = postable.length
-      ? postable.map((sh) => `<option value="${sh.date}|${sh.unitId}|${escapeHtml(sh.role)}">
+      ? postable.map((sh) => `<option value="${sh.date}|${sh.unitId}|${escapeHtml(sh.role)}|${sh.startMinute}">
           ${formatDate(sh.date)} — ${escapeHtml(sh.unitName)} (${escapeHtml(sh.label)})
         </option>`).join("")
       : `<option value="">No upcoming shifts to post</option>`;
+    if ([...dom["trade-post-shift"].options].some((option) => option.value === selectedShift)) {
+      dom["trade-post-shift"].value = selectedShift;
+    }
     dom["trade-post-shift"].disabled = !postable.length;
     if (dom["trade-post-btn"]) dom["trade-post-btn"].disabled = !postable.length;
+  }
+  if (dom["trade-direct-partner"]) {
+    const [date, unitId, role] = (dom["trade-post-shift"]?.value || "").split("|");
+    const draft = { employeeId: me, date, unitId, role, status: "posted", type: "direct" };
+    const selectedPartner = dom["trade-direct-partner"].value;
+    const candidates = activeEmployees().filter((employee) =>
+      canAcceptTrade({ ...draft, partnerId: employee.id }, employee.id));
+    dom["trade-direct-partner"].innerHTML = `<option value="">Post to the open board</option>`
+      + candidates.map((employee) => `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)}</option>`).join("");
+    if ([...dom["trade-direct-partner"].options].some((option) => option.value === selectedPartner)) {
+      dom["trade-direct-partner"].value = selectedPartner;
+    }
+    dom["trade-direct-partner"].disabled = !usesSchedulerApi() || !candidates.length;
   }
 
   if (dom["trade-balance"] && me) {
@@ -4515,6 +4626,7 @@ function renderTradeBoard() {
   const isSupervisor = state.currentRole === "supervisor";
   const open = (state.trades || [])
     .filter((t) => ["posted", "accepted"].includes(t.status) && t.date >= todayIso())
+    .filter((t) => t.type !== "direct" || t.employeeId === me || t.partnerId === me || isSupervisor)
     .sort((a, b) => a.date.localeCompare(b.date));
 
   if (!open.length) {
@@ -4545,7 +4657,7 @@ function renderTradeBoard() {
         <div>
           <strong>${escapeHtml(unitName)} — ${escapeHtml(t.role || "seat")}</strong>
           <p class="helper-text">${formatDate(t.date)} • ${getShiftForDate(t.date)} shift •
-            posted by ${escapeHtml(poster?.name || "—")}${accepter ? ` • accepted by ${escapeHtml(accepter.name)}` : ""}</p>
+            ${t.type === "direct" ? `sent directly to ${escapeHtml(accepter?.name || "—")}` : "posted by " + escapeHtml(poster?.name || "—")}${t.status === "accepted" && accepter ? ` • accepted by ${escapeHtml(accepter.name)}` : ""}</p>
           ${t.notes ? `<p class="helper-text">"${escapeHtml(t.notes)}"</p>` : ""}
         </div>
         <div class="unit-card-actions">${action}</div>

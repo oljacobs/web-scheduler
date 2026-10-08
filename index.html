@@ -502,8 +502,8 @@
                 <div>
                   <h2>Trade Board</h2>
                   <p class="helper-text">
-                    Post a shift you need covered. Anyone qualified can accept it — accepting is
-                    binding and goes straight to a supervisor. The person covering works it
+                    Post to the board, or send a request directly to one coworker. A direct request
+                    needs their acceptance and officer approval. The person covering works it
                     <strong>unpaid</strong>; you keep that day's pay and owe them a day back.
                   </p>
                 </div>
@@ -520,7 +520,11 @@
                   Note (optional)
                   <input id="trade-post-notes" type="text" maxlength="300" placeholder="Reason, preference, context" />
                 </label>
-                <button id="trade-post-btn" class="button button-primary">Post to board</button>
+                <label>
+                  Send directly to (optional)
+                  <select id="trade-direct-partner"></select>
+                </label>
+                <button id="trade-post-btn" class="button button-primary">Post / send request</button>
               </div>
 
               <div id="trade-board" class="stack-list" style="margin-top:14px"></div>

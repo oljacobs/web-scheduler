@@ -135,6 +135,13 @@ now, reloads the report, and reports existing records rather than overwriting im
 P1 — officer manual trades: daily-roster Trade controls call the targeted Django endpoint only. The
 paid member is removed from duty, the covering member is recorded as unpaid, and a reciprocal
 banked day is added or settled server-side. The existing employee trade board is unchanged.
+P1 — direct employee trades (implemented locally 2026-10-08; production verification pending):
+the Trade board supports either an open post or a named request. A named request can originate
+only from the requester's own active assignment; only its named partner can accept; an officer
+must approve or deny after acceptance. The requester can withdraw while it is pending. Approval uses a targeted API, preserves the original
+member as paid, settles the reciprocal debt server-side, writes audit rows, and queues stage
+notifications. Direct rows are server-owned and ignored by legacy whole-state save/delete logic.
+The open-board path remains unchanged for people who have not found a partner.
 P1 — student riders: the Day roster shows a compact “Student rider” unit flag. Qualified medical
 officers can use the optional Students toggle to add, edit, or remove one EMT or Paramedic student
 per apparatus per date; every rider is a fixed 12-hour shift and becomes read-only when the shift
