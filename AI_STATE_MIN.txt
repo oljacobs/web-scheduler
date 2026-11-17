@@ -756,3 +756,5 @@ High-use functions:
 render/renderSchedule/renderUnitCard(per-seat)/renderEmployeeRoster/renderEmployeeEditor(ride-up toggles)
 loadRemoteStateAfterAuth, seatAccepts/assignPeopleToSeats/seatDropdownOptions/assignedEmployeeIdsForDate
 getAssignments/getShiftForDate/visibleUnits/activeEmployees/previewRosterImport/applyRosterImport
+
+2026-11 IT feedback: unit.station/unit.printCategory (+ *Effective read-only) drive printCategoryOf/printStationOf; print sheet = station > group; notes via /shift-notes/ (PRINT_STATE.notes, loadShiftNotes/saveShiftNote); off list via printOffList; MIL/OTH leave; offBoardHtml bottom panel; offerReleaseCrew on unit out of service.

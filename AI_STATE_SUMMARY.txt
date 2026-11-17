@@ -294,3 +294,10 @@ HIGH-USE FUNCTIONS (names only)
 - previewUnitImport(), applyUnitImport(), validateUnitImport(), mergeUnits()
 - getAssignments(), getStaffingAlerts(), checkPositionStaffing(), getShiftForDate()
 - visibleUnits(), activeEmployees(), currentUserName()
+
+IT FEEDBACK 2026-11 (#296-#308)
+- ABSENCE_REASONS includes MIL (Military) and OTH (Other, note REQUIRED in the time-off dialog).
+- deactivateUnitForDate / visibility toggle call offerReleaseCrew: crew on an out-of-service unit is released (nothing hidden still counts as booked). Cancel buttons carry formnovalidate (#299).
+- offBoardHtml(date): everyone off, ONE panel at the bottom of the day view (#298).
+- Print sheet (#302/#308): PRINT_CATEGORY_LABELS/ORDER, printCategoryOf, printStationOf, printUnitCard, printOffList; sheet is grouped by station then group, with border STYLE + heading word so B&W copies still separate groups.
+- Station / print group are set in Manage > Units (unit.station, unit.printCategory; blank = derived server-side). Shift notes: GET/PUT /api/scheduler/shift-notes/ (officer-only write), edited in the print dialog, PRINT_STATE.notes.

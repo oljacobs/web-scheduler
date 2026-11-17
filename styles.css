@@ -2839,6 +2839,22 @@ textarea:disabled {
   .print-radio { font-weight: 700; white-space: nowrap; }
   .print-note { color: #444; }
 
+  /* #302: station blocks, with group styling that survives a B&W photocopy:
+     every group has a heading word + a different border STYLE as well as a tint. */
+  .print-station { margin-top: 6pt; break-inside: avoid; }
+  .print-station-head { font-size: 10pt; margin: 0 0 3pt; padding: 1pt 3pt; background: #222 !important; color: #fff !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-unit { padding: 2pt 4pt; border-left-width: 3pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-cat-tag { font-size: 7pt; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #333; }
+  .print-cat-command    { border-left: 3pt solid #b45309; background: #fef3c7; }
+  .print-cat-suppression{ border-left: 3pt double #b91c1c; background: #fee2e2; }
+  .print-cat-medical    { border-left: 3pt dashed #1d4ed8; background: #dbeafe; }
+  .print-cat-special    { border-left: 3pt dotted #475569; background: #e2e8f0; }
+  .print-legend { display: flex; gap: 6pt; margin: 3pt 0; font-size: 7.5pt; }
+  .print-key { padding: 0 4pt; border-left-width: 3pt; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-notes, .print-off { border: 0.5pt solid #000; padding: 2pt 4pt; margin: 3pt 0; font-size: 8.5pt; break-inside: avoid; }
+  .print-off ul { margin: 1pt 0 0 10pt; padding: 0; columns: 2; }
+
   @page { margin: 10mm; }
 }
 
@@ -2871,3 +2887,12 @@ textarea:disabled {
   color: var(--accent-strong);
   border-color: rgba(224, 168, 58, 0.28);
 }
+
+/* #298: the Off this tour panel sits at the bottom of the day view, below the
+   apparatus and special assignments, instead of inside each rig's card. */
+.off-board { margin-top: 18px; }
+.unit-off-count { color: #ffbe5c; font-weight: 600; }
+
+.print-options-notes { display: grid; gap: 0.5rem; margin: 0.75rem 0; }
+.print-note-edit { display: grid; gap: 0.2rem; font-size: 0.85rem; }
+.print-note-edit textarea { width: 100%; resize: vertical; }

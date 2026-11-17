@@ -148,9 +148,14 @@ const UNIT_POSITION_REQUIREMENTS = {
     { role: "FF2",      label: "Firefighter 2", cap: null, required: false },
     { role: "FF3",      label: "Firefighter 3", cap: null, required: false },
   ],
+  // Officer first, like Engine and Ladder (#307). The role KEY stays "Driver": it is
+  // stored on saved assignments (seat_role), so renaming it would orphan them; only
+  // the visible label changes. FF seats are optional riders, per BACKLOG item 5.
   Rescue: [
-    { role: "Driver",  label: "Driver/Engineer", cap: "engineer" },
     { role: "Officer", label: "Officer",          cap: "officer" },
+    { role: "Driver",  label: "Engineer",         cap: "engineer" },
+    { role: "FF1",     label: "Firefighter 1",    cap: null, required: false },
+    { role: "FF2",     label: "Firefighter 2",    cap: null, required: false },
   ],
   Tender: [
     { role: "Driver", label: "Driver", cap: "engineer" },
@@ -1760,6 +1765,7 @@ function renderTimelineCard(date) {
       ${renderMandatoryDailyPanel(date)}
       <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
       ${specialMarkup ? `<section class="special-assignment-section"><h3>Special assignments</h3><p class="helper-text">These are Scheduler-only details. They block double-booking but do not affect apparatus readiness.</p><div class="timeline-grid">${specialMarkup}</div></section>` : ""}
+      ${offBoardHtml(date)}
     </article>
   `;
 }
@@ -2015,9 +2021,12 @@ function renderUnitCard(unit, date, activeShift) {
   extra.forEach((p) => {
     rowsHtml += seatRowHtml({ label: "Extra", cap: null }, p, unit, date, isSupervisor, false, "Extra rider");
   });
-  // Who is OFF, and why. Below the seats on purpose: an officer reading the card
-  // should see minimum staffing answered first, then the reason a slot is open.
-  rowsHtml += offRosterHtml(off, unit, date, isSupervisor);
+  // Who is OFF is NOT listed here any more (#298): a member on PTO used to stay
+  // grouped under their old apparatus, which kept a name on a rig they were not
+  // covering. They now collect in the "Off this tour" panel at the bottom of the
+  // day view (offBoardHtml). Staffing math is unchanged -- assignPeopleToSeats
+  // already kept absences out of the seats; the card just says how many are off.
+  const offCount = (off || []).length;
 
   const totalSeats = positions.length;
   return `
@@ -2029,6 +2038,7 @@ function renderUnitCard(unit, date, activeShift) {
             <span>${unit.type}</span>
             <span>${requiredFilled}/${requiredCount} required</span>
             <span>up to ${totalSeats}</span>
+            ${offCount ? `<span class="unit-off-count" title="Listed under Off this tour at the bottom">${offCount} off ↓</span>` : ""}
           </div>
         </div>
         <div class="unit-card-actions">
@@ -2085,6 +2095,19 @@ function renderUnitControls() {
                   <option value="admin" ${isAdminUnit(unit) ? "selected" : ""}>Admin / light duty — 10hr Mon-Thu</option>
                 </select>`
           }
+          ${!isAdminUnit(unit) && !isSpecialAssignment(unit) && !supervisorLocked ? `
+          <div class="print-setup-row" style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:0.35rem">
+            <label style="display:flex;gap:0.35rem;align-items:center;white-space:nowrap">Station
+              <input type="text" maxlength="40" style="width:5rem;min-width:0;flex:0 0 auto"
+                data-unit-station="${unit.id}" value="${escapeHtml(unit.station || "")}"
+                placeholder="${escapeHtml(unit.stationEffective || "auto")}"
+                aria-label="Station for ${escapeHtml(unit.name)}" /></label>
+            <label style="display:flex;gap:0.35rem;align-items:center;white-space:nowrap">Print group
+              <select data-unit-printcat="${unit.id}" aria-label="Print category for ${escapeHtml(unit.name)}">
+                <option value="">Auto (${escapeHtml(PRINT_CATEGORY_LABELS[unit.printCategoryEffective] || "by type")})</option>
+                ${Object.entries(PRINT_CATEGORY_LABELS).map(([k, v]) => `<option value="${k}" ${unit.printCategory === k ? "selected" : ""}>${v}</option>`).join("")}
+              </select></label>
+          </div>` : ""}
           ${isAdminUnit(unit) ? `<p class="helper-text">${windowLabel({ start: 0, end: unitTourMinutes(unit) }, unit)} · ${durationLabel(unitTourMinutes(unit))} · Mon-Thu — kept off the operations board.</p>` : ""}
           ${crewBounds(unit) && !isAdminUnit(unit) && !isSpecialAssignment(unit) ? (supervisorLocked ? "" : `
           <div class="crew-size-row" style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:0.35rem">
@@ -2132,6 +2155,12 @@ function renderUnitControls() {
     checkbox.addEventListener("change", () => {
       const unit = state.units.find((item) => item.id === checkbox.dataset.unitToggle);
       if (!unit) return;
+      const hiding = !checkbox.checked && unit.visible;
+      if (hiding) {
+        // Hiding a front-line truck is how "out of service" is recorded here. Offer
+        // to release its crew from today forward instead of stranding them (#300).
+        offerReleaseCrew(unit, crewOnUnitFrom(unit.id, todayIso()), "from today forward");
+      }
       unit.visible = checkbox.checked;
       addAudit(`${unit.name} ${unit.visible ? "shown" : "hidden"} on schedule view.`, currentUserName());
       render();
@@ -2189,6 +2218,30 @@ function renderUnitControls() {
       addAudit(`${unit.name} crew size changed: ${before} → ${crewSummary(unit)}.`, currentUserName());
       render();
       persistAppState("Crew size updated");
+    });
+  });
+
+  // #302: station and print group. Blank = derive (vehicle station, call-sign
+  // digits; type default), so the server's `printCategory`/`station` stay empty
+  // unless somebody deliberately overrides.
+  [...document.querySelectorAll("[data-unit-station]")].forEach((input) => {
+    input.addEventListener("change", () => {
+      const unit = state.units.find((item) => item.id === input.dataset.unitStation);
+      if (!unit) return;
+      unit.station = input.value.trim();
+      addAudit(`${unit.name} print station set to ${unit.station || "auto"}.`, currentUserName());
+      render();
+      persistAppState("Unit station updated");
+    });
+  });
+  [...document.querySelectorAll("[data-unit-printcat]")].forEach((select) => {
+    select.addEventListener("change", () => {
+      const unit = state.units.find((item) => item.id === select.dataset.unitPrintcat);
+      if (!unit) return;
+      unit.printCategory = select.value;
+      addAudit(`${unit.name} print group set to ${PRINT_CATEGORY_LABELS[select.value] || "auto"}.`, currentUserName());
+      render();
+      persistAppState("Unit print group updated");
     });
   });
 
@@ -3249,7 +3302,7 @@ function openSeatMoveDialog({ personId, unitId, date, startMinute, fromRole }) {
     <label>Move to
       <select id="seat-move-target">${targets.map((pos) => `<option value="${escapeHtml(pos.role)}">${escapeHtml(pos.label)}</option>`).join("")}</select>
     </label>
-    <div class="dialog-footer"><button value="cancel" class="button button-secondary">Cancel</button>
+    <div class="dialog-footer"><button value="cancel" formnovalidate class="button button-secondary">Cancel</button>
       <button id="seat-move-save" value="save" class="button button-primary">Record move</button></div>
   </form>`;
   document.body.appendChild(dlg);
@@ -3294,7 +3347,7 @@ function openOfficerSeatRemovalDialog({ date, unitId, employeeId, startMinute, r
       <label class="check-tile"><input type="radio" name="officer-seat-action" value="overtime"><span>Create an unannounced voluntary overtime opening</span></label>
     </fieldset>
     <p id="officer-seat-error" class="helper-text dialog-error hidden"></p>
-    <div class="dialog-footer"><button value="cancel" class="button button-secondary">Cancel</button>
+    <div class="dialog-footer"><button value="cancel" formnovalidate class="button button-secondary">Cancel</button>
       <button id="officer-seat-remove" value="save" class="button button-primary">Remove and continue</button></div>
   </form>`;
   document.body.appendChild(dlg);
@@ -3370,7 +3423,8 @@ function timeOffDialogHtml(person, unit, date, blk) {
         </select>
       </label>
       <label>Note <input id="off-note" type="text" maxlength="200"
-        placeholder="Required for “Other”"></label>
+        placeholder="Required for “Other”" aria-describedby="off-note-hint"></label>
+      <p id="off-note-hint" class="helper-text hidden">Say what this time off is — “Other” can’t be saved without a note.</p>
 
       <fieldset class="dialog-group">
         <legend>Hours off</legend>
@@ -3409,7 +3463,7 @@ function timeOffDialogHtml(person, unit, date, blk) {
 
       <p id="off-error" class="helper-text dialog-error hidden"></p>
       <div class="dialog-footer">
-        <button value="cancel" class="button button-secondary">Cancel</button>
+        <button value="cancel" formnovalidate class="button button-secondary">Cancel</button>
         <button id="off-save" value="save" class="button button-primary">Record time off</button>
       </div>
     </form>`;
@@ -3428,10 +3482,21 @@ function wireTimeOffDialog(dlg, { person, personId, unit, unitId, date, blk }) {
     el.classList.remove("hidden");
   };
 
+  const noteHint = dlg.querySelector("#off-note-hint");
+  const reasonSelect = dlg.querySelector("#off-reason");
+  const syncNoteHint = () => {
+    const needed = reasonSelect.value === "OTHER";
+    noteHint.classList.toggle("hidden", !needed);
+    dlg.querySelector("#off-note").required = needed;
+  };
+  reasonSelect.addEventListener("change", syncNoteHint);
+  syncNoteHint();
+
   dlg.querySelector("#off-save").addEventListener("click", (event) => {
     event.preventDefault();
     const reason = dlg.querySelector("#off-reason").value;
     const note = dlg.querySelector("#off-note").value.trim().slice(0, 200);
+    if (reason === "OTHER" && !note) return fail("Add a note explaining the “Other” time off.");
     const whole = dlg.querySelector('[name="off-span"]:checked').value === "full";
     let start = blk.start;
     let end = blk.end;
@@ -3569,7 +3634,7 @@ function manualTradeDialogHtml(person, unit, date, blk, position) {
       <label>Note <input id="trade-note" type="text" maxlength="300" placeholder="Optional"></label>
       <p id="manual-trade-error" class="helper-text dialog-error hidden"></p>
       <div class="dialog-footer">
-        <button value="cancel" class="button button-secondary">Cancel</button>
+        <button value="cancel" formnovalidate class="button button-secondary">Cancel</button>
         <button id="manual-trade-save" value="save" class="button button-primary" ${unavailable ? "disabled" : ""}>Record trade</button>
       </div>
     </form>`;
@@ -3668,7 +3733,7 @@ function studentRiderDialogHtml(unit, date, rider) {
       <p id="student-rider-error" class="helper-text dialog-error hidden"></p>
       <div class="dialog-footer">
         ${rider ? '<button id="student-rider-remove" value="remove" class="button button-secondary">Remove student</button>' : ""}
-        <button value="cancel" class="button button-secondary">Cancel</button>
+        <button value="cancel" formnovalidate class="button button-secondary">Cancel</button>
         <button id="student-rider-save" value="save" class="button button-primary">Save student</button>
       </div>
     </form>`;
@@ -6159,12 +6224,16 @@ function unitTourStartHour(unit) {
 // absence block keeps its hours and covers nothing -- which is what makes
 // minimum staffing honest. The rig shows the hours OPEN, and the board shows
 // separately who is off and why.
-// The three a supervisor records on the board. PTO, sick and FMLA are staffing
-// facts a chief enters; nothing else belongs in this dropdown.
+// What a supervisor records on the board. These are staffing facts a chief
+// enters; nothing else belongs in this dropdown. Codes must match the server's
+// Assignment.SUPERVISOR_ABSENCE_CODES. OTHER is the catch-all and cannot be saved
+// without a free-text note saying what it is.
 const ABSENCE_REASONS = [
   { code: "PTO", label: "PTO" },
   { code: "SICK", label: "Sick leave" },
   { code: "FMLA", label: "FMLA" },
+  { code: "MILITARY", label: "Military" },
+  { code: "OTHER", label: "Other" },
 ];
 
 // LTD is LIGHT DUTY. It is never picked from the dropdown -- it is derived from
@@ -6607,15 +6676,24 @@ function seatDropdownOptions(pos, unit, date, window) {
   // "overtime" -- an admin day is not a rotation shift, and labelling a rig's
   // platoon as overtime here would be nonsense.
   const admin = isAdminUnit(unit);
+  // #297: an administrative chief can act as the Battalion Chief. The picker only
+  // ever listed the A/B/C rotation platoons on an operations unit, so anyone on the
+  // ADMIN platoon -- who is in `candidates` and passes the officer check -- was
+  // never offered in ANY group and could not be put in the BC seat. Command staff
+  // are offered on Batt units only, below the on-duty shift, so ordinary rigs'
+  // lists do not grow. They remain subject to every check above (booked
+  // elsewhere, capability, light duty).
+  const offerAdminStaff = !admin && unit?.type === "Batt";
   const order = admin
     ? [PLATOON_ADMIN, ...ROTATION_PLATOONS]
-    : [onDuty, ...ROTATION_PLATOONS.filter((sh) => sh !== onDuty)];
+    : [onDuty, ...(offerAdminStaff ? [PLATOON_ADMIN] : []),
+       ...ROTATION_PLATOONS.filter((sh) => sh !== onDuty)];
   const groups = order
     .map((sh) => {
       const members = candidates.filter((e) => e.shift === sh).sort((a, b) => a.name.localeCompare(b.name));
       if (!members.length) return "";
       let label;
-      if (sh === PLATOON_ADMIN) label = "Admin / light duty";
+      if (sh === PLATOON_ADMIN) label = admin ? "Admin / light duty" : "Admin staff (acting BC)";
       else if (admin) label = `${sh} shift`;
       else label = sh === onDuty ? `${sh} shift — on duty` : `${sh} shift — off duty (overtime)`;
       return `<optgroup label="${label}">${members.map(optionFor).join("")}</optgroup>`;
@@ -6970,29 +7048,53 @@ function attachPayCodeEvents(scope) {
 // Who is off this tour, for how long, and why. Rendered under the seats rather
 // than inside them: an absence is not a seat, and showing it as one is how a rig
 // ends up reading "Staffed" with somebody at home.
-function offRosterHtml(off, unit, date, isSupervisor) {
-  if (!off || !off.length) return "";
+function offRowHtml(person, unit, date, isSupervisor, showUnit) {
   const tour = unitTourMinutes(unit);
-  const rows = off.map((person) => {
-    const blk = blockOf(person, tour);
-    const span = isFullTour(person, tour)
-      ? `the full tour (${durationLabel(tour)})`
-      : `${windowLabel(blk, unit)} · ${durationLabel(blk.end - blk.start)}`;
-    const note = person._offNote ? ` — ${escapeHtml(person._offNote)}` : "";
-    return `<div class="off-row">
+  const blk = blockOf(person, tour);
+  const span = isFullTour(person, tour)
+    ? `the full tour (${durationLabel(tour)})`
+    : `${windowLabel(blk, unit)} · ${durationLabel(blk.end - blk.start)}`;
+  const note = person._offNote ? ` — ${escapeHtml(person._offNote)}` : "";
+  const from = showUnit ? ` · from ${escapeHtml(unit.name)}` : "";
+  return `<div class="off-row">
         <span class="off-chip">${escapeHtml(person._off)}</span>
         <span class="off-who"><strong>${escapeHtml(person.name)}</strong>
-          <small>${escapeHtml(absenceLabel(person._off))} · ${span}${note}</small></span>
+          <small>${escapeHtml(absenceLabel(person._off))} · ${span}${note}${from}</small></span>
         ${isSupervisor && !person._derivedLightDuty ? `<button class="button button-secondary button-small"
           data-remove-assignment="${person.id}" data-remove-date="${date}"
           data-remove-unit="${unit.id}" data-remove-start="${blk.start}"
           aria-label="Clear time off for ${escapeHtml(person.name)}">×</button>` : ""}
         ${person._derivedLightDuty ? `<small class="off-derived">set by their light-duty dates</small>` : ""}
       </div>`;
-  }).join("");
+}
+
+// Per-unit roster. Still used by the admin / light-duty board, where each
+// position is its own small world.
+function offRosterHtml(off, unit, date, isSupervisor) {
+  if (!off || !off.length) return "";
+  const rows = off.map((person) => offRowHtml(person, unit, date, isSupervisor, false)).join("");
   return `<div class="off-roster">
       <h4>Off this tour</h4>${rows}
     </div>`;
+}
+
+// #298: everyone off on this date, in ONE panel at the bottom of the day view,
+// sorted by name, each row saying which apparatus they came off. Same rows, same
+// clear (x) button as before -- only the placement changed.
+function offBoardHtml(date) {
+  const isSupervisor = state.currentRole === "supervisor";
+  const entries = [];
+  [...unitsForDate(date), ...specialAssignmentsForDate(date)].forEach((unit) => {
+    const people = getAssignments(date, unit.id);
+    const { off } = assignPeopleToSeats(unit.type, people, unit, date);
+    (off || []).forEach((person) => entries.push({ person, unit }));
+  });
+  if (!entries.length) return "";
+  entries.sort((a, b) => (a.person.name || "").localeCompare(b.person.name || ""));
+  return `<section class="off-roster off-board" aria-label="Off this tour">
+      <h4>Off this tour (${entries.length})</h4>
+      ${entries.map(({ person, unit }) => offRowHtml(person, unit, date, isSupervisor, true)).join("")}
+    </section>`;
 }
 
 // A whole seat: every person covering part of the tour, then a pick row for each
@@ -7210,25 +7312,68 @@ function activateUnitForDate(unitId, date) {
   showToast(`${unit.name} is in service for ${formatDate(date)}.`, "success");
 }
 
+// #300: taking a truck out of service must not strand its crew. A member left on a
+// hidden / out-of-service unit still counts as BOOKED (assignedBlocksForDate counts
+// every unit that exists), so they vanish from the board AND cannot be placed on
+// another truck until the unit is re-enabled. Releasing removes those assignments
+// so the members fall back to the unassigned pool. Only today and later are touched:
+// past tours are payroll history and are never rewritten.
+function crewOnUnitFrom(unitId, fromDate, toDate) {
+  const found = [];
+  Object.keys(state.assignments || {}).sort().forEach((day) => {
+    if (day < fromDate || (toDate && day > toDate)) return;
+    const people = (state.assignments[day]?.[unitId] || []).filter(Boolean);
+    if (people.length) found.push({ date: day, people });
+  });
+  return found;
+}
+
+function uniqueNames(found) {
+  return [...new Set(found.flatMap((f) => f.people.map((p) => p.name || employeeById(p.id)?.name || p.id)))];
+}
+
+// Ask, then release. Returns true when the crew was released. Cancel keeps the crew
+// assigned (the old behaviour), so a misclick still cannot destroy a day's staffing.
+function offerReleaseCrew(unit, found, scopeText) {
+  if (!found.length) return false;
+  const names = uniqueNames(found);
+  const tours = found.reduce((n, f) => n + f.people.length, 0);
+  const release = window.confirm(
+    `${unit.name} is going out of service. ${names.length} ${names.length === 1 ? "person is" : "people are"} ` +
+    `assigned to it ${scopeText} (${tours} assignment${tours === 1 ? "" : "s"}):\n\n${names.join(", ")}\n\n` +
+    `OK = release them to the unassigned pool so they can be placed on another unit.\n` +
+    `Cancel = leave them assigned to ${unit.name} (they stay hidden until it returns to service).`
+  );
+  if (!release) return false;
+  found.forEach(({ date, people }) => {
+    state.assignments[date][unit.id] = [];
+    addAudit(
+      `${unit.name} out of service — released to unassigned pool on ${formatDate(date)}: ` +
+      `${people.map((p) => p.name || p.id).join(", ")}.`,
+      currentUserName(),
+    );
+  });
+  return true;
+}
+
 // Take an on-demand unit out of service for a single date. Assignments are left
 // intact rather than deleted, so putting it back in service restores the crew —
 // and so a misclick can never silently destroy a day's staffing.
 function deactivateUnitForDate(unitId, date) {
   const unit = unitById(unitId);
   if (!unit || !unit.onDemand) return;
-  const assigned = getAssignments(date, unitId).length;
-  if (assigned > 0) {
-    const ok = window.confirm(
-      `${unit.name} has ${assigned} ${assigned === 1 ? "person" : "people"} assigned on ${formatDate(date)}.\n\n` +
-      `Take it out of service? The crew is kept and will reappear if you put it back in service.`
-    );
-    if (!ok) return;
-  }
+  const found = crewOnUnitFrom(unitId, date, date);
+  if (found.length && !window.confirm(`Take ${unit.name} out of service for ${formatDate(date)}?`)) return;
+  const released = offerReleaseCrew(unit, found, `on ${formatDate(date)}`);
   unit.activeDates = (unit.activeDates || []).filter((d) => d !== date);
   addAudit(`${unit.name} taken out of service for ${formatDate(date)}.`, currentUserName());
   render();
   persistAppState(`${unit.name} out of service`);
-  showToast(`${unit.name} is out of service for ${formatDate(date)}.`, "success");
+  showToast(
+    `${unit.name} is out of service for ${formatDate(date)}.` +
+    `${released ? " Crew released to the unassigned pool." : found.length ? " Crew kept assigned." : ""}`,
+    "success",
+  );
 }
 
 // Who is eligible to ride on a given date = the platoon on duty that date.
@@ -7983,7 +8128,7 @@ function setPersistenceStatus(message, level) {
 // one page, the units you actually care about, and the pay code and note against
 // each person. Different job, so it gets its own DOM rather than more print CSS.
 
-const PRINT_STATE = { start: null, days: 2, units: null };
+const PRINT_STATE = { start: null, days: 2, units: null, notes: {} };
 
 function printableUnits() {
   // The printed sheet goes on the wall at shift change. Admin positions are
@@ -8069,12 +8214,93 @@ function printSeatRows(unit, date) {
   return rows;
 }
 
+// #302: print groups. Colour is a convenience, never the only signal -- every
+// group has a heading word and a distinct border STYLE (solid / double / dashed /
+// dotted) so a black-and-white photocopy still separates them.
+const PRINT_CATEGORY_LABELS = { command: "Command", suppression: "Suppression", medical: "Medical", special: "Special / Other" };
+const PRINT_CATEGORY_ORDER = ["command", "suppression", "medical", "special"];
+
+function printCategoryOf(unit) {
+  const c = unit.printCategory || unit.printCategoryEffective || "";
+  return PRINT_CATEGORY_LABELS[c] ? c : "special";
+}
+
+function printStationOf(unit) {
+  const explicit = String(unit.station || unit.stationEffective || "").trim();
+  if (explicit) return explicit;
+  const digits = String(unit.id || unit.name || "").match(/(\d{3})/);
+  return digits ? digits[1] : "";
+}
+
+// #308: per-date notes. Loaded into PRINT_STATE.notes when the sheet is built;
+// edited in the print dialog, saved through /shift-notes/ (officers only).
+function shiftNotesApiUrl(query = "") {
+  return `${window.APP_CONFIG.schedulerApiUrl.replace(/\/$/, "")}/api/scheduler/shift-notes/${query}`;
+}
+
+async function loadShiftNotes(dates) {
+  PRINT_STATE.notes = {};
+  if (!dates.length || !state.isAuthenticated) return;
+  try {
+    const q = `?start=${dates[0]}&end=${dates[dates.length - 1]}`;
+    const response = await fetch(shiftNotesApiUrl(q), { headers: await schedulerApiHeaders() });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.notes) PRINT_STATE.notes = data.notes;
+  } catch (err) { /* notes are optional on the sheet; print without them */ }
+}
+
+async function saveShiftNote(date, text) {
+  const response = await fetch(shiftNotesApiUrl(), {
+    method: "PUT", headers: await schedulerApiHeaders(),
+    body: JSON.stringify({ date, text }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || "Could not save the note.");
+  if (text.trim()) PRINT_STATE.notes[date] = { text: text.trim() };
+  else delete PRINT_STATE.notes[date];
+}
+
+function printOffList(date) {
+  const entries = [];
+  [...unitsForDate(date)].forEach((unit) => {
+    const { off } = assignPeopleToSeats(unit.type, getAssignments(date, unit.id), unit, date);
+    (off || []).forEach((person) => entries.push({ person, unit }));
+  });
+  entries.sort((a, b) => (a.person.name || "").localeCompare(b.person.name || ""));
+  return entries;
+}
+
+function printUnitCard(unit, date) {
+  const rows = printSeatRows(unit, date).map((row) => {
+    const pay = row.person ? payCodeFor(row.person) : null;
+    // An unfilled REQUIRED seat is the thing an officer is scanning for, so it
+    // gets the ink. Optional rider seats left empty are not news.
+    // The hours print next to the name only on a split seat -- a whole-tour
+    // row keeps the clean single-name look the wall sheet has always had.
+    const name = row.person
+      ? escapeHtml(row.person.name) + (row.hours ? ` <span class="print-hours">${row.hours}</span>` : "")
+      : (row.required ? '<span class="print-open">OPEN</span>' : "—");
+    const codeCell = pay
+      ? `<span class="print-code">${pay.code}</span>` +
+        (pay.forName ? ` for ${escapeHtml(pay.forName)}` : "") +
+        (pay.note ? `<span class="print-note"> — ${escapeHtml(pay.note)}</span>` : "")
+      : "";
+    return `<tr><th>${row.label}</th><td>${name}</td><td>${row.radio ? `<span class="print-radio">Radio: ${escapeHtml(row.radio)}</span>` : ""}</td><td>${codeCell}</td></tr>`;
+  }).join("");
+  return `
+    <section class="print-unit print-cat-${printCategoryOf(unit)}">
+      <h3>${escapeHtml(unit.name)} <span class="print-cat-tag">${PRINT_CATEGORY_LABELS[printCategoryOf(unit)]}</span></h3>
+      <table><thead><tr><th>Seat</th><th>Employee</th><th>Assigned radio</th><th>Time / pay code</th></tr></thead><tbody>${rows}</tbody></table>
+    </section>`;
+}
+
 function renderPrintSheet() {
   const host = dom["print-sheet"];
   if (!host) return;
   const dates = printSheetDates();
   const units = printableUnits().filter(
     (u) => !PRINT_STATE.units || PRINT_STATE.units.has(u.id));
+  const notes = PRINT_STATE.notes || {};
 
   const header = `
     <div class="print-head">
@@ -8082,36 +8308,36 @@ function renderPrintSheet() {
       <p>${dates.map((d) => `${formatDate(d)} (${getShiftForDate(d) || "—"} shift)`).join("  ·  ")}</p>
       <p class="print-meta">Printed ${formatDateTime(new Date())}${
         state.scheduleStatus === "draft" ? " — DRAFT, not published" : ""}</p>
+    </div>
+    <div class="print-legend" aria-label="Group key">
+      ${PRINT_CATEGORY_ORDER.map((c) => `<span class="print-key print-cat-${c}">${PRINT_CATEGORY_LABELS[c]}</span>`).join("")}
     </div>`;
 
   const body = dates.map((date) => {
     const running = units.filter((u) => unitRunsOn(u, date));
     if (!running.length) return "";
-    const cards = running.map((unit) => {
-      const rows = printSeatRows(unit, date).map((row) => {
-        const pay = row.person ? payCodeFor(row.person) : null;
-        // An unfilled REQUIRED seat is the thing an officer is scanning for, so it
-        // gets the ink. Optional rider seats left empty are not news.
-        // The hours print next to the name only on a split seat -- a whole-tour
-        // row keeps the clean single-name look the wall sheet has always had.
-        const name = row.person
-          ? row.person.name + (row.hours ? ` <span class="print-hours">${row.hours}</span>` : "")
-          : (row.required ? '<span class="print-open">OPEN</span>' : "—");
-        const codeCell = pay
-          ? `<span class="print-code">${pay.code}</span>` +
-            (pay.forName ? ` for ${pay.forName}` : "") +
-            (pay.note ? `<span class="print-note"> — ${pay.note}</span>` : "")
-          : "";
-        return `<tr><th>${row.label}</th><td>${name}</td><td>${row.radio ? `<span class="print-radio">Radio: ${escapeHtml(row.radio)}</span>` : ""}</td><td>${codeCell}</td></tr>`;
-      }).join("");
-      return `
-        <section class="print-unit">
-          <h3>${unit.name}</h3>
-          <table><thead><tr><th>Seat</th><th>Employee</th><th>Assigned radio</th><th>Time / pay code</th></tr></thead><tbody>${rows}</tbody></table>
-        </section>`;
+    // Station first (numerically, no-station last), then group, then board order.
+    const stations = [...new Set(running.map(printStationOf))]
+      .sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b, undefined, { numeric: true })));
+    const stationBlocks = stations.map((station) => {
+      const inStation = running.filter((u) => printStationOf(u) === station)
+        .sort((a, b) => PRINT_CATEGORY_ORDER.indexOf(printCategoryOf(a)) - PRINT_CATEGORY_ORDER.indexOf(printCategoryOf(b))
+          || byBoardOrder(a, b));
+      return `<div class="print-station">
+          <h3 class="print-station-head">${station ? `Station ${escapeHtml(station)}` : "Other / no station"}</h3>
+          <div class="print-grid">${inStation.map((u) => printUnitCard(u, date)).join("")}</div>
+        </div>`;
     }).join("");
+    const noteText = (notes[date]?.text || "").trim();
+    const noteBlock = noteText
+      ? `<div class="print-notes"><strong>Notes</strong><div>${escapeHtml(noteText).replace(/\n/g, "<br>")}</div></div>` : "";
+    const off = printOffList(date);
+    const offBlock = off.length
+      ? `<div class="print-off"><strong>Off this tour</strong><ul>${off.map(({ person, unit }) =>
+          `<li>${escapeHtml(person.name)} — ${escapeHtml(absenceLabel(person._off))}${
+            person._offNote ? ` (${escapeHtml(person._offNote)})` : ""} <span class="print-note">· ${escapeHtml(unit.name)}</span></li>`).join("")}</ul></div>` : "";
     return `<div class="print-day"><h2>${formatDate(date)} · ${getShiftForDate(date) || "—"} shift</h2>
-              <div class="print-grid">${cards}</div></div>`;
+              ${noteBlock}${stationBlocks}${offBlock}</div>`;
   }).join("");
 
   host.innerHTML = header + (body || "<p>No apparatus in service for these dates.</p>");
@@ -8124,12 +8350,34 @@ function openPrintOptions() {
   const units = printableUnits();
   host.querySelector("[data-print-start]").value = PRINT_STATE.start;
   host.querySelector("[data-print-days]").value = String(PRINT_STATE.days);
+  renderPrintNotesEditor(host);
   host.querySelector("[data-print-units]").innerHTML = units.map((u) => `
     <label class="print-unit-pick">
       <input type="checkbox" value="${u.id}"
         ${!PRINT_STATE.units || PRINT_STATE.units.has(u.id) ? "checked" : ""}> ${u.name}
     </label>`).join("");
   host.hidden = false;
+}
+
+// #308: one textarea per printed date. Officers edit; everyone else sees the
+// text read-only. Saved on blur so a note typed and then "Print" is not lost.
+async function renderPrintNotesEditor(host) {
+  const box = host.querySelector("[data-print-notes]");
+  if (!box) return;
+  const dates = printSheetDates();
+  await loadShiftNotes(dates);
+  const canEdit = state.currentRole === "supervisor";
+  box.innerHTML = dates.map((d) => `
+    <label class="print-note-edit">${formatDate(d)} notes
+      <textarea rows="2" maxlength="4000" data-print-note="${d}" ${canEdit ? "" : "readonly"}
+        placeholder="${canEdit ? "PR events, meetings, classes…" : ""}">${escapeHtml(PRINT_STATE.notes[d]?.text || "")}</textarea>
+    </label>`).join("");
+  box.querySelectorAll("[data-print-note]").forEach((area) => {
+    area.addEventListener("change", async () => {
+      try { await saveShiftNote(area.dataset.printNote, area.value); }
+      catch (err) { window.alert(err.message); }
+    });
+  });
 }
 
 function closePrintOptions() {
@@ -8140,19 +8388,33 @@ function attachPrintEvents() {
   const host = dom["print-options"];
   if (!host) return;
   host.querySelector("[data-print-cancel]").addEventListener("click", closePrintOptions);
+  // Notes are per printed date, so changing the window re-seats the editors.
+  ["[data-print-start]", "[data-print-days]"].forEach((sel) => {
+    host.querySelector(sel).addEventListener("change", () => {
+      PRINT_STATE.start = host.querySelector("[data-print-start]").value || PRINT_STATE.start;
+      PRINT_STATE.days = Number(host.querySelector("[data-print-days]").value) || PRINT_STATE.days;
+      renderPrintNotesEditor(host);
+    });
+  });
   host.querySelector("[data-print-all]").addEventListener("click", () => {
     host.querySelectorAll("[data-print-units] input").forEach((i) => { i.checked = true; });
   });
   host.querySelector("[data-print-none]").addEventListener("click", () => {
     host.querySelectorAll("[data-print-units] input").forEach((i) => { i.checked = false; });
   });
-  host.querySelector("[data-print-go]").addEventListener("click", () => {
+  host.querySelector("[data-print-go]").addEventListener("click", async () => {
     PRINT_STATE.start = host.querySelector("[data-print-start]").value || todayIso();
     PRINT_STATE.days = Number(host.querySelector("[data-print-days]").value) || 2;
     const picked = [...host.querySelectorAll("[data-print-units] input:checked")]
       .map((i) => i.value);
     // No selection means every unit, not an empty page.
     PRINT_STATE.units = picked.length ? new Set(picked) : null;
+    // Flush any note still focused, then refresh from the server so the sheet
+    // prints what is actually saved.
+    for (const area of host.querySelectorAll("[data-print-note]")) {
+      if (!area.readOnly) { try { await saveShiftNote(area.dataset.printNote, area.value); } catch (err) { window.alert(err.message); return; } }
+    }
+    await loadShiftNotes(printSheetDates());
     renderPrintSheet();
     closePrintOptions();
     window.print();
