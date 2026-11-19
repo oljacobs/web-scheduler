@@ -108,3 +108,11 @@ test("print card tints only the unit name, with the group word beside it", () =>
   assert.match(html, /<span class="print-unit-name print-cat-suppression">Engine 1<\/span>/);
   assert.match(html, /print-cat-tag">Suppression</, "group word printed for B&W copies");
 });
+
+test("maintenance notices are not scheduler activity", () => {
+  const run = setup();
+  assert.equal(run(`isSchedulerNotification({ relatedKind: "maintenance_closed" })`), false);
+  assert.equal(run(`isSchedulerNotification({ relatedKind: "maintenance" })`), false);
+  assert.equal(run(`isSchedulerNotification({ relatedKind: "trade" })`), true);
+  assert.equal(run(`isSchedulerNotification({})`), true);
+});

@@ -343,9 +343,12 @@ function wireEvents() {
     });
   });
 
+  // Switching sections always lands on the Day view. Month/Week/Admin are one-off
+  // looks; a view left over from last time made the board open on a month grid.
   dom.surfaceButtons.schedule.addEventListener("click", () => {
+    state.currentView = "day";
     state.activeSurface = "schedule";
-    renderSurfaceState();
+    render();
     persistAppState("Workspace switched");
   });
   dom.surfaceButtons.admin.addEventListener("click", () => {
@@ -353,8 +356,9 @@ function wireEvents() {
       showToast("Supervisor sign-in is required for admin tools.", "error");
       return;
     }
+    state.currentView = "day";
     state.activeSurface = "admin";
-    renderSurfaceState();
+    render();
     persistAppState("Workspace switched");
   });
 
@@ -2891,9 +2895,16 @@ function notificationTime(n) {
   return "";
 }
 
+// Maintenance / checklist notices ("Maintenance update: ... Closed") belong to the
+// checklist app's My requests page, not the scheduler's activity list.
+function isSchedulerNotification(notification) {
+  return !String(notification.relatedKind || "").startsWith("maintenance");
+}
+
 function renderNotifications() {
-  dom["notification-center"].innerHTML = state.notifications.length
-    ? state.notifications
+  const visible = state.notifications.filter(isSchedulerNotification);
+  dom["notification-center"].innerHTML = visible.length
+    ? visible
         .slice()
         .reverse()
         .map((notification) => {
@@ -8193,6 +8204,7 @@ function applyPersistedState(data) {
     sort: data.employeeFilter?.sort || "name",
   };
   state.activeSurface = data.activeSurface || "schedule";
+  state.currentView = "day";   // never restored: every load starts on the Day view
   const adminTabMap = { "emp-import": "imports", "unit-import": "imports", "units-mgmt": "units" };
   state.activeAdminTab = adminTabMap[data.activeAdminTab] || data.activeAdminTab || "employees";
   state.selectedEmployeeId = null;
