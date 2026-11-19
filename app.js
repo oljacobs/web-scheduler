@@ -8440,8 +8440,8 @@ function printUnitCard(unit, date) {
     return `<tr><th>${row.label}</th><td>${name}</td><td>${row.radio ? `<span class="print-radio">Radio: ${escapeHtml(row.radio)}</span>` : ""}</td><td>${codeCell}</td></tr>`;
   }).join("");
   return `
-    <section class="print-unit print-cat-${printCategoryOf(unit)}">
-      <h3>${escapeHtml(unit.name)} <span class="print-cat-tag">${PRINT_CATEGORY_LABELS[printCategoryOf(unit)]}</span></h3>
+    <section class="print-unit">
+      <h3><span class="print-unit-name print-cat-${printCategoryOf(unit)}">${escapeHtml(unit.name)}</span> <span class="print-cat-tag">${PRINT_CATEGORY_LABELS[printCategoryOf(unit)]}</span></h3>
       <table><thead><tr><th>Seat</th><th>Employee</th><th>Assigned radio</th><th>Time / pay code</th></tr></thead><tbody>${rows}</tbody></table>
     </section>`;
 }

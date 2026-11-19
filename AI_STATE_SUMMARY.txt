@@ -307,3 +307,5 @@ DISPLACED MEMBERS (#300)
 - displacedBoardHtml(date) renders at the top of renderTimelineCard; [data-displaced-move] selects call moveDisplacedPerson(). Hidden in print. Tests in tests/displaced.test.js (node --test tests/).
 
 CALLBACK LOCATION: Tools drawer > Callback tab (supervisor only). No longer an Admin tab; saved activeAdminTab 'callback' falls back to 'employees'.
+
+PRINT COLOUR (#302): printUnitCard puts print-cat-* on .print-unit-name only (ink saving); station header outlined, not a black bar.

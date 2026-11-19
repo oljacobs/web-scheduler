@@ -762,3 +762,5 @@ getAssignments/getShiftForDate/visibleUnits/activeEmployees/previewRosterImport/
 #300 follow-up: displacedForDate/displacedBoardHtml (top of day view) list members stranded on hidden/OOS units or on duty with no seat; moveDisplacedPerson places them on an in-service unit. Frontend only, derived from assignments (no new state key). Tests: node --test tests/.
 
 Callback availability panel moved from the Admin tab strip to the Tools drawer (data-drawer-pane=callback, #callback-drawer-tab, supervisor-only via renderSurfaceState). Same element ids/handlers; selectDrawerTab('callback') loads history.
+
+#302 print: category colour is on .print-unit-name (+ legend .print-key) only; section has no category class; station head is an outline. Colours: Command green, Suppression red, Medical blue, Special/other orange; border style + group word keep B&W readable.

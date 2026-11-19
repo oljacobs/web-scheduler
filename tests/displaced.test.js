@@ -97,3 +97,14 @@ test("move is refused when the member is already booked elsewhere at that time",
     window.alert = () => {};
     moveDisplacedPerson({ date: DATE, employeeId: DUTY[2].id, fromUnitId: "E2", toUnitId: "E1" })`), false);
 });
+
+// #302: only the unit NAME carries the print colour, not the whole card.
+test("print card tints only the unit name, with the group word beside it", () => {
+  const run = setup();
+  const html = run(`
+    const u = unitById("E1"); u.printCategoryEffective = "suppression";
+    printUnitCard(u, DATE)`);
+  assert.match(html, /<section class="print-unit">/, "section carries no category class");
+  assert.match(html, /<span class="print-unit-name print-cat-suppression">Engine 1<\/span>/);
+  assert.match(html, /print-cat-tag">Suppression</, "group word printed for B&W copies");
+});

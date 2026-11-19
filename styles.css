@@ -2907,19 +2907,25 @@ textarea:disabled {
   .print-radio { font-weight: 700; white-space: nowrap; }
   .print-note { color: #444; }
 
-  /* #302: station blocks, with group styling that survives a B&W photocopy:
-     every group has a heading word + a different border STYLE as well as a tint. */
+  /* #302: station blocks. Only the UNIT NAME carries the group colour -- a tinted
+     card per unit burned ink across the whole sheet. Group colours: Command green,
+     Suppression red, Medical blue, Special/Brush/other orange. Each also has a
+     different border STYLE and the group word beside the name, so a black-and-white
+     photocopy still tells the groups apart. The station header is an outline, not a
+     solid black bar, for the same reason. */
   .print-station { margin-top: 6pt; break-inside: avoid; }
-  .print-station-head { font-size: 10pt; margin: 0 0 3pt; padding: 1pt 3pt; background: #222 !important; color: #fff !important;
+  .print-station-head { font-size: 10pt; margin: 0 0 3pt; padding: 1pt 0; background: none; color: #000;
+    border-bottom: 1.5pt solid #000; }
+  .print-unit { padding: 2pt 0; }
+  .print-unit-name, .print-key { display: inline-block; padding: 0 5pt; border-left: 3pt solid #000;
     -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .print-unit { padding: 2pt 4pt; border-left-width: 3pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-cat-tag { font-size: 7pt; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #333; }
-  .print-cat-command    { border-left: 3pt solid #b45309; background: #fef3c7; }
+  .print-cat-command    { border-left: 3pt solid #15803d; background: #dcfce7; }
   .print-cat-suppression{ border-left: 3pt double #b91c1c; background: #fee2e2; }
   .print-cat-medical    { border-left: 3pt dashed #1d4ed8; background: #dbeafe; }
-  .print-cat-special    { border-left: 3pt dotted #475569; background: #e2e8f0; }
+  .print-cat-special    { border-left: 3pt dotted #c2410c; background: #ffedd5; }
   .print-legend { display: flex; gap: 6pt; margin: 3pt 0; font-size: 7.5pt; }
-  .print-key { padding: 0 4pt; border-left-width: 3pt; font-weight: 600; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-key { font-weight: 600; }
   .print-notes, .print-off { border: 0.5pt solid #000; padding: 2pt 4pt; margin: 3pt 0; font-size: 8.5pt; break-inside: avoid; }
   .print-off ul { margin: 1pt 0 0 10pt; padding: 0; columns: 2; }
 
