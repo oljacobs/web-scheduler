@@ -70,9 +70,10 @@
             <div class="toolbar-row">
               <div class="date-controls">
                 <button id="prev-btn" class="icon-button" aria-label="Previous range">‹</button>
+                <!-- No visible "Date" caption: it sat above the field and pushed it out of
+                     line with the arrows and Today. The accessible name stays. -->
                 <label>
-                  Date
-                  <input id="date-input" type="date" />
+                  <input id="date-input" type="date" aria-label="Date" />
                 </label>
                 <button id="today-btn" class="button button-secondary">Today</button>
                 <button id="next-btn" class="icon-button" aria-label="Next range">›</button>
