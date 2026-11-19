@@ -309,3 +309,5 @@ DISPLACED MEMBERS (#300)
 CALLBACK LOCATION: Tools drawer > Callback tab (supervisor only). No longer an Admin tab; saved activeAdminTab 'callback' falls back to 'employees'.
 
 PRINT COLOUR (#302): printUnitCard puts print-cat-* on .print-unit-name only (ink saving); station header outlined, not a black bar.
+
+CALLBACK (member side): renderCallbackAvailability() now renders into #my-callback-panel in the Tools drawer via renderMyCallbackPanel(); no longer inside renderEmployeeUpcoming.

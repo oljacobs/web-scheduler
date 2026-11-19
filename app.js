@@ -716,6 +716,7 @@ function render() {
   renderCoveragePanel();
   renderTradeBoard();
   renderPersonalPanel();
+  renderMyCallbackPanel();
   if (mandatoryBackfillEnabled()) {
     renderMandatoryImportPreview();
     renderMandatorySummary();
@@ -1143,14 +1144,6 @@ function renderSurfaceState() {
   dom.surfaceButtons.admin.title = adminAllowed ? "" : "Supervisor sign-in required";
   dom["schedule-surface"].classList.toggle("hidden", state.activeSurface !== "schedule");
   dom["admin-surface"].classList.toggle("hidden", state.activeSurface !== "admin");
-  // Callback tools are supervisor-only (the API refuses everyone else). If the
-  // drawer is sitting on that pane when the role drops, fall back to Reserve.
-  const callbackTab = document.getElementById("callback-drawer-tab");
-  if (callbackTab) {
-    const allowed = state.currentRole === "supervisor";
-    callbackTab.classList.toggle("hidden", !allowed);
-    if (!allowed && callbackTab.classList.contains("is-active")) selectDrawerTab("reserve");
-  }
 }
 
 // Save state is shown ONLY when something is wrong. A permanent "connected"
@@ -4820,6 +4813,35 @@ function renderPersonalPanel() {
   attachPersonalPanelEvents();
 }
 
+// Members add and withdraw callback availability from Tools > Callback, not from
+// the "Your next shifts" panel (moved to free up that panel).
+function renderMyCallbackPanel() {
+  const el = document.getElementById("my-callback-panel");
+  if (!el) return;
+  // The Callback drawer tab is for every signed-in member (own availability). The
+  // window / candidates / history block under it is supervisor-only -- the API
+  // refuses everyone else. If the drawer is sitting on the pane when the user
+  // signs out, fall back to Reserve.
+  const signedIn = !!(state.isAuthenticated && state.currentUserId);
+  const callbackTab = document.getElementById("callback-drawer-tab");
+  callbackTab?.classList.toggle("hidden", !signedIn);
+  document.getElementById("callback-supervisor-tools")
+    ?.classList.toggle("hidden", !(signedIn && state.currentRole === "supervisor"));
+  if (!signedIn && callbackTab?.classList.contains("is-active")) selectDrawerTab("reserve");
+  if (!state.isAuthenticated || !state.currentUserId) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  el.classList.remove("hidden");
+  // Don't rebuild while the member is typing dates into it.
+  if (el.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+  el.innerHTML = renderCallbackAvailability();
+  el.querySelector("#add-callback-availability-btn")?.addEventListener("click", submitCallbackAvailability);
+  el.querySelectorAll("[data-withdraw-callback]").forEach((button) =>
+    button.addEventListener("click", () => withdrawCallbackAvailability(button.dataset.withdrawCallback)));
+}
+
 function renderEmployeeUpcoming() {
   const me = state.currentUserId;
   const shifts = upcomingShiftsFor(me, 4, 90);
@@ -4872,8 +4894,7 @@ function renderEmployeeUpcoming() {
     </div>
     <div class="next-shift-grid">${shiftCards}</div>
     ${awardedList}
-    ${pendingList}
-    ${renderCallbackAvailability()}`;
+    ${pendingList}`;
 }
 
 function renderCallbackAvailability() {
@@ -4991,9 +5012,6 @@ function attachPersonalPanelEvents() {
     b.addEventListener("click", () => approveTrade(b.dataset.approveTrade)));
   root.querySelectorAll("[data-deny-trade]").forEach((b) =>
     b.addEventListener("click", () => denyTrade(b.dataset.denyTrade)));
-  root.querySelector("#add-callback-availability-btn")?.addEventListener("click", submitCallbackAvailability);
-  root.querySelectorAll("[data-withdraw-callback]").forEach((button) =>
-    button.addEventListener("click", () => withdrawCallbackAvailability(button.dataset.withdrawCallback)));
   root.querySelectorAll("[data-award-post]").forEach((b) =>
     b.addEventListener("click", () => awardOvertime(b.dataset.awardPost, b.dataset.awardEmp)));
   root.querySelectorAll("[data-decline-post]").forEach((b) =>

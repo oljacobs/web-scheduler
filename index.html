@@ -450,7 +450,10 @@
           </div>
 
           <div class="drawer-pane hidden" data-drawer-pane="callback">
-            <section class="panel callback-panel">
+            <!-- Every signed-in member: add / withdraw own callback availability. -->
+            <section id="my-callback-panel" class="panel callback-panel hidden"></section>
+            <!-- Supervisors only: sign-up window, candidates, history. -->
+            <section id="callback-supervisor-tools" class="panel callback-panel hidden">
                   <div class="panel-heading">
                     <div>
                       <h2>Callback Availability</h2>

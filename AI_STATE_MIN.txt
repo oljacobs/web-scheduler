@@ -764,3 +764,5 @@ getAssignments/getShiftForDate/visibleUnits/activeEmployees/previewRosterImport/
 Callback availability panel moved from the Admin tab strip to the Tools drawer (data-drawer-pane=callback, #callback-drawer-tab, supervisor-only via renderSurfaceState). Same element ids/handlers; selectDrawerTab('callback') loads history.
 
 #302 print: category colour is on .print-unit-name (+ legend .print-key) only; section has no category class; station head is an outline. Colours: Command green, Suppression red, Medical blue, Special/other orange; border style + group word keep B&W readable.
+
+Member callback availability (add/withdraw own dates) moved out of 'Your next shifts' into Tools > Callback (#my-callback-panel, renderMyCallbackPanel); tab shows for any signed-in member, #callback-supervisor-tools (window/candidates/history) supervisor-only.
