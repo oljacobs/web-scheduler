@@ -3311,17 +3311,85 @@ function removeAssignmentBlock({ date, unitId, employeeId, startMinute, reason }
   return true;
 }
 
+// Every open seat on the day's schedule this block could move to: on the same unit
+// or any other unit running that date. "Open" = the seat has an uncovered gap that
+// holds the block; "qualified" = seatAccepts + light duty; and the person must not
+// be committed somewhere else in that window (their own current block is ignored,
+// because moving it is the point). Returns [{ unit, pos, window, sameUnit }].
+function seatMoveTargets(person, unit, date, fromRole) {
+  const emp = resolvePerson(person);
+  const srcTour = unitTourMinutes(unit);
+  const abs = absoluteBlock(person, unit);
+  const fullTour = isFullTour(person, srcTour);
+  const elsewhere = (assignedBlocksForDate(date).get(person.id) || [])
+    .filter((b) => b.unitId !== unit.id);
+  const out = [];
+  unitsForDate(date).forEach((target) => {
+    if (!positionsForUnit(target)?.length) return;
+    if (!employeeAvailableForUnit(emp, target, date)) return;
+    const tour = unitTourMinutes(target);
+    const base = unitTourStartHour(target) * 60;
+    // A whole-tour assignment stays a whole tour on the new unit; a partial block
+    // keeps its clock hours and must fit inside the new unit's tour.
+    const win = fullTour ? { start: 0, end: tour } : { start: abs.start - base, end: abs.end - base };
+    if (win.start < 0 || win.end > tour || win.start >= win.end) return;
+    const targetAbs = { start: base + win.start, end: base + win.end };
+    const sameUnit = target.id === unit.id;
+    // Committed on another unit during that window (the source block is leaving).
+    if (!sameUnit && elsewhere.some((b) => blocksOverlap(b, targetAbs))) return;
+    const { seats } = assignPeopleToSeats(target.type, getAssignments(date, target.id), target, date);
+    seats.forEach((seat) => {
+      if (sameUnit && seat.pos.role === fromRole) return;
+      if (!seatAccepts(seat.pos, emp)) return;
+      if (!seat.gaps.some((g) => g.start <= win.start && g.end >= win.end)) return;
+      out.push({ unit: target, pos: seat.pos, window: win, sameUnit });
+    });
+  });
+  return out;
+}
+
+// Move one block to a seat found by seatMoveTargets. Same unit: re-pin the seat.
+// Other unit: take the block off the old unit and put it on the new one, pinned to
+// the seat, keeping its hours. Both units are stamped manual (a template push must
+// not undo it) and the move is audited.
+function applySeatMove({ date, unitId, personId, startMinute, target }) {
+  const unit = unitById(unitId);
+  const person = getAssignments(date, unitId).find((row) => row.id === personId
+    && blockOf(row, unitTourMinutes(unit)).start === Number(startMinute));
+  if (!unit || !person) return false;
+  if (target.unit.id === unitId) {
+    return !!updateAssignedPerson(date, unitId, personId, { _seat: target.pos.role }, startMinute);
+  }
+  const tour = unitTourMinutes(target.unit);
+  const moved = { ...person, _seat: target.pos.role };
+  delete moved._start;
+  delete moved._end;
+  if (!(target.window.start === 0 && target.window.end === tour)) {
+    moved._start = target.window.start;
+    moved._end = target.window.end;
+  }
+  state.assignments[date][unitId] = markManual(getAssignments(date, unitId).filter((row) => row !== person));
+  state.assignments[date][target.unit.id] = markManual([...getAssignments(date, target.unit.id), moved]);
+  return true;
+}
+
 function openSeatMoveDialog({ personId, unitId, date, startMinute, fromRole }) {
   const unit = unitById(unitId);
   const person = getAssignments(date, unitId).find((row) => row.id === personId
     && blockOf(row, unitTourMinutes(unit)).start === Number(startMinute));
-  const positions = positionsForUnit(unit) || [];
-  if (!unit || !person || !positions.length) return;
-  const block = blockOf(person, unitTourMinutes(unit));
-  const targets = positions.filter((pos) => pos.role !== fromRole && seatAccepts(pos, resolvePerson(person)))
-    .filter((pos) => !getAssignments(date, unitId).some((row) => row._seat === pos.role
-      && blocksOverlap(blockOf(row, unitTourMinutes(unit)), block)));
-  if (!targets.length) return showToast("No open qualified position is available for that block.", "error");
+  if (!unit || !person) return;
+  const targets = seatMoveTargets(person, unit, date, fromRole);
+  if (!targets.length) return showToast("No open qualified seat is available for that block.", "error");
+
+  // This unit first, then the rest in board order; each unit is one option group.
+  const unitsInOrder = [unit, ...unitsForDate(date).filter((u) => u.id !== unit.id)];
+  const options = unitsInOrder.map((u) => {
+    const rows = targets.map((t, i) => ({ t, i })).filter(({ t }) => t.unit.id === u.id);
+    if (!rows.length) return "";
+    return `<optgroup label="${escapeHtml(u.id === unit.id ? `${u.name} (this unit)` : u.name)}">${
+      rows.map(({ t, i }) => `<option value="${i}">${escapeHtml(t.pos.label)}${
+        isFullTour(person, unitTourMinutes(unit)) ? "" : ` — ${escapeHtml(windowLabel(t.window, t.unit))}`}</option>`).join("")}</optgroup>`;
+  }).join("");
 
   document.getElementById("seat-move-dialog")?.remove();
   const dlg = document.createElement("dialog");
@@ -3330,9 +3398,9 @@ function openSeatMoveDialog({ personId, unitId, date, startMinute, fromRole }) {
   dlg.innerHTML = `<form method="dialog" class="dialog-body">
     <h3>Move ${escapeHtml(person.name)}</h3>
     <p class="helper-text">${escapeHtml(unit.name)} · ${formatDate(date)} · ${escapeHtml(fromRole || "unrecorded position")}.
-      This changes only this assigned block and is recorded in the schedule audit.</p>
+      Any open seat on today's schedule they are qualified for. This changes only this assigned block and is recorded in the schedule audit.</p>
     <label>Move to
-      <select id="seat-move-target">${targets.map((pos) => `<option value="${escapeHtml(pos.role)}">${escapeHtml(pos.label)}</option>`).join("")}</select>
+      <select id="seat-move-target">${options}</select>
     </label>
     <div class="dialog-footer"><button value="cancel" formnovalidate class="button button-secondary">Cancel</button>
       <button id="seat-move-save" value="save" class="button button-primary">Record move</button></div>
@@ -3340,13 +3408,18 @@ function openSeatMoveDialog({ personId, unitId, date, startMinute, fromRole }) {
   document.body.appendChild(dlg);
   dlg.querySelector("#seat-move-save").addEventListener("click", (event) => {
     event.preventDefault();
-    const toRole = dlg.querySelector("#seat-move-target").value;
-    if (!updateAssignedPerson(date, unitId, personId, { _seat: toRole }, startMinute)) return;
-    addAudit(`${person.name} intentionally moved from ${fromRole || "unrecorded position"} to ${toRole} on ${unit.name} for ${formatDate(date)}.`, currentUserName());
+    const target = targets[Number(dlg.querySelector("#seat-move-target").value)];
+    if (!target) return;
+    if (!applySeatMove({ date, unitId, personId, startMinute, target })) return;
+    const where = target.unit.id === unitId ? `${target.pos.role} on ${unit.name}` : `${target.pos.role} on ${target.unit.name}`;
+    addAudit(`${person.name} intentionally moved from ${fromRole || "unrecorded position"} on ${unit.name} to ${where} for ${formatDate(date)}.`, currentUserName());
+    if (target.unit.id !== unitId) {
+      createNotification(`${person.name} moved to ${target.unit.name} for ${formatDate(date)}.`, "email", currentUserName());
+    }
     dlg.close();
     render();
     persistAppState("Position moved");
-    showToast(`${person.name} moved to ${toRole}.`, "success");
+    showToast(`${person.name} moved to ${target.pos.label}${target.unit.id === unitId ? "" : ` on ${target.unit.name}`}.`, "success");
   });
   dlg.addEventListener("close", () => dlg.remove());
   dlg.showModal();
