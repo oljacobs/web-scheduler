@@ -2150,6 +2150,13 @@ textarea:disabled {
   border-bottom: 1px solid var(--panel-border);
 }
 
+/* The phone rule ".icon-button { width: 100% }" stretched the close button and
+   squeezed the tabs into one column. Keep it a fixed square. */
+.drawer-head .icon-button {
+  flex: 0 0 44px;
+  width: 44px;
+}
+
 .drawer-tabs {
   display: flex;
   gap: 4px;

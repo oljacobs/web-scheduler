@@ -364,7 +364,6 @@ function wireEvents() {
       state.activeAdminTab = btn.dataset.tab;
       dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
       dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
-      if (state.activeAdminTab === "callback") loadCallbackHistory();
       if (state.activeAdminTab === "accountability") loadStaffingReport();
       persistAppState("Admin tab switched");
     });
@@ -383,6 +382,9 @@ function initializeControls() {
   dom["roster-shift-filter"].value = state.employeeFilter.shift;
   dom["employee-status-filter"].value = state.employeeFilter.status;
   dom["roster-sort"].value = state.employeeFilter.sort;
+  // Callback moved to the Tools drawer; a saved admin tab of "callback" would leave
+  // the admin panel with no pane showing.
+  if (state.activeAdminTab === "callback") state.activeAdminTab = "employees";
   // Restore active tab
   dom.tabButtons.forEach((b) => b.classList.toggle("is-active", b.dataset.tab === state.activeAdminTab));
   dom.tabPanes.forEach((pane) => pane.classList.toggle("hidden", pane.dataset.tabId !== state.activeAdminTab));
@@ -1141,6 +1143,14 @@ function renderSurfaceState() {
   dom.surfaceButtons.admin.title = adminAllowed ? "" : "Supervisor sign-in required";
   dom["schedule-surface"].classList.toggle("hidden", state.activeSurface !== "schedule");
   dom["admin-surface"].classList.toggle("hidden", state.activeSurface !== "admin");
+  // Callback tools are supervisor-only (the API refuses everyone else). If the
+  // drawer is sitting on that pane when the role drops, fall back to Reserve.
+  const callbackTab = document.getElementById("callback-drawer-tab");
+  if (callbackTab) {
+    const allowed = state.currentRole === "supervisor";
+    callbackTab.classList.toggle("hidden", !allowed);
+    if (!allowed && callbackTab.classList.contains("is-active")) selectDrawerTab("reserve");
+  }
 }
 
 // Save state is shown ONLY when something is wrong. A permanent "connected"
@@ -1620,6 +1630,7 @@ function setSidebarOpen(open) {
 }
 
 function selectDrawerTab(name) {
+  if (name === "callback") loadCallbackHistory();
   [...document.querySelectorAll("[data-drawer-tab]")].forEach((btn) =>
     btn.classList.toggle("is-active", btn.dataset.drawerTab === name)
   );

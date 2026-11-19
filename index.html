@@ -157,57 +157,9 @@
                   <button class="tab-button is-active" data-tab="employees">Employees</button>
                   <button class="tab-button" data-tab="imports">Imports</button>
                   <button class="tab-button" data-tab="units">Units</button>
-                  <button class="tab-button" data-tab="callback">Callback</button>
                   <button class="tab-button" data-tab="accountability">Accountability</button>
                   <button class="tab-button" data-tab="templates">Templates</button>
                   <button class="tab-button hidden" data-tab="mandatory">Mandatory</button>
-                </div>
-
-                <div class="tab-pane hidden" data-tab-id="callback">
-                  <div class="panel-heading">
-                    <div>
-                      <h2>Callback Availability</h2>
-                      <p class="helper-text">Set how far ahead members can submit general availability for callback. This does not change overtime shift sign-ups.</p>
-                    </div>
-                  </div>
-                  <div class="template-controls">
-                    <label>
-                      Availability sign-up window
-                      <select id="callback-horizon-days">
-                        <option value="14">14 days</option>
-                        <option value="21">21 days</option>
-                        <option value="30">30 days</option>
-                      </select>
-                    </label>
-                    <button id="save-callback-settings-btn" class="button button-primary">Save callback window</button>
-                  </div>
-                  <p id="callback-settings-message" class="helper-text"></p>
-                  <div class="template-push">
-                    <label>Start date<input id="callback-candidate-start-date" type="date" /></label>
-                    <label>End date<input id="callback-candidate-end-date" type="date" /></label>
-                    <label>Required qualification
-                      <select id="callback-candidate-cap"><option value="">Any qualified rider</option><option value="officer">Officer</option><option value="engineer">Driver/Engineer</option><option value="paramedic">Paramedic</option><option value="emt">EMT</option></select>
-                    </label>
-                    <label>Overtime opening (optional)
-                      <select id="callback-overtime-post"><option value="">Record only</option></select>
-                    </label>
-                    <button id="callback-specific-time-toggle" class="button button-secondary">Use specific hours</button>
-                    <button id="find-callback-candidates-btn" class="button button-secondary">Find candidates</button>
-                  </div>
-                  <div id="callback-specific-time-fields" class="template-controls hidden">
-                    <label>Specific start<input id="callback-candidate-start" type="datetime-local" /></label>
-                    <label>Specific end<input id="callback-candidate-end" type="datetime-local" /></label>
-                  </div>
-                  <div id="callback-candidate-list" class="stack-list"></div>
-                  <div class="template-push">
-                    <div class="panel-heading">
-                      <div>
-                        <h3>Callback history</h3>
-                        <p class="helper-text">Recent recorded call outcomes. This history is retained on the scheduler server.</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div id="callback-history-list" class="stack-list"></div>
                 </div>
 
                 <div class="tab-pane hidden" data-tab-id="accountability">
@@ -470,6 +422,7 @@
             <button class="drawer-tab is-active" data-drawer-tab="reserve">Reserve</button>
             <button class="drawer-tab" data-drawer-tab="coverage">Coverage<span id="coverage-badge" class="drawer-badge hidden">0</span></button>
             <button class="drawer-tab" data-drawer-tab="trades">Trades</button>
+            <button class="drawer-tab hidden" data-drawer-tab="callback" id="callback-drawer-tab">Callback</button>
             <button class="drawer-tab" data-drawer-tab="queue">Queue</button>
             <button class="drawer-tab" data-drawer-tab="activity">Activity</button>
           </div>
@@ -494,6 +447,56 @@
             </div>
             <p id="coverage-summary" class="helper-text"></p>
             <div id="coverage-list" class="stack-list"></div>
+          </div>
+
+          <div class="drawer-pane hidden" data-drawer-pane="callback">
+            <section class="panel callback-panel">
+                  <div class="panel-heading">
+                    <div>
+                      <h2>Callback Availability</h2>
+                      <p class="helper-text">Set how far ahead members can submit general availability for callback. This does not change overtime shift sign-ups.</p>
+                    </div>
+                  </div>
+                  <div class="template-controls">
+                    <label>
+                      Availability sign-up window
+                      <select id="callback-horizon-days">
+                        <option value="14">14 days</option>
+                        <option value="21">21 days</option>
+                        <option value="30">30 days</option>
+                      </select>
+                    </label>
+                    <button id="save-callback-settings-btn" class="button button-primary">Save callback window</button>
+                  </div>
+                  <p id="callback-settings-message" class="helper-text"></p>
+                  <div class="template-push">
+                    <label>Start date<input id="callback-candidate-start-date" type="date" /></label>
+                    <label>End date<input id="callback-candidate-end-date" type="date" /></label>
+                    <label>Required qualification
+                      <select id="callback-candidate-cap"><option value="">Any qualified rider</option><option value="officer">Officer</option><option value="engineer">Driver/Engineer</option><option value="paramedic">Paramedic</option><option value="emt">EMT</option></select>
+                    </label>
+                    <label>Overtime opening (optional)
+                      <select id="callback-overtime-post"><option value="">Record only</option></select>
+                    </label>
+                    <button id="callback-specific-time-toggle" class="button button-secondary">Use specific hours</button>
+                    <button id="find-callback-candidates-btn" class="button button-secondary">Find candidates</button>
+                  </div>
+                  <div id="callback-specific-time-fields" class="template-controls hidden">
+                    <label>Specific start<input id="callback-candidate-start" type="datetime-local" /></label>
+                    <label>Specific end<input id="callback-candidate-end" type="datetime-local" /></label>
+                  </div>
+                  <div id="callback-candidate-list" class="stack-list"></div>
+                  <div class="template-push">
+                    <div class="panel-heading">
+                      <div>
+                        <h3>Callback history</h3>
+                        <p class="helper-text">Recent recorded call outcomes. This history is retained on the scheduler server.</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="callback-history-list" class="stack-list"></div>
+                
+            </section>
           </div>
 
           <div class="drawer-pane hidden" data-drawer-pane="trades">
