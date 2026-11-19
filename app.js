@@ -1762,6 +1762,7 @@ function renderTimelineCard(date) {
           <span class="pill pill-highlight">${alerts.filter((item) => item.level === "warning").length} watch items</span>
         </div>
       </div>
+      ${displacedBoardHtml(date)}
       ${renderMandatoryDailyPanel(date)}
       <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
       ${specialMarkup ? `<section class="special-assignment-section"><h3>Special assignments</h3><p class="helper-text">These are Scheduler-only details. They block double-booking but do not affect apparatus readiness.</p><div class="timeline-grid">${specialMarkup}</div></section>` : ""}
@@ -3216,6 +3217,22 @@ function attachUnitMoveEvents() {
     button.addEventListener("click", () => {
       const { movePerson: personId, moveDate: date, moveUnit: unitId, moveStart: startMinute, moveRole: fromRole } = button.dataset;
       openSeatMoveDialog({ personId, date, unitId, startMinute, fromRole });
+    });
+  });
+
+  [...document.querySelectorAll("[data-displaced-move]")].forEach((select) => {
+    select.addEventListener("change", () => {
+      if (!select.value) return;
+      const moved = moveDisplacedPerson({
+        date: select.dataset.date,
+        employeeId: select.dataset.displacedMove,
+        fromUnitId: select.dataset.fromUnit || "",
+        toUnitId: select.value,
+      });
+      if (!moved) { select.value = ""; return; }
+      render();
+      persistAppState("Displaced member placed");
+      showToast("Member placed on the unit.", "success");
     });
   });
 }
@@ -7078,6 +7095,130 @@ function offRosterHtml(off, unit, date, isSupervisor) {
     </div>`;
 }
 
+// #300: nobody may be assigned but invisible. A member can be displaced two ways:
+//   * STRANDED   -- still assigned to a unit the board is not showing today (hidden /
+//                   out of service / on-demand and not activated). Their name used to
+//                   vanish from the board and they could not be placed elsewhere.
+//   * UNASSIGNED -- on duty today with no seat anywhere, e.g. released from an
+//                   out-of-service truck. Only listed once the day's board is being
+//                   staffed, so an empty future day does not list a whole platoon.
+// Both go in one section at the top of the day so a supervisor can drop them on an
+// in-service truck without re-enabling the one that is out. Absences (PTO etc.),
+// light duty and admin-position assignments are NOT displacement.
+function displacedForDate(date) {
+  const shown = new Set([...unitsForDate(date), ...specialAssignmentsForDate(date)].map((u) => u.id));
+  const unitsById = new Map(state.units.map((u) => [u.id, u]));
+  const seated = new Set();
+  const stranded = new Map();
+  let boardHasCrew = false;
+  Object.entries(state.assignments?.[date] || {}).forEach(([unitId, people]) => {
+    const unit = unitsById.get(unitId);
+    if (!unit) return;                       // orphaned unit: never counts as booked
+    (people || []).filter(Boolean).forEach((person) => {
+      if (isAbsent(person)) {
+        seated.add(person.id);               // on PTO etc.: accounted for, not lost
+      } else if (shown.has(unitId) || isAdminUnit(unit)) {
+        seated.add(person.id);
+        if (shown.has(unitId)) boardHasCrew = true;
+      } else {
+        if (!stranded.has(person.id)) stranded.set(person.id, { person, unit });
+      }
+    });
+  });
+  const entries = [];
+  stranded.forEach(({ person, unit }, id) => {
+    if (seated.has(id)) return;              // also seated on a shown unit: not lost
+    entries.push({ kind: "stranded", person, unit, employee: employeeById(id) });
+  });
+  if (boardHasCrew) {
+    const onDuty = getShiftForDate(date);
+    activeEmployees()
+      .filter((e) => e.shift === onDuty && !onLightDuty(e, date))
+      .forEach((employee) => {
+        if (seated.has(employee.id) || stranded.has(employee.id)) return;
+        entries.push({ kind: "unassigned", person: { ...employee }, unit: null, employee });
+      });
+  }
+  return entries.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "stranded" ? -1 : 1)
+    || (a.person.name || "").localeCompare(b.person.name || ""));
+}
+
+function displacedReason(unit) {
+  if (!unit) return "No seat today";
+  return unit.visible === false ? `${unit.name} — out of service` : `${unit.name} — not in service today`;
+}
+
+function displacedBoardHtml(date) {
+  const entries = displacedForDate(date);
+  if (!entries.length) return "";
+  const isSupervisor = state.currentRole === "supervisor";
+  const targets = unitsForDate(date);
+  const options = targets.map((unit) => {
+    const filled = getAssignments(date, unit.id).filter((p) => !isAbsent(p)).length;
+    return `<option value="${escapeHtml(unit.id)}">${escapeHtml(unit.name)} (${filled}/${unit.minStaff || 0})</option>`;
+  }).join("");
+  const rowHtml = ({ kind, person, unit }) => `
+      <div class="displaced-row ${kind === "stranded" ? "is-stranded" : ""}">
+        <span class="displaced-chip">${kind === "stranded" ? "Displaced" : "Unassigned"}</span>
+        <span class="displaced-who"><strong>${escapeHtml(person.name || person.id)}</strong>
+          <small>${escapeHtml([person.title, kind === "stranded" ? `from ${displacedReason(unit)}` : "no seat on an in-service unit"].filter(Boolean).join(" · "))}</small></span>
+        ${isSupervisor ? `<select class="displaced-move" data-displaced-move="${escapeHtml(person.id)}"
+              data-date="${date}" data-from-unit="${unit ? escapeHtml(unit.id) : ""}"
+              aria-label="Move ${escapeHtml(person.name || person.id)} to an in-service unit">
+            <option value="">Move to… </option>${options}</select>` : ""}
+      </div>`;
+  const stranded = entries.filter((e) => e.kind === "stranded");
+  const unassigned = entries.filter((e) => e.kind !== "stranded");
+  // Stranded members always show. A long unassigned list folds away so it never
+  // pushes the board off the screen; it opens by itself when it is short.
+  const unassignedHtml = !unassigned.length ? "" : unassigned.length > 6
+    ? `<details class="displaced-more"><summary>${unassigned.length} unassigned on-duty members</summary>${unassigned.map(rowHtml).join("")}</details>`
+    : unassigned.map(rowHtml).join("");
+  return `<section class="displaced-board" aria-label="Displaced and unassigned members">
+      <h4>Displaced / unassigned (${entries.length})</h4>
+      <p class="helper-text">On duty with no seat on an in-service unit. ${isSupervisor
+        ? "Pick an in-service unit to place them; the out-of-service unit does not need to be re-enabled."
+        : "A supervisor will place them."}</p>
+      ${stranded.map(rowHtml).join("")}${unassignedHtml}
+    </section>`;
+}
+
+// Move one displaced member onto an in-service unit. Their blocks are carried over
+// (a split-tour member keeps their hours); only the seat pin is dropped, because the
+// seat belonged to the unit they left.
+function moveDisplacedPerson({ date, employeeId, fromUnitId, toUnitId }) {
+  const employee = employeeById(employeeId);
+  const target = unitById(toUnitId);
+  if (!employee || !target) return false;
+  if (!employeeAvailableForUnit(employee, target, date)) {
+    window.alert(`${lightDutyReason(employee, date)}\n\nThey can be placed on an admin position instead.`);
+    return false;
+  }
+  const rows = fromUnitId
+    ? getAssignments(date, fromUnitId).filter((p) => p.id === employeeId)
+    : [{ ...employee }];
+  if (!rows.length) return false;
+  const blocks = (assignedBlocksForDate(date).get(employeeId) || []).filter((b) => b.unitId !== fromUnitId);
+  const clash = rows.some((row) => {
+    const abs = absoluteBlock(row, target);
+    return blocks.some((b) => blocksOverlap(b, abs));
+  });
+  if (clash) {
+    window.alert(`${employee.name} is already assigned elsewhere during that time.`);
+    return false;
+  }
+  if (!state.assignments[date]) state.assignments[date] = {};
+  if (fromUnitId) {
+    state.assignments[date][fromUnitId] = (state.assignments[date][fromUnitId] || [])
+      .filter((p) => p.id !== employeeId);
+  }
+  const placed = rows.map((row) => { const copy = { ...row }; delete copy._seat; return copy; });
+  state.assignments[date][toUnitId] = markManual([...getAssignments(date, toUnitId), ...placed]);
+  addAudit(`${employee.name} moved ${fromUnitId ? `from ${unitLabel(fromUnitId)} (out of service) ` : "from unassigned "}to ${unitLabel(toUnitId)} on ${formatDate(date)}.`, currentUserName());
+  createNotification(`${employee.name} assigned to ${unitLabel(toUnitId)} for ${formatDate(date)}.`, "email", currentUserName());
+  return true;
+}
+
 // #298: everyone off on this date, in ONE panel at the bottom of the day view,
 // sorted by name, each row saying which apparatus they came off. Same rows, same
 // clear (x) button as before -- only the placement changed.
@@ -7341,8 +7482,8 @@ function offerReleaseCrew(unit, found, scopeText) {
   const release = window.confirm(
     `${unit.name} is going out of service. ${names.length} ${names.length === 1 ? "person is" : "people are"} ` +
     `assigned to it ${scopeText} (${tours} assignment${tours === 1 ? "" : "s"}):\n\n${names.join(", ")}\n\n` +
-    `OK = release them to the unassigned pool so they can be placed on another unit.\n` +
-    `Cancel = leave them assigned to ${unit.name} (they stay hidden until it returns to service).`
+    `OK = release them to the Displaced / unassigned list at the top of the day so they can be placed on another unit.\n` +
+    `Cancel = leave them assigned to ${unit.name}. They still appear in the Displaced list so they can be moved.`
   );
   if (!release) return false;
   found.forEach(({ date, people }) => {

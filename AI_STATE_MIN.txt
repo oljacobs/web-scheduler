@@ -758,3 +758,5 @@ loadRemoteStateAfterAuth, seatAccepts/assignPeopleToSeats/seatDropdownOptions/as
 getAssignments/getShiftForDate/visibleUnits/activeEmployees/previewRosterImport/applyRosterImport
 
 2026-11 IT feedback: unit.station/unit.printCategory (+ *Effective read-only) drive printCategoryOf/printStationOf; print sheet = station > group; notes via /shift-notes/ (PRINT_STATE.notes, loadShiftNotes/saveShiftNote); off list via printOffList; MIL/OTH leave; offBoardHtml bottom panel; offerReleaseCrew on unit out of service.
+
+#300 follow-up: displacedForDate/displacedBoardHtml (top of day view) list members stranded on hidden/OOS units or on duty with no seat; moveDisplacedPerson places them on an in-service unit. Frontend only, derived from assignments (no new state key). Tests: node --test tests/.

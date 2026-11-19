@@ -301,3 +301,7 @@ IT FEEDBACK 2026-11 (#296-#308)
 - offBoardHtml(date): everyone off, ONE panel at the bottom of the day view (#298).
 - Print sheet (#302/#308): PRINT_CATEGORY_LABELS/ORDER, printCategoryOf, printStationOf, printUnitCard, printOffList; sheet is grouped by station then group, with border STYLE + heading word so B&W copies still separate groups.
 - Station / print group are set in Manage > Units (unit.station, unit.printCategory; blank = derived server-side). Shift notes: GET/PUT /api/scheduler/shift-notes/ (officer-only write), edited in the print dialog, PRINT_STATE.notes.
+
+DISPLACED MEMBERS (#300)
+- displacedForDate(date): stranded (assigned to a unit the board is not showing) + unassigned (on duty, no seat, only once the board has crew). Absences/light duty/admin assignments excluded.
+- displacedBoardHtml(date) renders at the top of renderTimelineCard; [data-displaced-move] selects call moveDisplacedPerson(). Hidden in print. Tests in tests/displaced.test.js (node --test tests/).
