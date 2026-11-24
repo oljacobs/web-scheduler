@@ -3433,7 +3433,10 @@ textarea:disabled {
 }
 
 @media (max-width: 1100px) {
-  .day-board { grid-template-columns: 1fr; }
+  .day-board { grid-template-columns: minmax(0, 1fr); }
+  .day-units, .day-units > *, .day-units .timeline-grid > * { min-width: 0; }
+  .day-units .unit-card { grid-template-columns: minmax(0, 1fr); }
+  .day-units .unit-card > *, .day-units .seat-list, .day-units .seat-row { min-width: 0; }
   .bench { position: static; max-height: none; }
 }
 @media (max-width: 700px) {
@@ -3588,4 +3591,64 @@ body:not([data-view="day"]) .show-options { display: none; }
   .ws-scroll { overflow: visible; border: 0; }
   .ws-table { min-width: 0; font-size: 9pt; }
   .ws-table thead th { position: static; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phone toolbar (2026-11 design review). The older ≤700px rules stretched every
+   control to full width, so ‹, the date, Today and › took four rows. Now:
+   row 1 = ‹ date Today ›, row 2 = the view tabs, row 3 = Status + Publish.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 700px) {
+  .toolbar-row { gap: 10px; min-width: 0; }
+  .toolbar-row > * { min-width: 0; max-width: 100%; }
+
+  .toolbar-row .date-controls {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) auto 44px;
+    gap: 6px;
+    width: 100%;
+    align-items: stretch;
+  }
+  .toolbar-row .date-controls > * { flex: none; min-width: 0; }
+  .toolbar-row .date-controls .icon-button { width: 44px; min-height: 44px; padding: 0; }
+  .toolbar-row .date-controls label { display: block; margin: 0; }
+  .toolbar-row .date-controls input { width: 100%; min-height: 44px; }
+  .toolbar-row .date-controls #today-btn { min-height: 44px; padding: 0 14px; }
+
+  .toolbar-row .view-switch {
+    display: flex;
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .toolbar-row .view-switch::-webkit-scrollbar { display: none; }
+  .toolbar-row .view-switch .view-button {
+    flex: 1 0 auto;
+    min-height: 40px;
+    padding: 0.45rem 5px;
+    font-size: 0.88rem;
+    white-space: nowrap;
+  }
+
+  .toolbar-row .status-group {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    width: 100%;
+    margin-left: 0;
+  }
+  .toolbar-row .status-group > * { flex: none; }
+  .toolbar-row .status-group label { flex: 0 0 auto; }
+  .toolbar-row .status-group label { min-width: 0; }
+  .status-label-long { display: none; }
+  .toolbar-row .status-group select { min-height: 44px; min-width: 0; }
+  .toolbar-row .status-group .button { flex: 1 1 0; min-width: 0; min-height: 44px; padding-left: 10px; padding-right: 10px; white-space: nowrap; }
+}
+@media (max-width: 380px) {
+  .toolbar-row .date-controls { grid-template-columns: 40px minmax(0, 1fr) auto 40px; gap: 4px; }
+  .toolbar-row .date-controls .icon-button { width: 40px; }
+  .toolbar-row .date-controls input { padding-left: 8px; padding-right: 6px; }
+  .toolbar-row .date-controls #today-btn { padding: 0 10px; }
 }

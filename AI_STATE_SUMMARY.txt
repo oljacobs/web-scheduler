@@ -333,3 +333,5 @@ VIEW + ACTIVITY: currentView forced to day on load and on Schedule/Admin surface
 SEAT MOVE: seatMoveTargets(person, unit, date, fromRole) / applySeatMove({...}) / openSeatMoveDialog (optgroups by unit). Tests: tests/displaced.test.js.
 
 HEADER: one row like the Checklist header. Gold = Schedule, Tools; More menu (attachHeaderMenuEvents: outside click / Esc / item click close it) holds account, Admin settings, Print, Email digest, hub, Sign out. renderSurfaceState hides Admin settings for crew and marks More is-current on the admin surface; auth render hides Tools + Sign out when signed out. Phone: brand row + one row of three buttons (~112px, was ~210px).
+
+PHONE TOOLBAR: date controls one row, view tabs one row, Status + Publish one row on phones; day board and unit cards shrink to fit 360px (min-width:0 / minmax(0,1fr)).
