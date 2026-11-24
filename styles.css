@@ -3505,3 +3505,63 @@ textarea:disabled {
 .toolbar-row .status-group { order: 4; }
 .toolbar-row .show-options { order: 5; flex: 1 1 100%; padding-top: 2px; border-top: 1px solid rgba(141, 175, 214, 0.1); }
 body:not([data-view="day"]) .show-options { display: none; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Daily worksheet (2026-11 design review, phase 4)
+   One dense table for payroll, hours and notes. 36px rows, numbers in
+   tabular figures and right-aligned; on a phone the table scrolls sideways.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.worksheet { display: grid; gap: 10px; padding: 16px; }
+.ws-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; }
+.ws-totals { margin: 0; }
+.ws-totals strong { color: var(--text); }
+.ws-open-count { color: #ff9b8f !important; }
+.ws-filter { display: block; flex: 0 1 300px; }
+.ws-filter input { min-height: 38px; padding: 6px 12px; font-size: 0.86rem; }
+
+.ws-scroll { overflow-x: auto; border: 1px solid var(--panel-border); border-radius: 10px; }
+.ws-table { width: 100%; min-width: 980px; border-collapse: collapse; font-size: 0.84rem; }
+.ws-table thead th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 8px 10px; text-align: left; white-space: nowrap;
+  background: var(--bg-soft); color: var(--accent);
+  font-family: "Barlow Condensed", "Inter", sans-serif; font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase;
+  border-bottom: 1px solid var(--panel-border);
+}
+.ws-table td { padding: 4px 10px; height: 36px; border-bottom: 1px solid rgba(141, 175, 214, 0.08); color: var(--muted); vertical-align: middle; }
+.ws-table .ws-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ws-table td.ws-name { color: var(--text); font-weight: 600; white-space: nowrap; }
+.ws-row.is-first td { border-top: 1px solid rgba(141, 175, 214, 0.16); }
+.ws-unit { white-space: nowrap; }
+.ws-unit-link {
+  padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 700; cursor: pointer;
+  text-decoration: underline; text-decoration-color: rgba(141, 175, 214, 0.35); text-underline-offset: 3px;
+}
+.ws-station th {
+  padding: 12px 10px 4px; text-align: left;
+  font-family: "Barlow Condensed", "Inter", sans-serif; font-size: 0.85rem; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent); background: rgba(224, 168, 58, 0.05);
+}
+.ws-row.is-open td { background: rgba(192, 57, 43, 0.1); }
+.ws-open { display: inline-block; padding: 1px 8px; border-radius: 999px; background: rgba(192, 57, 43, 0.28); color: #ffb3aa; font-weight: 700; font-size: 0.74rem; }
+.ws-row.is-off td { opacity: 0.75; }
+.ws-notes { min-width: 160px; }
+.ws-pay .seat-pay { border-top: 0; padding-top: 0; flex-wrap: nowrap; gap: 6px; }
+.ws-pay .seat-pay select, .ws-pay .seat-pay input { min-height: 30px; padding: 2px 8px; font-size: 0.78rem; }
+.ws-pay .pay-select { width: 8.5rem; flex: 0 0 auto; }
+.ws-pay .pay-note, .ws-pay .pay-for { width: 12rem; flex: 0 1 auto; }
+.ws-radio .seat-radio select { width: 6rem; min-height: 30px; }
+@media (hover: hover) and (pointer: fine) {
+  .ws-row:hover td { background: rgba(141, 175, 214, 0.06); }
+  .ws-unit-link:hover { color: var(--accent); text-decoration-color: var(--accent); }
+}
+@media (max-width: 700px) {
+  .worksheet { padding: 10px; }
+  .ws-filter { flex: 1 1 100%; }
+}
+@media print {
+  .ws-toolbar .ws-filter { display: none; }
+  .ws-scroll { overflow: visible; border: 0; }
+  .ws-table { min-width: 0; font-size: 9pt; }
+  .ws-table thead th { position: static; }
+}

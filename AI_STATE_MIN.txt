@@ -4,6 +4,14 @@ BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
 APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
 fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
 
+DAILY WORKSHEET (2026-11-24, design review phase 4): view "worksheet" (button beside Month). One date
+(getDateRange, shiftDate step 1). `worksheetRowsForDate(date)` -> rows {station, unit, kind:
+"assigned"|"open"|"off", pos, person, block} from assignPeopleToSeats (same model as the Day board;
+"open" = each uncovered window of a REQUIRED seat). `renderWorksheet()` draws the table with totals
+(on duty, hours, open, off) and a client-side filter (#ws-filter). Supervisors edit pay codes and
+radios in place: `payCodeBlockHtml(..., forceEdit)` / `seatRadioHtml(..., forceEdit)` ignore the Day
+board's Show options here. Moving people stays on the Day board (unit names link to it).
+Month arrows now step whole months. Tests: tests/worksheet.test.js.
 MONTH STAFFING (2026-11-24, design review phase 3): `renderMonthCalendar(dates)` is a units x days
 table (units grouped by `printStationOf`, like the Day board). `unitDayStaffing(unit, date)` returns
 {filled, required, ok, people} = covered REQUIRED seats via assignPeopleToSeats -- the same number as the

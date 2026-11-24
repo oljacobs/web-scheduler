@@ -3,6 +3,10 @@
 > `AI_STATE_MIN.txt`. This file is retained for session history and may describe
 > superseded behavior.
 
+Latest note (2026-11-24): phase 4 — Daily Worksheet view (dense table: unit, seat, name, rank,
+start/end/hours, pay code, radio, notes; open seats and people off included). See DAILY WORKSHEET in
+`AI_STATE_MIN.txt`.
+
 Latest note (2026-11-24): phase 3 — Month view is a units x days staffing table (covered required
 seats, same count as the Day card and Week view), Names toggle, real month length; Day board grouped by
 station. See MONTH STAFFING / DAY BOARD STATIONS in `AI_STATE_MIN.txt`.

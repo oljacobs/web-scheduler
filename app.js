@@ -1260,7 +1260,7 @@ function renderAlerts() {
 function renderSchedule() {
   const range = getDateRange();
   const viewLabels = { day: "Daily Schedule", week: "Weekly Schedule",
-    month: "Monthly Schedule", admin: "Admin & Light Duty" };
+    month: "Monthly Schedule", worksheet: "Daily Worksheet", admin: "Admin & Light Duty" };
   dom["schedule-title"].textContent = viewLabels[state.currentView] || "Schedule View";
   dom["schedule-subtitle"].textContent = `${formatDate(range[0])}${range.length > 1 ? ` through ${formatDate(range[range.length - 1])}` : ""}`;
 
@@ -1277,6 +1277,8 @@ function renderSchedule() {
     dom["schedule-container"].innerHTML = renderAdminSchedule(range);
   } else if (state.currentView === "day") {
     dom["schedule-container"].innerHTML = renderTimelineCard(range[0]);
+  } else if (state.currentView === "worksheet") {
+    dom["schedule-container"].innerHTML = renderWorksheet(range[0]);
   } else if (state.currentView === "week") {
     dom["schedule-container"].innerHTML = renderWeekCalendar(range);
   } else {
@@ -1292,6 +1294,7 @@ function renderSchedule() {
   attachMandatoryDailyEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
   attachMonthModeEvents(dom["schedule-container"]);
+  attachWorksheetEvents(dom["schedule-container"]);
   attachUnitServiceEvents(dom["schedule-container"]);
   if (BOARD_MOVE.source && BOARD_MOVE.mode === "tap") {
     if (state.currentView === "day" && BOARD_MOVE.source.date === state.currentDate) decorateBoardMove();
@@ -2030,6 +2033,134 @@ function attachMonthModeEvents(root) {
       try { localStorage.setItem(MONTH_UI_KEY, MONTH_UI.names ? "1" : "0"); } catch (e) { /* not remembered */ }
       render();
     });
+  });
+}
+
+// ─── Daily worksheet (design review phase 4) ──────────────────────────────────
+// The day as a dense table, for checking payroll, hours and notes: one row per
+// assigned block, every open required window, and everyone off this tour. It
+// reads the same seat model as the Day board (assignPeopleToSeats), so the two
+// always agree. Moving people stays on the board; here a supervisor can set
+// pay codes and radios in place (always shown here -- this IS the payroll
+// view), and "Open on board" jumps to the Day view.
+function worksheetRowsForDate(date) {
+  const rows = [];
+  const groups = new Map();
+  unitsForDate(date).forEach((unit) => {
+    const station = printStationOf(unit) || "Other";
+    if (!groups.has(station)) groups.set(station, []);
+    groups.get(station).push(unit);
+  });
+  const stations = [...groups.keys()].sort((a, b) => (a === "Other") - (b === "Other")
+    || String(a).localeCompare(String(b), undefined, { numeric: true }));
+  stations.forEach((station) => {
+    groups.get(station).forEach((unit) => {
+      const tour = unitTourMinutes(unit);
+      const people = getAssignments(date, unit.id);
+      const positions = positionsForUnit(unit);
+      const base = { station, unit };
+      if (!positions) {
+        people.filter((p) => !isAbsent(p)).forEach((person) =>
+          rows.push({ ...base, kind: "assigned", pos: { label: person.title || "Crew", role: "" }, person, block: blockOf(person, tour) }));
+        return;
+      }
+      const { seats, extra, off } = assignPeopleToSeats(unit.type, people, unit, date);
+      seats.forEach((seat) => {
+        seat.people.forEach((person) => rows.push({ ...base, kind: "assigned", pos: seat.pos, person, block: blockOf(person, tour) }));
+        if (seatIsRequired(seat.pos)) {
+          seat.gaps.forEach((gap) => rows.push({ ...base, kind: "open", pos: seat.pos, person: null, block: gap }));
+        }
+      });
+      (extra || []).forEach((person) => rows.push({ ...base, kind: "assigned", pos: { label: "Extra rider", role: "" }, person, block: blockOf(person, tour) }));
+      (off || []).forEach((person) => rows.push({ ...base, kind: "off", pos: { label: "Off", role: "" }, person, block: blockOf(person, tour) }));
+    });
+  });
+  return rows;
+}
+
+function renderWorksheet(date) {
+  const isSupervisor = state.currentRole === "supervisor";
+  const rows = worksheetRowsForDate(date);
+  const onDuty = rows.filter((r) => r.kind === "assigned");
+  const hours = onDuty.reduce((sum, r) => sum + (r.block.end - r.block.start), 0) / 60;
+  const open = rows.filter((r) => r.kind === "open").length;
+  const offCount = rows.filter((r) => r.kind === "off").length;
+  let lastStation = null;
+  let lastUnit = null;
+  const body = rows.map((row) => {
+    const { unit, person, pos, block, kind } = row;
+    let stationRow = "";
+    if (row.station !== lastStation) {
+      lastStation = row.station;
+      const label = row.station === "Other" ? "Other units" : `Station ${row.station}`;
+      stationRow = `<tr class="ws-station"><th colspan="10" scope="rowgroup">${escapeHtml(label)}</th></tr>`;
+    }
+    const firstOfUnit = unit.id !== lastUnit;
+    lastUnit = unit.id;
+    const start = minuteToTimeValue(block.start, unit);
+    const end = minuteToTimeValue(block.end, unit);
+    const hrs = ((block.end - block.start) / 60).toFixed(1).replace(/\.0$/, "");
+    const unitCell = `<td class="ws-unit">${firstOfUnit ? `<button type="button" class="ws-unit-link" data-nav-date="${date}" title="Open ${escapeHtml(unit.name)} on the board">${escapeHtml(unit.name)}</button>` : ""}</td>`;
+    const search = escapeHtml([unit.name, pos.label, person?.name, person?.title, person?._pay, person?._off].filter(Boolean).join(" ").toLowerCase());
+    if (kind === "open") {
+      return `${stationRow}<tr class="ws-row is-open${firstOfUnit ? " is-first" : ""}" data-ws-search="${search} open">
+          ${unitCell}<td>${escapeHtml(pos.label)}</td><td colspan="2"><span class="ws-open">Open</span></td>
+          <td class="ws-num">${start}</td><td class="ws-num">${end}</td><td class="ws-num">${hrs}</td><td></td><td></td>
+          <td class="ws-notes">${escapeHtml(seatNeedLabel(pos) ? `Needs ${seatNeedLabel(pos)}` : "Any qualified member")}</td></tr>`;
+    }
+    if (kind === "off") {
+      const note = [absenceLabel(person._off), person._offNote].filter(Boolean).join(" — ");
+      return `${stationRow}<tr class="ws-row is-off${firstOfUnit ? " is-first" : ""}" data-ws-search="${search} off">
+          ${unitCell}<td>Off</td><td class="ws-name">${escapeHtml(person.name)}</td><td>${escapeHtml(person.title || "")}</td>
+          <td class="ws-num">${start}</td><td class="ws-num">${end}</td><td class="ws-num">${hrs}</td>
+          <td><span class="pay-chip">${escapeHtml(person._off || "")}</span></td><td></td><td class="ws-notes">${escapeHtml(note)}</td></tr>`;
+    }
+    const pay = payCodeBlockHtml(person, unit, date, isSupervisor, true);
+    const radio = pos.role ? seatRadioHtml(pos, unit, date, isSupervisor, true) : "";
+    const notes = [
+      person._paid ? `Trade · paid to ${employeeById(person._paid)?.name || "another member"}` : "",
+      !isSupervisor && person._payNote ? person._payNote : "",
+    ].filter(Boolean).join(" · ");
+    return `${stationRow}<tr class="ws-row${firstOfUnit ? " is-first" : ""}" data-ws-search="${search}">
+        ${unitCell}<td>${escapeHtml(pos.label)}</td><td class="ws-name">${escapeHtml(person.name)}</td><td>${escapeHtml(person.title || "")}</td>
+        <td class="ws-num">${start}</td><td class="ws-num">${end}</td><td class="ws-num">${hrs}</td>
+        <td class="ws-pay">${pay}</td><td class="ws-radio">${radio}</td><td class="ws-notes">${escapeHtml(notes)}</td></tr>`;
+  }).join("");
+  return `
+    <section class="worksheet">
+      <div class="ws-toolbar">
+        <p class="helper-text ws-totals"><strong>${onDuty.length}</strong> on duty · <strong>${hours.toFixed(1).replace(/\.0$/, "")}</strong> hours
+          ${open ? ` · <strong class="ws-open-count">${open} open</strong>` : ""} · ${offCount} off this tour</p>
+        <label class="ws-filter"><span class="visually-hidden">Filter the worksheet</span>
+          <input type="search" id="ws-filter" placeholder="Filter: name, unit, pay code…" autocomplete="off"></label>
+      </div>
+      <div class="ws-scroll">
+        <table class="ws-table">
+          <thead><tr>
+            <th scope="col">Unit</th><th scope="col">Seat</th><th scope="col">Name</th><th scope="col">Rank</th>
+            <th scope="col" class="ws-num">Start</th><th scope="col" class="ws-num">End</th><th scope="col" class="ws-num">Hours</th>
+            <th scope="col">Pay code${isSupervisor ? " / note" : ""}</th><th scope="col">Radio</th><th scope="col">Notes</th>
+          </tr></thead>
+          <tbody>${body || '<tr><td colspan="10" class="empty-state">No units in service on this day.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <p class="helper-text ws-empty hidden" id="ws-empty">No rows match the filter.</p>
+    </section>`;
+}
+
+function attachWorksheetEvents(root) {
+  const input = root?.querySelector("#ws-filter");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    const q = input.value.trim().toLowerCase();
+    let shown = 0;
+    root.querySelectorAll(".ws-row").forEach((row) => {
+      const match = !q || (row.dataset.wsSearch || "").includes(q);
+      row.classList.toggle("hidden", !match);
+      if (match) shown += 1;
+    });
+    root.querySelectorAll(".ws-station").forEach((head) => head.classList.toggle("hidden", !!q));
+    root.querySelector("#ws-empty")?.classList.toggle("hidden", shown > 0);
   });
 }
 
@@ -6672,13 +6803,21 @@ function showToast(message, type = "success") {
 // ─── Date / Schedule Helpers ──────────────────────────────────────────────────
 
 function shiftDate(direction) {
-  const amount = state.currentView === "day" ? 1 : state.currentView === "week" ? 7 : 28;
+  if (state.currentView === "month") {
+    // Whole months, so the arrows never skip or repeat one.
+    const [year, month] = state.currentDate.split("-").map(Number);
+    const next = new Date(year, month - 1 + direction, 1);
+    state.currentDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+    render();
+    return;
+  }
+  const amount = state.currentView === "day" || state.currentView === "worksheet" ? 1 : 7;
   state.currentDate = addDays(state.currentDate, direction * amount);
   render();
 }
 
 function getDateRange() {
-  if (state.currentView === "day") {
+  if (state.currentView === "day" || state.currentView === "worksheet") {
     return [state.currentDate];
   }
   // The admin week IS the unit of work here -- a 10hr Mon-Thu position is read a
@@ -7494,7 +7633,7 @@ function payForOptionsHtml(person, selected) {
 // The pay block hangs under a filled seat row. Supervisors get the controls;
 // everyone else sees the code read-only, because the crew needs to be able to
 // verify what they were coded as without being able to change it.
-function payCodeBlockHtml(person, unit, date, isSupervisor) {
+function payCodeBlockHtml(person, unit, date, isSupervisor, forceEdit = false) {
   const codes = state.payCodes || [];
   if (!codes.length) return "";
   const code = person._pay || "";
@@ -7502,7 +7641,7 @@ function payCodeBlockHtml(person, unit, date, isSupervisor) {
 
   // Read-only whenever the viewer cannot edit OR has the controls switched off.
   // A code that IS set always shows: the toggle hides the pickers, never the data.
-  if (!isSupervisor || !PAY_UI.show) {
+  if (!isSupervisor || !(PAY_UI.show || forceEdit)) {
     if (!code) return "";
     const forWho = person._payFor ? (employeeById(person._payFor)?.name || "") : "";
     return `<div class="seat-pay seat-pay-readonly">
@@ -7892,10 +8031,10 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
 // Compact, inline radio for a seat. With "Radios" switched off under Show, a
 // radio that IS set still shows as a chip -- the toggle hides the picker, never
 // the data -- and an unset one shows nothing.
-function seatRadioHtml(pos, unit, date, isSupervisor) {
-  if (!usesSchedulerApi() || state.currentView !== "day" || !pos.role) return "";
+function seatRadioHtml(pos, unit, date, isSupervisor, forceEdit = false) {
+  if (!usesSchedulerApi() || !["day", "worksheet"].includes(state.currentView) || !pos.role) return "";
   const radio = radioForSeat(date, unit.id, pos.role);
-  if (!isSupervisor || !RADIO_UI.show) return radio
+  if (!isSupervisor || !(RADIO_UI.show || forceEdit)) return radio
     ? `<span class="seat-radio seat-radio-readonly" title="Radio">${escapeHtml(radio)}</span>` : "";
   const options = (state.radioOptions || []).map((value) =>
     `<option value="${escapeHtml(value)}"${value === radio ? " selected" : ""}>${escapeHtml(value)}</option>`).join("");
