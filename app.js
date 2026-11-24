@@ -232,7 +232,7 @@ function cacheDom() {
   ids.forEach((id) => {
     dom[id] = document.getElementById(id);
   });
-  dom.viewButtons = [...document.querySelectorAll(".view-button")];
+  dom.viewButtons = [...document.querySelectorAll(".view-button[data-view]")];
   dom.mainContent = document.getElementById("main-content");
   dom.accessGate = document.getElementById("access-gate");
   dom.appShell = document.querySelector(".app-shell");
@@ -247,6 +247,7 @@ function cacheDom() {
 function wireEvents() {
   dom["ms-sign-in-btn"].addEventListener("click", handleMsalLogin);
   dom["sign-out-btn"].addEventListener("click", handleMsalSignOut);
+  attachHeaderMenuEvents();
   dom["date-input"].addEventListener("change", () => {
     state.currentDate = dom["date-input"].value;
     render();
@@ -1142,6 +1143,24 @@ function renderDrawerBadge() {
   el.classList.toggle("hidden", total === 0);
 }
 
+// The header's More menu is a native <details>. Close it on an outside click,
+// on Esc (focus back on More), and once an item inside it has been chosen.
+function attachHeaderMenuEvents() {
+  const menu = document.querySelector(".app-topbar .nav-more");
+  if (!menu) return;
+  document.addEventListener("click", (event) => {
+    if (menu.open && !menu.contains(event.target)) menu.open = false;
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !menu.open) return;
+    menu.open = false;
+    menu.querySelector("summary")?.focus();
+  });
+  menu.querySelector(".nav-menu-panel")?.addEventListener("click", (event) => {
+    if (event.target.closest(".nav-menu-item")) menu.open = false;
+  });
+}
+
 function renderSurfaceState() {
   const adminAllowed = canAccessAdmin();
   if (!adminAllowed && state.activeSurface === "admin") {
@@ -1149,8 +1168,11 @@ function renderSurfaceState() {
   }
   dom.surfaceButtons.schedule.classList.toggle("is-active", state.activeSurface === "schedule");
   dom.surfaceButtons.admin.classList.toggle("is-active", state.activeSurface === "admin");
-  dom.surfaceButtons.admin.disabled = !adminAllowed;
-  dom.surfaceButtons.admin.title = adminAllowed ? "" : "Supervisor sign-in required";
+  // Admin settings lives in the More menu; crew never see it rather than seeing
+  // a dead item. More reads as "you are here" while admin settings are open.
+  dom.surfaceButtons.admin.hidden = !adminAllowed;
+  dom.surfaceButtons.admin.classList.toggle("is-current", state.activeSurface === "admin");
+  document.getElementById("nav-more-toggle")?.classList.toggle("is-current", state.activeSurface === "admin");
   dom["schedule-surface"].classList.toggle("hidden", state.activeSurface !== "schedule");
   dom["admin-surface"].classList.toggle("hidden", state.activeSurface !== "admin");
 }
@@ -3275,6 +3297,8 @@ function renderPermissionStates() {
   dom["publish-btn"].classList.toggle("button-secondary", !isDraft);
   dom["notify-btn"].disabled = employeeLocked;
   dom["print-btn"].disabled = employeeLocked;
+  dom["notify-btn"].hidden = employeeLocked;
+  dom["print-btn"].hidden = employeeLocked;
   dom["schedule-status"].disabled = supervisorLocked;
   // Crew retain read-only schedule, radio, pay-code, and time information, but
   // do not see controls that only an officer is allowed to use.
@@ -3312,6 +3336,9 @@ function renderPermissionStates() {
   // Auth panel — toggle signed-in / signed-out views
   dom["auth-signed-out"].classList.toggle("hidden", state.isAuthenticated);
   dom["auth-signed-in"].classList.toggle("hidden", !state.isAuthenticated);
+  dom["sign-out-btn"].hidden = !state.isAuthenticated;
+  // Signed out, Sign in is the one gold button; Tools has nothing to show yet.
+  dom["drawer-toggle"].hidden = !state.isAuthenticated;
   if (state.isAuthenticated) {
     const displayName = state.currentUserDisplayName || "User";
     const title = state.currentUserTitle || "";

@@ -817,3 +817,5 @@ Member callback availability (add/withdraw own dates) moved out of 'Your next sh
 Scheduler always opens/returns to the Day view (surface switches reset currentView; never restored). Activity (renderNotifications) hides relatedKind 'maintenance*' via isSchedulerNotification; those live on the checklist app's My requests page.
 
 Move button (openSeatMoveDialog): targets = seatMoveTargets() = any open (gap-holding), qualified (seatAccepts + light duty), non-clashing seat on ANY unit running that date; applySeatMove() re-pins same-unit or moves the block across units keeping hours (_seat pinned, both units markManual).
+
+HEADER (matches Checklist): .topbar-nav = gold Schedule (#surface-schedule-btn) + gold Tools (#drawer-toggle) + Sign in (#auth-signed-out, signed out only) + <details class="nav-more"> More. More holds the account card (#auth-signed-in, role badge), Admin settings (#surface-admin-btn, hidden unless canAccessAdmin), Print, Email digest, Department hub, Sign out. IDs unchanged. viewButtons = .view-button[data-view] only.

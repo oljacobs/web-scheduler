@@ -1960,94 +1960,157 @@ textarea:disabled {
   text-transform: uppercase;
 }
 
-.topbar-surfaces {
+/* Header nav, matching the Checklist header: gold = where the work happens
+   (Schedule, Tools), outlined = everything else, folded into one More menu. */
+.topbar-nav {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 0.5rem;
   margin-left: auto;
 }
 
-.topbar-surfaces .view-button,
-.masthead-utility {
-  min-height: 40px;
-  border-radius: 7px;
-  font-family: "Barlow Condensed", sans-serif;
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.topbar-surfaces .view-button {
-  padding: 0.55rem 0.9rem;
-  color: #241a06;
-  background: var(--accent);
-}
-
-.topbar-surfaces .view-button.is-active {
-  color: var(--accent-strong);
-  background: rgba(224, 168, 58, 0.2);
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.topbar-actions {
-  display: flex;
-  gap: 8px;
+.topbar-nav .nav-link {
+  display: inline-flex;
   align-items: center;
-  margin-left: 0;
-}
-
-.masthead-account {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.masthead-account #auth-signed-out {
-  display: flex;
-  align-items: center;
-}
-
-.masthead-account .ms-signin-btn {
+  justify-content: center;
+  gap: 6px;
   width: auto;
   min-height: 40px;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--panel-border);
+  padding: 0.55rem 0.9rem;
+  border: 0;
   border-radius: 7px;
-  background: transparent;
+  background: var(--accent);
   box-shadow: none;
-  color: var(--muted);
+  color: #241a06;
+  cursor: pointer;
   font-family: "Barlow Condensed", sans-serif;
   font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+  line-height: 1;
+  text-decoration: none;
   text-transform: uppercase;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, transform 0.12s ease;
 }
 
-.masthead-account .ms-signin-btn:hover {
-  border-color: var(--accent);
+.topbar-nav .nav-link:active { transform: scale(0.97); }
+
+/* The page you are on should not look like a button that takes you somewhere. */
+.topbar-nav .nav-link.is-active,
+.topbar-nav .nav-link.is-current {
+  background: rgba(224, 168, 58, 0.2);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  color: var(--accent-strong);
+}
+
+.topbar-nav .nav-link.nav-outline {
   background: transparent;
-  box-shadow: none;
-  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--panel-border);
+  color: var(--text);
 }
 
-.masthead-account #auth-signed-in {
+.topbar-nav .nav-link.nav-outline.is-current {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  color: var(--accent-strong);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .topbar-nav .nav-link:hover { background: #eebb55; }
+  .topbar-nav .nav-link.is-active:hover,
+  .topbar-nav .nav-link.is-current:hover { background: rgba(224, 168, 58, 0.12); }
+  .topbar-nav .nav-link.nav-outline:hover { background: rgba(141, 154, 184, 0.14); }
+}
+
+/* On a gold button the badge flips to dark so it does not vanish. */
+.topbar-nav .nav-link .drawer-badge {
+  margin-left: 0;
+  background: #241a06;
+  color: var(--accent-strong);
+}
+
+.topbar-nav .nav-link[hidden] { display: none; }
+.nav-signin { display: flex; }
+.nav-signin.hidden { display: none; }
+
+.nav-menu { position: relative; }
+.nav-menu > summary { list-style: none; }
+.nav-menu > summary::-webkit-details-marker { display: none; }
+.nav-menu > summary::after { content: "⌄"; margin-left: 0.4rem; font-size: 0.9em; transform: translateY(-0.15em); }
+.nav-more[open] > summary.nav-outline { background: rgba(141, 154, 184, 0.14); }
+
+.nav-menu-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  display: grid;
+  min-width: 15rem;
+  padding: 0.4rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
+  transform-origin: top right;
+  animation: nav-menu-in 0.14s ease-out;
+}
+
+@keyframes nav-menu-in {
+  from { opacity: 0; transform: scale(0.97) translateY(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-menu-panel { animation: none; }
+}
+
+.nav-menu-account {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0.45rem 0.55rem 0.65rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid var(--panel-border);
 }
 
-.masthead-account .auth-user-card {
-  padding: 0;
+.nav-menu-account.hidden { display: none; }
+.nav-menu-account .auth-user-card { padding: 0; gap: 10px; min-width: 0; }
+.nav-menu-account .auth-user-avatar { width: 34px; height: 34px; flex: none; }
+.nav-menu-account .auth-user-name { margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-menu-account .helper-text { margin: 0; white-space: nowrap; }
+.nav-menu-account .badge { flex: none; }
+
+.nav-menu-item {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0.65rem 0.75rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 650;
+  text-align: left;
+  text-decoration: none;
 }
 
-.masthead-account .auth-user-avatar {
-  width: 34px;
-  height: 34px;
+.nav-menu-item[hidden] { display: none; }
+.nav-menu-item.is-current { background: rgba(224, 168, 58, 0.18); color: var(--accent-strong); }
+
+@media (hover: hover) and (pointer: fine) {
+  .nav-menu-item:hover { background: rgba(224, 168, 58, 0.14); color: var(--accent-strong); }
 }
 
-.masthead-account .auth-user-name,
-.masthead-account .helper-text {
-  white-space: nowrap;
+.nav-menu-signout {
+  margin-top: 0.3rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--panel-border);
+  border-radius: 0 0 6px 6px;
+  color: var(--muted);
 }
 
 .visually-hidden {
@@ -2060,28 +2123,6 @@ textarea:disabled {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-.masthead-utility {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--panel-border);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.masthead-utility:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.masthead-utility-icon {
-  min-width: 40px;
-  font-size: 0.8rem;
 }
 
 .drawer-badge {
@@ -2244,33 +2285,16 @@ textarea:disabled {
     padding: 8px 10px;
   }
 
-  /* Surface switch drops to its own full-width row so targets stay tappable. */
-  .topbar-surfaces {
-    order: 4;
-    width: 100%;
-    margin-left: 0;
-  }
-
   .masthead-brand { gap: 9px; }
   .scramble { width: 44px; height: 43px; }
   .masthead-eyebrow { font-size: 0.52rem; letter-spacing: 0.12em; }
-  .masthead-utility-icon span { display: none; }
-  .masthead-utility { min-height: 44px; }
 
-  .topbar-actions { order: 3; margin-left: 0; }
-  .masthead-account { margin-left: auto; }
-  .masthead-account .badge { display: none; }
-  .masthead-account .auth-user-name { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; }
-
-  .topbar-surfaces .view-button {
-    flex: 1;
-    min-height: 44px;
-  }
-
-  .topbar-actions .icon-button,
-  .topbar-actions .button {
-    min-height: 44px;
-  }
+  /* Phone: one row of equal buttons under the brand -- Schedule, Tools, More. */
+  .topbar-nav { width: 100%; margin-left: 0; gap: 0.4rem; }
+  .topbar-nav > * { flex: 1 1 0; min-width: 0; }
+  .topbar-nav .nav-link { width: 100%; min-height: 44px; padding-left: 0.4rem; padding-right: 0.4rem; }
+  .nav-menu-panel { min-width: min(17rem, calc(100vw - 20px)); }
+  .nav-menu-item { padding: 0.8rem 0.75rem; }
 
   .tool-drawer {
     width: 100%;

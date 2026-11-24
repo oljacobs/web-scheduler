@@ -21,19 +21,17 @@
           <span class="masthead-title">District 7 Fire Rescue<span class="masthead-sub">Crew Scheduler</span></span>
         </span>
       </a>
-      <div class="topbar-surfaces">
-        <button id="surface-schedule-btn" class="view-button is-active">Schedule</button>
-        <button id="surface-admin-btn" class="view-button">Admin</button>
-      </div>
-      <div class="topbar-actions">
-        <button id="drawer-toggle" class="masthead-utility" aria-controls="tool-drawer" aria-expanded="false">Tools <span id="drawer-badge" class="drawer-badge hidden">0</span></button>
-        <button id="print-btn" class="masthead-utility masthead-utility-icon" title="Print / Save PDF" aria-label="Print or save PDF">&#9113;<span>Print</span></button>
-        <button id="notify-btn" class="masthead-utility masthead-utility-icon" title="Send daily email digest" aria-label="Send daily email digest">&#9993;<span>Email</span></button>
-      </div>
-      <section class="masthead-account" aria-label="Account">
-        <div id="auth-signed-out">
-          <button id="ms-sign-in-btn" class="masthead-utility ms-signin-btn">
-            <svg width="18" height="18" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <!-- Matches the Checklist header: gold buttons are where the work happens
+           (the schedule, the Tools drawer with requests and approvals); everything
+           else -- admin settings, print, email digest, the hub, sign out -- sits in
+           one "More" menu, so the bar fits one row on a phone. IDs are unchanged;
+           app.js still wires every control by id. -->
+      <nav class="topbar-nav" aria-label="Scheduler">
+        <button id="surface-schedule-btn" class="nav-link is-active">Schedule</button>
+        <button id="drawer-toggle" class="nav-link" aria-controls="tool-drawer" aria-expanded="false">Tools <span id="drawer-badge" class="drawer-badge hidden">0</span></button>
+        <div id="auth-signed-out" class="nav-signin">
+          <button id="ms-sign-in-btn" class="nav-link ms-signin-btn">
+            <svg width="16" height="16" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#00a4ef"/>
               <rect x="1" y="11" width="9" height="9" fill="#7fba00"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
             </svg>
@@ -41,15 +39,24 @@
           </button>
           <span id="auth-message" class="visually-hidden">Sign in with your D7FR Microsoft account.</span>
         </div>
-        <div id="auth-signed-in" class="hidden">
-          <div class="auth-user-card">
-            <div class="auth-user-avatar" id="auth-user-initials"></div>
-            <div><p class="auth-user-name" id="auth-user-name"></p><p class="helper-text" id="auth-user-title"></p></div>
+        <details class="nav-menu nav-more">
+          <summary id="nav-more-toggle" class="nav-link nav-outline">More</summary>
+          <div class="nav-menu-panel">
+            <div id="auth-signed-in" class="nav-menu-account hidden">
+              <div class="auth-user-card">
+                <div class="auth-user-avatar" id="auth-user-initials"></div>
+                <div><p class="auth-user-name" id="auth-user-name"></p><p class="helper-text" id="auth-user-title"></p></div>
+              </div>
+              <span id="auth-role-badge" class="badge badge-soft">Department access</span>
+            </div>
+            <button id="surface-admin-btn" class="nav-menu-item">Admin settings</button>
+            <button id="print-btn" class="nav-menu-item">Print / save PDF</button>
+            <button id="notify-btn" class="nav-menu-item">Email daily digest</button>
+            <a class="nav-menu-item" href="https://hub.d7fr.org" target="_blank" rel="noopener">Department hub ↗</a>
+            <button id="sign-out-btn" class="nav-menu-item nav-menu-signout">Sign out</button>
           </div>
-          <button id="sign-out-btn" class="masthead-utility">Sign out</button>
-        </div>
-        <span id="auth-role-badge" class="badge badge-soft">Department access</span>
-      </section>
+        </details>
+      </nav>
     </header>
     <div class="app-shell">
       <main id="main-content" class="main-content">
