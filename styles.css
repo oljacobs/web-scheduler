@@ -3230,7 +3230,36 @@ textarea:disabled {
   align-items: start;
   padding: 16px 16px 0;
 }
-.day-board > .timeline-grid { padding: 0 0 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); }
+.day-units { display: grid; gap: 18px; padding: 16px; }
+.day-board > .day-units { padding: 0 0 16px; }
+.day-board .timeline-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); }
+.day-units .timeline-grid { padding: 0; align-items: stretch; }
+/* Cards on one row share a height and their seat lists start on the same line. */
+.day-units .unit-card { align-content: start; }
+
+.station-group { display: grid; gap: 8px; }
+.station-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(224, 168, 58, 0.45);
+  font-family: "Barlow Condensed", "Inter", sans-serif;
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.station-meta {
+  font-family: "Inter", sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+.station-short { color: #ff9b8f; }
 
 .bench {
   position: sticky;
@@ -3393,3 +3422,9 @@ textarea:disabled {
 @media print {
   .bench, .board-move-bar { display: none; }
 }
+
+/* Name on one line, rank and platoon on a second small line, on every seat, so
+   rows are the same shape and a long name never breaks across three lines. */
+.seat-who { display: flex; flex-direction: column; min-width: 0; }
+.seat-who strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seat-who small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

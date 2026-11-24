@@ -4,6 +4,9 @@ BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
 APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
 fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
 
+DAY BOARD STATIONS (2026-11-24): the Day view groups units by `printStationOf(unit)` (unit.station, else
+stationEffective, else the 3-digit number in id/name; "Other" last) via `dayStationGroupsHtml()`. Each
+station is its own `.timeline-grid` with equal-height rows; columns are min 520px beside the Bench.
 DAY BOARD MOVES (2026-11-24, design review phase 2): one engine drives drag-and-drop and
 tap-to-move. `boardMoveTargets(src)` -> Map(seatKey "unitId|role" -> {action: "place"|"swap", unit,
 pos, window, other}). Seat sources reuse `seatMoveTargets` for "place"; SWAP is new and only for

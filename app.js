@@ -1748,9 +1748,7 @@ function renderAdminSchedule(range) {
 function renderTimelineCard(date) {
   const shift = getShiftForDate(date);
   const alerts = getStaffingAlerts(date);
-  const unitsMarkup = unitsForDate(date)
-    .map((unit) => renderUnitCard(unit, date, shift))
-    .join("");
+  const unitsMarkup = dayStationGroupsHtml(date, shift);
   const specialMarkup = specialAssignmentsForDate(date)
     .map((unit) => renderUnitCard(unit, date, shift))
     .join("");
@@ -3695,11 +3693,39 @@ function attachBoardMoveEvents() {
   });
 }
 
+// Units grouped by station (the same station the print sheet uses: the unit's
+// station setting, else the 3-digit number in its id/name), stations in number
+// order, units in board order inside each. Each station is its own grid, so a
+// short Batt card no longer leaves a ragged hole beside a tall Ladder card on
+// a mixed row; cards on one row share a height.
+function dayStationGroupsHtml(date, shift) {
+  const groups = new Map();
+  unitsForDate(date).forEach((unit) => {
+    const station = printStationOf(unit) || "Other";
+    if (!groups.has(station)) groups.set(station, []);
+    groups.get(station).push(unit);
+  });
+  const dangerUnits = new Set(getStaffingAlerts(date).filter((a) => a.level === "danger").map((a) => a.unitId));
+  const order = [...groups.keys()].sort((a, b) => (a === "Other") - (b === "Other")
+    || String(a).localeCompare(String(b), undefined, { numeric: true }));
+  return order.map((station) => {
+    const units = groups.get(station);
+    const short = units.filter((unit) => dangerUnits.has(unit.id)).length;
+    const label = station === "Other" ? "Other units" : `Station ${station}`;
+    return `<section class="station-group" aria-label="${escapeHtml(label)}">
+        <h3 class="station-heading">${escapeHtml(label)}
+          <span class="station-meta">${units.length} unit${units.length === 1 ? "" : "s"}${short
+            ? ` · <span class="station-short">${short} short</span>` : " · staffed"}</span></h3>
+        <div class="timeline-grid">${units.map((unit) => renderUnitCard(unit, date, shift)).join("")}</div>
+      </section>`;
+  }).join("");
+}
+
 // The Day board: Bench (unassigned and off this tour) beside the unit columns.
 // With nobody on the Bench the units take the full width.
 function dayBoardHtml(date, unitsMarkup) {
   const bench = `${displacedBoardHtml(date)}${offBoardHtml(date)}`;
-  const grid = `<div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>`;
+  const grid = `<div class="day-units">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>`;
   if (!bench.trim()) return grid;
   return `<div class="day-board">
       <aside class="bench" aria-label="Bench: unassigned and off this tour">
@@ -7858,7 +7884,7 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
       : "";
     control = `<div class="seat-person">
         <span class="seat-who"${isSupervisor && pos.role && state.currentView === "day" && !isAdminUnit(unit)
-          ? ` draggable="true" data-drag-seat="${escapeHtml(person.id)}" data-date="${date}" data-unit="${unit.id}" data-start="${blk.start}" data-role="${escapeHtml(pos.role)}" title="Drag to another seat"` : ""}><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"}</small>${hours}${tradePay}</span>
+          ? ` draggable="true" data-drag-seat="${escapeHtml(person.id)}" data-date="${date}" data-unit="${unit.id}" data-start="${blk.start}" data-role="${escapeHtml(pos.role)}" title="Drag to another seat"` : ""}><strong title="${escapeHtml(person.name)}">${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"}</small>${hours}${tradePay}</span>
         ${inlineTimes}
         ${isSupervisor ? `<button class="button button-secondary button-small seat-move" data-move-person="${person.id}" data-move-date="${date}" data-move-unit="${unit.id}" data-move-start="${blk.start}" data-move-role="${escapeHtml(pos.role || "")}">Move</button>` : ""}
         ${menu}
