@@ -4,6 +4,20 @@ BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
 APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
 fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
 
+DAY BOARD MOVES (2026-11-24, design review phase 2): one engine drives drag-and-drop and
+tap-to-move. `boardMoveTargets(src)` -> Map(seatKey "unitId|role" -> {action: "place"|"swap", unit,
+pos, window, other}). Seat sources reuse `seatMoveTargets` for "place"; SWAP is new and only for
+whole-tour <-> whole-tour blocks where each person `seatAccepts` the other's seat and is available for
+the other unit. Bench sources (displaced/unassigned) get whole-tour "place" targets only and go through
+`moveDisplacedPerson` + a `_seat` pin. `performBoardMove` edits state, audits and notifies;
+`commitBoardMove` renders, makes ONE `persistAppState` call (a swap is a single whole-state write) and
+shows an 8-second Undo that restores that date's assignments snapshot. Rows carry `data-seat-key`
+(the "Add rider" row carries the next open rider seat via `pos.dropRole`); seated names carry
+`data-drag-seat`, Bench names `data-drag-bench`. Listeners are delegated once in
+`attachBoardMoveEvents()`. The Move button now starts tap mode; its bar has "List options", which opens
+the old `openSeatMoveDialog`. The Day view renders `dayBoardHtml()`: a sticky Bench (displaced board +
+Off this tour) beside the unit columns. Tests: tests/board-move.test.js.
+
 DAILY BOARD COMPACT (2026-11-24, design review phase 1): `seatRowHtml(pos, person, unit, date,
 isSupervisor, required, labelOverride, radioHtml)` renders ONE line per seat: name, Move, and a
 native <details class="seat-menu"> (⋯) holding Split / Time off / Trade / Remove. Those buttons keep

@@ -291,6 +291,7 @@ function wireEvents() {
   dom["download-unit-template-btn"].addEventListener("click", downloadUnitTemplate);
 
   attachShellChromeEvents();
+  attachBoardMoveEvents();
   attachPrintEvents();
   attachTemplateEvents();
   dom["export-audit-btn"]?.addEventListener("click", exportAuditLog);
@@ -1289,6 +1290,10 @@ function renderSchedule() {
   attachMandatoryDailyEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
   attachUnitServiceEvents(dom["schedule-container"]);
+  if (BOARD_MOVE.source && BOARD_MOVE.mode === "tap") {
+    if (state.currentView === "day" && BOARD_MOVE.source.date === state.currentDate) decorateBoardMove();
+    else cancelBoardMove();
+  }
 }
 
 // ─── Staffing templates ──────────────────────────────────────────────────────
@@ -1762,11 +1767,9 @@ function renderTimelineCard(date) {
           <span class="pill pill-highlight">${alerts.filter((item) => item.level === "warning").length} watch items</span>
         </div>
       </div>
-      ${displacedBoardHtml(date)}
       ${renderMandatoryDailyPanel(date)}
-      <div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>
+      ${dayBoardHtml(date, unitsMarkup)}
       ${specialMarkup ? `<section class="special-assignment-section"><h3>Special assignments</h3><p class="helper-text">These are Scheduler-only details. They block double-booking but do not affect apparatus readiness.</p><div class="timeline-grid">${specialMarkup}</div></section>` : ""}
-      ${offBoardHtml(date)}
     </article>
   `;
 }
@@ -2013,8 +2016,12 @@ function renderUnitCard(unit, date, activeShift) {
   });
   const optionalLeft = optionalSeats.length - optionalFilled;
   if (isSupervisor && optionalLeft > 0) {
+    // The "Add rider" row stands in for the next open rider seat, so dragging or
+    // tap-moving someone onto it lands them in that seat (dropRole), while the
+    // dropdown itself keeps its old, unpinned behaviour.
+    const nextOpen = optionalSeats.find((s) => !s.person);
     rowsHtml += seatRowHtml(
-      { label: "Additional personnel", cap: null }, null, unit, date, isSupervisor, false,
+      { label: "Additional personnel", cap: null, dropRole: nextOpen?.pos.role }, null, unit, date, isSupervisor, false,
       // Short on purpose: the label column is narrow on the compact board.
       `Add rider · ${optionalLeft} left`,
     );
@@ -2038,7 +2045,7 @@ function renderUnitCard(unit, date, activeShift) {
           <h3>${escapeHtml(unit.name)}</h3>
           <span class="unit-type-tag">${escapeHtml(unit.type || "Unit")}</span>
           <span class="unit-meta-note">up to ${totalSeats}</span>
-          ${offCount ? `<span class="unit-off-count" title="Listed under Off this tour at the bottom">${offCount} off ↓</span>` : ""}
+          ${offCount ? `<span class="unit-off-count" title="Listed under Off this tour on the Bench">${offCount} off</span>` : ""}
         </div>
         <div class="unit-card-actions">
           <span class="badge ${statusClass}" title="${statusLabel}: ${requiredFilled} of ${requiredCount} required seats covered">${isActive ? `${requiredFilled}/${requiredCount} required` : statusLabel}</span>
@@ -3218,10 +3225,18 @@ function attachUnitMoveEvents() {
     });
   });
 
+  // Move picks the person up (tap-to-move): every seat they can take lights up,
+  // and the old list dialog is one click away on the move bar ("List options").
   [...document.querySelectorAll(".seat-move")].forEach((button) => {
     button.addEventListener("click", () => {
-      const { movePerson: personId, moveDate: date, moveUnit: unitId, moveStart: startMinute, moveRole: fromRole } = button.dataset;
-      openSeatMoveDialog({ personId, date, unitId, startMinute, fromRole });
+      const { movePerson: personId, moveDate: date, moveUnit: unitId, moveStart: startMinute, moveRole: role } = button.dataset;
+      startBoardMove({ kind: "seat", date, unitId, personId, startMinute: Number(startMinute), role }, "tap");
+    });
+  });
+  [...document.querySelectorAll("[data-bench-move]")].forEach((button) => {
+    button.addEventListener("click", () => {
+      startBoardMove({ kind: "bench", date: button.dataset.date, employeeId: button.dataset.benchMove,
+        fromUnitId: button.dataset.fromUnit || "" }, "tap");
     });
   });
 
@@ -3361,6 +3376,338 @@ function applySeatMove({ date, unitId, personId, startMinute, target }) {
   state.assignments[date][unitId] = markManual(getAssignments(date, unitId).filter((row) => row !== person));
   state.assignments[date][target.unit.id] = markManual([...getAssignments(date, target.unit.id), moved]);
   return true;
+}
+
+// ─── Board moves: drag, tap-to-move and swap (design review phase 2) ──────────
+// One engine behind both gestures. A SOURCE is a seated block or a Bench member:
+//   { kind: "seat",  date, unitId, personId, startMinute, role }
+//   { kind: "bench", date, employeeId, fromUnitId }
+// boardMoveTargets() answers "where can this go?" with the SAME rules the Move
+// dialog and the Bench dropdown already enforce (seatMoveTargets, seatAccepts,
+// employeeAvailableForUnit, booked-elsewhere), plus one new action: SWAP, when a
+// filled seat's occupant is qualified for the source seat and vice versa. Every
+// change is one state edit, one audit line and one save, so a swap reaches the
+// server in a single write -- never half done.
+const BOARD_MOVE = { source: null, mode: null, targets: null };
+
+function boardSeatKey(unitId, role) {
+  return `${unitId}|${role}`;
+}
+
+function boardSourceRow(src) {
+  if (src.kind !== "seat") return null;
+  const unit = unitById(src.unitId);
+  if (!unit) return null;
+  return getAssignments(src.date, src.unitId).find((row) => row.id === src.personId
+    && blockOf(row, unitTourMinutes(unit)).start === Number(src.startMinute)) || null;
+}
+
+function boardSourceName(src) {
+  if (src.kind === "seat") return boardSourceRow(src)?.name || "Member";
+  return employeeById(src.employeeId)?.name || "Member";
+}
+
+// Map of seatKey -> { action: "place" | "swap", unit, pos, window, other }.
+function boardMoveTargets(src) {
+  const out = new Map();
+  const date = src.date;
+  if (src.kind === "seat") {
+    const unit = unitById(src.unitId);
+    const person = boardSourceRow(src);
+    if (!unit || !person || isAbsent(person)) return out;
+    seatMoveTargets(person, unit, date, src.role).forEach((target) => {
+      out.set(boardSeatKey(target.unit.id, target.pos.role), { action: "place", ...target });
+    });
+    // Swaps are whole-tour for whole-tour only: a partial block trading with a
+    // full tour has no single obvious meaning, and guessing is how hours go missing.
+    if (!isFullTour(person, unitTourMinutes(unit))) return out;
+    const me = resolvePerson(person);
+    const sourcePos = (positionsForUnit(unit) || []).find((pos) => pos.role === src.role);
+    if (!sourcePos) return out;
+    unitsForDate(date).forEach((target) => {
+      if (isAdminUnit(target) || !positionsForUnit(target)?.length) return;
+      if (target.id !== unit.id && !employeeAvailableForUnit(me, target, date)) return;
+      const { seats } = assignPeopleToSeats(target.type, getAssignments(date, target.id), target, date);
+      seats.forEach((seat) => {
+        const key = boardSeatKey(target.id, seat.pos.role);
+        if (out.has(key)) return;
+        if (target.id === unit.id && seat.pos.role === src.role) return;
+        if (seat.people.length !== 1) return;
+        const other = seat.people[0];
+        if (!other || other.id === person.id || isAbsent(other)) return;
+        if (!isFullTour(other, unitTourMinutes(target))) return;
+        const them = resolvePerson(other);
+        if (!seatAccepts(seat.pos, me) || !seatAccepts(sourcePos, them)) return;
+        if (target.id !== unit.id && !employeeAvailableForUnit(them, unit, date)) return;
+        out.set(key, { action: "swap", unit: target, pos: seat.pos, other,
+          window: { start: 0, end: unitTourMinutes(target) } });
+      });
+    });
+    return out;
+  }
+  // Bench member: whole tour onto an open, qualified seat. (A split tour or a
+  // seat that is only partly open still uses the dropdowns on the card.)
+  const employee = employeeById(src.employeeId);
+  if (!employee) return out;
+  const leaving = src.fromUnitId || "";
+  const elsewhere = (assignedBlocksForDate(date).get(employee.id) || []).filter((b) => b.unitId !== leaving);
+  unitsForDate(date).forEach((target) => {
+    if (isAdminUnit(target) || !positionsForUnit(target)?.length) return;
+    if (!employeeAvailableForUnit(employee, target, date)) return;
+    const tour = unitTourMinutes(target);
+    const base = unitTourStartHour(target) * 60;
+    if (elsewhere.some((b) => blocksOverlap(b, { start: base, end: base + tour }))) return;
+    const { seats } = assignPeopleToSeats(target.type, getAssignments(date, target.id), target, date);
+    seats.forEach((seat) => {
+      if (!seatAccepts(seat.pos, employee)) return;
+      if (!seat.gaps.some((g) => g.start <= 0 && g.end >= tour)) return;
+      out.set(boardSeatKey(target.id, seat.pos.role), { action: "place", unit: target, pos: seat.pos,
+        window: { start: 0, end: tour } });
+    });
+  });
+  return out;
+}
+
+// Swap two whole-tour blocks. Same unit: exchange seat pins. Two units: each
+// person moves to the other's unit and seat. Both unit-days are stamped manual.
+function applySeatSwap(src, target) {
+  const date = src.date;
+  const unit = unitById(src.unitId);
+  const mine = boardSourceRow(src);
+  const other = target.other;
+  if (!unit || !mine || !other) return false;
+  if (target.unit.id === unit.id) {
+    state.assignments[date][unit.id] = markManual(getAssignments(date, unit.id).map((row) => {
+      if (row === mine) return { ...row, _seat: target.pos.role };
+      if (row === other) return { ...row, _seat: src.role };
+      return row;
+    }));
+    return true;
+  }
+  const strip = (row, seat) => { const copy = { ...row, _seat: seat }; delete copy._start; delete copy._end; return copy; };
+  state.assignments[date][unit.id] = markManual([
+    ...getAssignments(date, unit.id).filter((row) => row !== mine), strip(other, src.role)]);
+  state.assignments[date][target.unit.id] = markManual([
+    ...getAssignments(date, target.unit.id).filter((row) => row !== other), strip(mine, target.pos.role)]);
+  return true;
+}
+
+// Perform a move found by boardMoveTargets. Returns a short description, or ""
+// when nothing changed. Saving and Undo are the caller's (commitBoardMove).
+function performBoardMove(src, target) {
+  const date = src.date;
+  const who = boardSourceName(src);
+  const where = `${target.pos.label} on ${target.unit.name}`;
+  if (src.kind === "bench") {
+    const ok = moveDisplacedPerson({ date, employeeId: src.employeeId, fromUnitId: src.fromUnitId || "", toUnitId: target.unit.id });
+    if (!ok) return "";
+    updateAssignedPerson(date, target.unit.id, src.employeeId, { _seat: target.pos.role });
+    addAudit(`${who} placed in ${where} for ${formatDate(date)}.`, currentUserName());
+    return `${who} placed in ${where}`;
+  }
+  const fromUnit = unitById(src.unitId);
+  if (target.action === "swap") {
+    const otherName = target.other.name || "member";
+    if (!applySeatSwap(src, target)) return "";
+    addAudit(`${who} (${src.role} on ${fromUnit.name}) and ${otherName} (${target.pos.role} on ${target.unit.name}) swapped seats for ${formatDate(date)}.`, currentUserName());
+    if (target.unit.id !== src.unitId) {
+      createNotification(`${who} moved to ${target.unit.name} for ${formatDate(date)}.`, "email", currentUserName());
+      createNotification(`${otherName} moved to ${fromUnit.name} for ${formatDate(date)}.`, "email", currentUserName());
+    }
+    return `${who} and ${otherName} swapped`;
+  }
+  if (!applySeatMove({ date, unitId: src.unitId, personId: src.personId, startMinute: src.startMinute, target })) return "";
+  addAudit(`${who} intentionally moved from ${src.role || "unrecorded position"} on ${fromUnit.name} to ${where} for ${formatDate(date)}.`, currentUserName());
+  if (target.unit.id !== src.unitId) {
+    createNotification(`${who} moved to ${target.unit.name} for ${formatDate(date)}.`, "email", currentUserName());
+  }
+  return `${who} moved to ${where}`;
+}
+
+function commitBoardMove(src, target) {
+  const date = src.date;
+  // Undo restores this date's assignments exactly as they were. It is offered
+  // for a few seconds only, and only for the move just made.
+  const before = JSON.parse(JSON.stringify(state.assignments[date] || {}));
+  const message = performBoardMove(src, target);
+  cancelBoardMove();
+  if (!message) { render(); return false; }
+  render();
+  persistAppState(target.action === "swap" ? "Seats swapped" : "Position moved");
+  showUndoToast(`${message}.`, () => {
+    state.assignments[date] = before;
+    addAudit(`Undid: ${message} (${formatDate(date)}).`, currentUserName());
+    render();
+    persistAppState("Move undone");
+  });
+  return true;
+}
+
+function startBoardMove(src, mode) {
+  if (state.currentRole !== "supervisor") return;
+  // Starting the next move closes the previous move's Undo; the toast and the
+  // move bar would otherwise sit on top of each other on a phone.
+  document.getElementById("app-toast")?.remove();
+  BOARD_MOVE.source = src;
+  BOARD_MOVE.mode = mode;
+  BOARD_MOVE.targets = boardMoveTargets(src);
+  if (mode === "tap" && !BOARD_MOVE.targets.size) {
+    cancelBoardMove();
+    showToast(`No open or swappable seat fits ${boardSourceName(src)} for that block.`, "error");
+    return;
+  }
+  decorateBoardMove();
+}
+
+function cancelBoardMove() {
+  BOARD_MOVE.source = null;
+  BOARD_MOVE.mode = null;
+  BOARD_MOVE.targets = null;
+  document.body.classList.remove("is-board-moving");
+  document.querySelectorAll(".is-move-target, .is-move-swap, .is-move-source, .is-drop-hover").forEach((el) =>
+    el.classList.remove("is-move-target", "is-move-swap", "is-move-source", "is-drop-hover"));
+  document.querySelectorAll(".move-here").forEach((el) => el.remove());
+  document.getElementById("board-move-bar")?.remove();
+}
+
+// Light up every target. In tap mode each target also gets a real button, so the
+// whole thing works from the keyboard and on a phone, not only with a mouse.
+function decorateBoardMove() {
+  const { source, targets, mode } = BOARD_MOVE;
+  if (!source || !targets) return;
+  document.body.classList.add("is-board-moving");
+  document.querySelectorAll(".move-here").forEach((el) => el.remove());
+  document.querySelectorAll("[data-seat-key]").forEach((row) => {
+    const target = targets.get(row.dataset.seatKey);
+    row.classList.toggle("is-move-target", !!target);
+    row.classList.toggle("is-move-swap", target?.action === "swap");
+    if (target && mode === "tap") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "move-here";
+      button.dataset.moveHere = row.dataset.seatKey;
+      button.textContent = target.action === "swap" ? `Swap with ${target.other.name}` : "Place here";
+      row.appendChild(button);
+    }
+  });
+  const sourceEl = source.kind === "seat"
+    ? document.querySelector(`[data-drag-seat="${CSS.escape(source.personId)}"][data-unit="${CSS.escape(source.unitId)}"][data-start="${source.startMinute}"]`)
+    : document.querySelector(`[data-drag-bench="${CSS.escape(source.employeeId)}"]`);
+  sourceEl?.closest(".seat-row, .displaced-row")?.classList.add("is-move-source");
+  if (mode !== "tap") return;
+  let bar = document.getElementById("board-move-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "board-move-bar";
+    bar.className = "board-move-bar";
+    bar.setAttribute("role", "status");
+    document.body.appendChild(bar);
+  }
+  // Count the seats actually highlighted on screen (a unit with two open rider
+  // seats shows one "Add rider" row), so the number matches what you can tap.
+  const shown = [...new Set([...document.querySelectorAll(".seat-row.is-move-target")].map((row) => row.dataset.seatKey))]
+    .map((key) => targets.get(key)).filter(Boolean);
+  const swaps = shown.filter((t) => t.action === "swap").length;
+  const places = shown.length - swaps;
+  bar.innerHTML = `<span><strong>${escapeHtml(boardSourceName(source))}</strong> selected.
+      Tap a highlighted seat: ${places} open${swaps ? `, ${swaps} swap${swaps === 1 ? "" : "s"}` : ""}.</span>
+    <span class="board-move-actions">
+      ${source.kind === "seat" ? '<button type="button" class="button button-secondary button-small" data-move-list>List options</button>' : ""}
+      <button type="button" class="button button-secondary button-small" data-move-cancel>Cancel <kbd>Esc</kbd></button>
+    </span>`;
+}
+
+function showUndoToast(message, onUndo) {
+  document.getElementById("app-toast")?.remove();
+  const toast = document.createElement("div");
+  toast.id = "app-toast";
+  toast.className = "app-toast app-toast-success app-toast-undo";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `<span>${escapeHtml(message)}</span><button type="button" class="toast-undo">Undo</button>`;
+  document.body.appendChild(toast);
+  let done = false;
+  toast.querySelector(".toast-undo").addEventListener("click", () => {
+    if (done) return;
+    done = true;
+    toast.remove();
+    onUndo();
+    showToast("Move undone.", "success");
+  });
+  requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add("is-visible")));
+  setTimeout(() => {
+    done = true;
+    toast.classList.remove("is-visible");
+    setTimeout(() => toast.remove(), 350);
+  }, 8000);
+}
+
+// Delegated once: the board is re-rendered on every change, the document is not.
+function attachBoardMoveEvents() {
+  document.addEventListener("click", (event) => {
+    const here = event.target.closest("[data-move-here]");
+    if (here && BOARD_MOVE.source) {
+      const target = BOARD_MOVE.targets?.get(here.dataset.moveHere);
+      if (target) commitBoardMove(BOARD_MOVE.source, target);
+      return;
+    }
+    if (event.target.closest("[data-move-cancel]")) { cancelBoardMove(); return; }
+    if (event.target.closest("[data-move-list]") && BOARD_MOVE.source?.kind === "seat") {
+      const src = BOARD_MOVE.source;
+      cancelBoardMove();
+      openSeatMoveDialog({ personId: src.personId, unitId: src.unitId, date: src.date, startMinute: src.startMinute, fromRole: src.role });
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && BOARD_MOVE.source) cancelBoardMove();
+  });
+  document.addEventListener("dragstart", (event) => {
+    const seat = event.target.closest?.("[data-drag-seat]");
+    const bench = event.target.closest?.("[data-drag-bench]");
+    if (!seat && !bench) return;
+    const src = seat
+      ? { kind: "seat", date: seat.dataset.date, unitId: seat.dataset.unit, personId: seat.dataset.dragSeat,
+          startMinute: Number(seat.dataset.start), role: seat.dataset.role }
+      : { kind: "bench", date: bench.dataset.date, employeeId: bench.dataset.dragBench, fromUnitId: bench.dataset.fromUnit || "" };
+    cancelBoardMove();
+    startBoardMove(src, "drag");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", boardSourceName(src));
+  });
+  document.addEventListener("dragover", (event) => {
+    if (BOARD_MOVE.mode !== "drag") return;
+    const row = event.target.closest?.("[data-seat-key]");
+    document.querySelectorAll(".is-drop-hover").forEach((el) => { if (el !== row) el.classList.remove("is-drop-hover"); });
+    if (!row || !BOARD_MOVE.targets?.has(row.dataset.seatKey)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    row.classList.add("is-drop-hover");
+  });
+  document.addEventListener("drop", (event) => {
+    if (BOARD_MOVE.mode !== "drag") return;
+    const row = event.target.closest?.("[data-seat-key]");
+    const target = row && BOARD_MOVE.targets?.get(row.dataset.seatKey);
+    if (!target) return;
+    event.preventDefault();
+    commitBoardMove(BOARD_MOVE.source, target);
+  });
+  document.addEventListener("dragend", () => {
+    if (BOARD_MOVE.mode === "drag") cancelBoardMove();
+  });
+}
+
+// The Day board: Bench (unassigned and off this tour) beside the unit columns.
+// With nobody on the Bench the units take the full width.
+function dayBoardHtml(date, unitsMarkup) {
+  const bench = `${displacedBoardHtml(date)}${offBoardHtml(date)}`;
+  const grid = `<div class="timeline-grid">${unitsMarkup || '<div class="empty-state">No visible units scheduled for this day.</div>'}</div>`;
+  if (!bench.trim()) return grid;
+  return `<div class="day-board">
+      <aside class="bench" aria-label="Bench: unassigned and off this tour">
+        <h3 class="bench-title">Bench</h3>
+        ${bench}
+      </aside>
+      ${grid}
+    </div>`;
 }
 
 function openSeatMoveDialog({ personId, unitId, date, startMinute, fromRole }) {
@@ -7309,12 +7656,14 @@ function displacedBoardHtml(date) {
   const rowHtml = ({ kind, person, unit }) => `
       <div class="displaced-row ${kind === "stranded" ? "is-stranded" : ""}">
         <span class="displaced-chip">${kind === "stranded" ? "Displaced" : "Unassigned"}</span>
-        <span class="displaced-who"><strong>${escapeHtml(person.name || person.id)}</strong>
+        <span class="displaced-who"${isSupervisor ? ` draggable="true" data-drag-bench="${escapeHtml(person.id)}" data-date="${date}" data-from-unit="${unit ? escapeHtml(unit.id) : ""}" title="Drag onto an open seat"` : ""}><strong>${escapeHtml(person.name || person.id)}</strong>
           <small>${escapeHtml([person.title, kind === "stranded" ? `from ${displacedReason(unit)}` : "no seat on an in-service unit"].filter(Boolean).join(" · "))}</small></span>
+        ${isSupervisor ? `<button type="button" class="button button-secondary button-small bench-move" data-bench-move="${escapeHtml(person.id)}"
+              data-date="${date}" data-from-unit="${unit ? escapeHtml(unit.id) : ""}">Move</button>` : ""}
         ${isSupervisor ? `<select class="displaced-move" data-displaced-move="${escapeHtml(person.id)}"
               data-date="${date}" data-from-unit="${unit ? escapeHtml(unit.id) : ""}"
               aria-label="Move ${escapeHtml(person.name || person.id)} to an in-service unit">
-            <option value="">Move to… </option>${options}</select>` : ""}
+            <option value="">Any seat on…</option>${options}</select>` : ""}
       </div>`;
   const stranded = entries.filter((e) => e.kind === "stranded");
   const unassigned = entries.filter((e) => e.kind !== "stranded");
@@ -7326,7 +7675,7 @@ function displacedBoardHtml(date) {
   return `<section class="displaced-board" aria-label="Displaced and unassigned members">
       <h4>Displaced / unassigned (${entries.length})</h4>
       <p class="helper-text">On duty with no seat on an in-service unit. ${isSupervisor
-        ? "Pick an in-service unit to place them; the out-of-service unit does not need to be re-enabled."
+        ? "Drag a name onto an open seat, or press Move and tap one."
         : "A supervisor will place them."}</p>
       ${stranded.map(rowHtml).join("")}${unassignedHtml}
     </section>`;
@@ -7508,7 +7857,8 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
       ? `<details class="seat-menu"><summary aria-label="More actions for ${escapeHtml(person.name)}" title="More actions">⋯</summary><div class="seat-menu-panel">${menuItems}</div></details>`
       : "";
     control = `<div class="seat-person">
-        <span class="seat-who"><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"}</small>${hours}${tradePay}</span>
+        <span class="seat-who"${isSupervisor && pos.role && state.currentView === "day" && !isAdminUnit(unit)
+          ? ` draggable="true" data-drag-seat="${escapeHtml(person.id)}" data-date="${date}" data-unit="${unit.id}" data-start="${blk.start}" data-role="${escapeHtml(pos.role)}" title="Drag to another seat"` : ""}><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"}</small>${hours}${tradePay}</span>
         ${inlineTimes}
         ${isSupervisor ? `<button class="button button-secondary button-small seat-move" data-move-person="${person.id}" data-move-date="${date}" data-move-unit="${unit.id}" data-move-start="${blk.start}" data-move-role="${escapeHtml(pos.role || "")}">Move</button>` : ""}
         ${menu}
@@ -7522,7 +7872,12 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
   }
   const pay = person ? payCodeBlockHtml(person, unit, date, isSupervisor) : "";
   const extras = pay || radioHtml ? `<div class="seat-extras">${pay}${radioHtml}</div>` : "";
-  return `<div class="seat-row ${required ? "" : "seat-optional"}${pay ? " seat-row-pay" : ""}"><span class="seat-label">${escapeHtml(label)}</span>${control}${extras}</div>`;
+  // Drop target identity for drag / tap-to-move. Only real seats (with a role)
+  // on the operations board take part; "Add rider" and extras do not.
+  const dropRole = pos.role || pos.dropRole;
+  const seatAttrs = dropRole && state.currentView === "day" && !isAdminUnit(unit)
+    ? ` data-seat-key="${escapeHtml(boardSeatKey(unit.id, dropRole))}"` : "";
+  return `<div class="seat-row ${required ? "" : "seat-optional"}${pay ? " seat-row-pay" : ""}"${seatAttrs}><span class="seat-label">${escapeHtml(label)}</span>${control}${extras}</div>`;
 }
 
 function getShiftForDate(date) {

@@ -3,6 +3,10 @@
 > `AI_STATE_MIN.txt`. This file is retained for session history and may describe
 > superseded behavior.
 
+Latest note (2026-11-24): Day board phase 2 — Bench beside the units, drag-and-drop and
+tap-to-move (Move button), whole-tour seat swaps, 8-second Undo. Same qualification/booking rules
+as the Move dialog; one save per move. See DAY BOARD MOVES in `AI_STATE_MIN.txt`.
+
 Latest note (2026-11-24): Day view compacted (one line per seat, ⋯ action menu, Show checkboxes,
 unit columns, neutral type tags, C platoon violet). Display-only; no state or API changes. See the
 DAILY BOARD COMPACT entry in `AI_STATE_MIN.txt`.
