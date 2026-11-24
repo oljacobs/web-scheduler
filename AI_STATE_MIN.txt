@@ -4,6 +4,14 @@ BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
 APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
 fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
 
+MONTH STAFFING (2026-11-24, design review phase 3): `renderMonthCalendar(dates)` is a units x days
+table (units grouped by `printStationOf`, like the Day board). `unitDayStaffing(unit, date)` returns
+{filled, required, ok, people} = covered REQUIRED seats via assignPeopleToSeats -- the same number as the
+Day card badge; the Week view uses it too (it used to compare headcount to unit.minStaff). Cells are
+buttons with data-nav-date (open that Day). Per-viewer `MONTH_UI.names` (localStorage
+`d7fr-scheduler-month-names`) shows crew last names instead of counts. `getDateRange()` for month now
+returns the real month length (was a fixed 30 days). Platoon C is violet; `--cap-paramedic` is pink
+(green is staffing status only). `body[data-view]` lets CSS show the Day-only Show options.
 DAY BOARD STATIONS (2026-11-24): the Day view groups units by `printStationOf(unit)` (unit.station, else
 stationEffective, else the 3-digit number in id/name; "Other" last) via `dayStationGroupsHtml()`. Each
 station is its own `.timeline-grid` with equal-height rows; columns are min 520px beside the Bench.

@@ -117,3 +117,18 @@ test("a split (partial) block is never offered a swap", () => {
   const actions = run(`[...boardMoveTargets(seatSrc("M1", "medA", "EMTP")).values()].map((t) => t.action).join()`);
   assert.equal(actions.includes("swap"), false);
 });
+
+test("month staffing counts covered required seats, the same number as the Day card", () => {
+  const run = setup();
+  assert.equal(run(`JSON.stringify((({ filled, required, ok }) => ({ filled, required, ok }))(unitDayStaffing(unitById("M1"), DATE)))`),
+    JSON.stringify({ filled: 2, required: 2, ok: true }));
+  run(`state.assignments[DATE].M1 = [{ ...employeeById("emtA"), _seat: "EMT" }];`);   // paramedic seat now empty
+  assert.equal(run(`JSON.stringify((({ filled, required, ok }) => ({ filled, required, ok }))(unitDayStaffing(unitById("M1"), DATE)))`),
+    JSON.stringify({ filled: 1, required: 2, ok: false }));
+});
+
+test("the month view covers every day of the month, not a fixed 30", () => {
+  const run = setup();
+  assert.equal(run(`state.currentView = "month"; state.currentDate = "2026-12-10"; getDateRange().length`), 31);
+  assert.equal(run(`state.currentDate = "2027-02-10"; const r = getDateRange(); r.length + " " + r[r.length - 1]`), "28 2027-02-28");
+});

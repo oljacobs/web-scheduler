@@ -703,6 +703,8 @@ function render() {
     dom["mandatory-fy"].value = String(planningFiscalYear());
   }
   dom.viewButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.view === state.currentView));
+  // Lets CSS show the Day-only controls (Show options) only on the Day view.
+  document.body.dataset.view = state.currentView;
   renderSurfaceState();
   renderSummary();
   renderAlerts();
@@ -1289,6 +1291,7 @@ function renderSchedule() {
   attachStudentRiderEvents(dom["schedule-container"]);
   attachMandatoryDailyEvents(dom["schedule-container"]);
   attachCalendarNavEvents();
+  attachMonthModeEvents(dom["schedule-container"]);
   attachUnitServiceEvents(dom["schedule-container"]);
   if (BOARD_MOVE.source && BOARD_MOVE.mode === "tap") {
     if (state.currentView === "day" && BOARD_MOVE.source.date === state.currentDate) decorateBoardMove();
@@ -1883,13 +1886,13 @@ function renderWeekCalendar(dates) {
     const dayNum = new Date(`${date}T12:00:00`).getDate();
 
     const activeUnits = unitsForDate(date);
+    // Same count as the Day card and the Month table: covered required seats.
     const unitRows = activeUnits
       .map((unit) => {
-        const people = getAssignments(date, unit.id);
-        const ok = people.length >= unit.minStaff;
-        return `<div class="cal-unit-row ${ok ? "cal-ok" : "cal-warn"}">
+        const s = unitDayStaffing(unit, date) || { filled: 0, required: 0, ok: true };
+        return `<div class="cal-unit-row ${s.ok ? "cal-ok" : "cal-warn"}">
           <span class="cal-unit-name">${unit.name}</span>
-          <span class="cal-unit-count">${people.length}/${unit.minStaff}</span>
+          <span class="cal-unit-count">${s.filled}/${s.required}</span>
         </div>`;
       })
       .join("");
@@ -1913,45 +1916,121 @@ function renderWeekCalendar(dates) {
   return `<div class="week-calendar">${cols}</div>`;
 }
 
-// Month view: traditional calendar grid
+// ─── Month staffing (design review phase 3) ───────────────────────────────────
+// Units down the side (grouped by station, like the Day board), days across the
+// top, and in every cell the unit's covered required seats over required seats:
+// the same count the Day card's badge shows. Green = staffed, red = short, grey
+// = the unit is not in service that day. Tap a cell (or a date) to open that
+// day. "Names" swaps the counts for the crew's last names, like the old month
+// sheet, for when you need WHO, not just how many.
+const MONTH_UI_KEY = "d7fr-scheduler-month-names";
+const MONTH_UI = { names: false };
+try { MONTH_UI.names = localStorage.getItem(MONTH_UI_KEY) === "1"; } catch (e) { MONTH_UI.names = false; }
+
+function unitDayStaffing(unit, date) {
+  if (!unitRunsOn(unit, date)) return null;
+  const people = getAssignments(date, unit.id);
+  const positions = positionsForUnit(unit);
+  if (!positions) {
+    const present = people.filter((p) => !isAbsent(p));
+    const required = unit.minStaff || 0;
+    return { filled: Math.min(present.length, required), required, ok: present.length >= required, people: present };
+  }
+  const { seats } = assignPeopleToSeats(unit.type, people, unit, date);
+  const required = seats.filter((s) => seatIsRequired(s.pos));
+  const filled = required.filter((s) => s.covered).length;
+  const seated = [];
+  seats.forEach((s) => s.people.forEach((p) => { if (!seated.includes(p)) seated.push(p); }));
+  return { filled, required: required.length, ok: filled >= required.length, people: seated };
+}
+
+function lastName(name) {
+  const parts = String(name || "").trim().split(/\s+/);
+  return parts.length > 1 ? parts[parts.length - 1] : parts[0] || "";
+}
+
 function renderMonthCalendar(dates) {
   const today = todayIso();
-  const firstDate = new Date(`${dates[0]}T12:00:00`);
-  // Monday-anchored: Mon=0 … Sun=6
-  const firstDow = (firstDate.getDay() + 6) % 7;
+  const units = operationsUnits().filter((unit) => dates.some((date) => unitRunsOn(unit, date)));
+  const groups = new Map();
+  units.sort(byBoardOrder).forEach((unit) => {
+    const station = printStationOf(unit) || "Other";
+    if (!groups.has(station)) groups.set(station, []);
+    groups.get(station).push(unit);
+  });
+  const stations = [...groups.keys()].sort((a, b) => (a === "Other") - (b === "Other")
+    || String(a).localeCompare(String(b), undefined, { numeric: true }));
 
-  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const header = dayNames.map((d) => `<div class="cal-month-head">${d}</div>`).join("");
+  const staffing = new Map();   // `${unitId}|${date}` -> result, computed once
+  units.forEach((unit) => dates.forEach((date) => staffing.set(`${unit.id}|${date}`, unitDayStaffing(unit, date))));
+  const shortByDate = new Map(dates.map((date) => [date,
+    units.filter((unit) => { const s = staffing.get(`${unit.id}|${date}`); return s && !s.ok; }).length]));
 
-  const emptyCells = Array.from({ length: firstDow }, () => '<div class="cal-month-cell is-empty"></div>').join("");
-
-  const dayCells = dates
-    .map((date) => {
+  const dow = ["S", "M", "T", "W", "T", "F", "S"];
+  const colClass = (date) => `${date === today ? " is-today" : ""}${date === state.currentDate ? " is-selected" : ""}`;
+  const head = `
+    <tr class="mx-dow"><th scope="col" class="mx-unit-head"></th>${dates.map((date) =>
+      `<th scope="col" class="${colClass(date)}">${dow[new Date(`${date}T12:00:00`).getDay()]}</th>`).join("")}</tr>
+    <tr class="mx-date"><th scope="col" class="mx-unit-head">Unit</th>${dates.map((date) =>
+      `<th scope="col" class="${colClass(date)}"><button type="button" data-nav-date="${date}" aria-label="Open ${formatDate(date)}">${Number(date.slice(8))}</button></th>`).join("")}</tr>
+    <tr class="mx-platoon"><th scope="row" class="mx-unit-head">Platoon</th>${dates.map((date) => {
       const shift = getShiftForDate(date);
-      const alerts = getStaffingAlerts(date);
-      const riskCount = alerts.filter((a) => a.level === "danger").length;
-      const isToday = date === today;
-      const isSelected = date === state.currentDate;
-      const dayNum = new Date(`${date}T12:00:00`).getDate();
+      return `<td class="${colClass(date)}"><span class="shift-chip shift-${escapeHtml(String(shift).toLowerCase())}">${shift === "off" ? "·" : escapeHtml(shift)}</span></td>`;
+    }).join("")}</tr>`;
 
-      return `
-        <div class="cal-month-cell ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}">
-          <button class="cal-month-day-btn" data-nav-date="${date}">
-            <span class="cal-date-num">${dayNum}</span>
-            <span class="shift-chip shift-${shift.toLowerCase()}">${shift === "off" ? "·" : shift}</span>
-            ${riskCount > 0 ? `<span class="risk-chip">${riskCount}</span>` : ""}
-          </button>
-        </div>
-      `;
-    })
-    .join("");
+  const body = stations.map((station) => {
+    const label = station === "Other" ? "Other units" : `Station ${station}`;
+    const rows = groups.get(station).map((unit) => `<tr>
+        <th scope="row" class="mx-unit">${escapeHtml(unit.name)}</th>${dates.map((date) => {
+          const s = staffing.get(`${unit.id}|${date}`);
+          if (!s) return `<td class="mx-cell is-off${colClass(date)}"><span aria-label="${escapeHtml(unit.name)} not in service ${formatDate(date)}">–</span></td>`;
+          const state_ = s.ok ? "is-ok" : "is-short";
+          const names = s.people.map((p) => lastName(p.name)).filter(Boolean);
+          const content = MONTH_UI.names
+            ? (names.length ? names.map((n) => `<span>${escapeHtml(n)}</span>`).join("") : "<span>—</span>")
+            : `${s.filled}/${s.required}`;
+          const aria = `${unit.name}, ${formatDate(date)}: ${s.filled} of ${s.required} required seats covered${s.ok ? "" : " (short)"}`;
+          return `<td class="mx-cell ${state_}${colClass(date)}"><button type="button" data-nav-date="${date}" aria-label="${escapeHtml(aria)}" title="${escapeHtml(names.join(", ") || "No crew")}">${content}</button></td>`;
+        }).join("")}</tr>`).join("");
+    return `<tr class="mx-station"><th scope="rowgroup" colspan="${dates.length + 1}">${escapeHtml(label)}</th></tr>${rows}`;
+  }).join("");
 
+  const foot = `<tr class="mx-short"><th scope="row" class="mx-unit-head">Short</th>${dates.map((date) => {
+      const n = shortByDate.get(date);
+      return `<td class="${colClass(date)}${n ? " has-short" : ""}">${n ? n : "✓"}</td>`;
+    }).join("")}</tr>`;
+
+  const shortDays = [...shortByDate.values()].filter(Boolean).length;
   return `
-    <div class="month-calendar">
-      <div class="month-cal-header">${header}</div>
-      <div class="month-cal-grid">${emptyCells}${dayCells}</div>
-    </div>
-  `;
+    <div class="month-staffing">
+      <div class="mx-toolbar">
+        <p class="helper-text">${shortDays ? `<strong class="mx-short-count">${shortDays} day${shortDays === 1 ? "" : "s"} with a unit short</strong> · ` : "Every unit staffed to required · "}tap a cell to open that day</p>
+        <div class="mx-mode" role="group" aria-label="Show in cells">
+          <button type="button" data-month-mode="counts" aria-pressed="${!MONTH_UI.names}">Counts</button>
+          <button type="button" data-month-mode="names" aria-pressed="${MONTH_UI.names}">Names</button>
+        </div>
+      </div>
+      <div class="mx-scroll">
+        <table class="mx-table${MONTH_UI.names ? " is-names" : ""}">
+          <thead>${head}</thead>
+          <tbody>${body || `<tr><td colspan="${dates.length + 1}" class="empty-state">No units in service this month.</td></tr>`}</tbody>
+          <tfoot>${foot}</tfoot>
+        </table>
+      </div>
+      <p class="helper-text mx-legend"><span class="mx-key is-ok">2/2</span> staffed to required
+        <span class="mx-key is-short">1/2</span> short <span class="mx-key is-off">–</span> not in service
+        · counts are covered required seats, the same number as the Day card</p>
+    </div>`;
+}
+
+function attachMonthModeEvents(root) {
+  root?.querySelectorAll("[data-month-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      MONTH_UI.names = button.dataset.monthMode === "names";
+      try { localStorage.setItem(MONTH_UI_KEY, MONTH_UI.names ? "1" : "0"); } catch (e) { /* not remembered */ }
+      render();
+    });
+  });
 }
 
 function renderUnitCard(unit, date, activeShift) {
@@ -6610,7 +6689,12 @@ function getDateRange() {
   if (state.currentView === "week") {
     return Array.from({ length: 7 }, (_, index) => addDays(startOfWeek(state.currentDate), index));
   }
-  return Array.from({ length: 30 }, (_, index) => addDays(startOfMonth(state.currentDate), index));
+  // The real length of the month: a fixed 30 dropped the 31st and ran into
+  // March in February.
+  const first = startOfMonth(state.currentDate);
+  const [year, month] = first.split("-").map(Number);
+  const days = new Date(year, month, 0).getDate();
+  return Array.from({ length: days }, (_, index) => addDays(first, index));
 }
 
 function getAssignments(date, unitId) {

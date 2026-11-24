@@ -2308,7 +2308,8 @@ textarea:disabled {
 
   --cap-officer: #ffb547;
   --cap-engineer: #4da3ff;
-  --cap-paramedic: #57d695;
+  /* Pink, not green: green means "staffed" on this board. */
+  --cap-paramedic: #f5a3cf;
   --cap-emt: #4fd0d8;
 }
 
@@ -3428,3 +3429,79 @@ textarea:disabled {
 .seat-who { display: flex; flex-direction: column; min-width: 0; }
 .seat-who strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seat-who small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Month staffing (2026-11 design review, phase 3)
+   Units × days. Green / red / grey are staffing status only; platoons keep
+   their own colours in the header row. The unit column stays put while the
+   days scroll sideways on a phone.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.month-staffing { display: grid; gap: 10px; padding: 16px; }
+.mx-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; }
+.mx-toolbar .helper-text { margin: 0; }
+.mx-short-count { color: #ff9b8f; }
+.mx-mode { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: var(--bg-soft); border: 1px solid var(--panel-border); }
+.mx-mode button {
+  min-height: 32px; padding: 4px 12px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+.mx-mode button[aria-pressed="true"] { background: var(--accent); color: #241a06; }
+
+.mx-scroll { overflow-x: auto; border-radius: 10px; }
+.mx-table { border-collapse: separate; border-spacing: 3px; width: 100%; min-width: max-content; font-size: 0.78rem; }
+.mx-table th, .mx-table td { text-align: center; padding: 0; }
+.mx-unit, .mx-unit-head {
+  position: sticky; left: 0; z-index: 2;
+  min-width: 108px; padding: 0 10px 0 4px !important; text-align: left !important;
+  background: var(--panel, #161f38); color: var(--text); font-weight: 600; white-space: nowrap;
+}
+.mx-unit-head { color: var(--muted); font-weight: 600; font-size: 0.72rem; }
+.mx-dow th { color: var(--muted); font-weight: 600; font-size: 0.68rem; }
+.mx-date button {
+  width: 100%; min-width: 34px; min-height: 26px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text); font: inherit; font-weight: 700; cursor: pointer;
+}
+.mx-date .is-today button { box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); }
+.mx-platoon .shift-chip { font-size: 0.66rem; padding: 1px 6px; }
+.mx-station th {
+  padding: 10px 4px 2px !important; text-align: left !important;
+  font-family: "Barlow Condensed", "Inter", sans-serif; font-size: 0.85rem; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--accent);
+  position: sticky; left: 0;
+}
+.mx-cell button, .mx-cell > span {
+  display: grid; place-items: center; width: 100%; min-width: 34px; min-height: 28px;
+  border: 0; border-radius: 5px; font: inherit; font-weight: 600; cursor: pointer;
+}
+.mx-cell.is-ok button { background: rgba(63, 168, 118, 0.12); color: #8fdcb6; }
+.mx-cell.is-short button { background: rgba(192, 57, 43, 0.26); color: #ffb3aa; font-weight: 800; }
+.mx-cell.is-off > span { background: rgba(141, 175, 214, 0.05); color: rgba(141, 154, 184, 0.6); cursor: default; }
+.mx-cell.is-today button, .mx-cell.is-today > span { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.mx-table.is-names .mx-cell button { min-width: 64px; padding: 3px 4px; align-content: start; gap: 1px; font-size: 0.66rem; font-weight: 600; line-height: 1.15; }
+.mx-short td { color: rgba(143, 220, 182, 0.8); font-weight: 700; font-size: 0.72rem; padding-top: 4px; }
+.mx-short td.has-short { color: #ff9b8f; }
+.mx-legend { margin: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.mx-key { display: inline-grid; place-items: center; min-width: 34px; min-height: 22px; border-radius: 5px; font-weight: 700; font-size: 0.72rem; }
+.mx-key.is-ok { background: rgba(63, 168, 118, 0.12); color: #8fdcb6; }
+.mx-key.is-short { background: rgba(192, 57, 43, 0.26); color: #ffb3aa; }
+.mx-key.is-off { background: rgba(141, 175, 214, 0.05); color: var(--muted); }
+@media (hover: hover) and (pointer: fine) {
+  .mx-cell button:hover, .mx-date button:hover { outline: 1.5px solid var(--accent); outline-offset: -1px; }
+}
+.mx-cell button:focus-visible, .mx-date button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media print { .mx-mode, .mx-legend { display: none; } }
+
+/* Toolbar: Status sits inline beside its select so Status + Publish share the
+   toolbar's row instead of wrapping onto a second one at 1440px. */
+.status-group { margin-left: auto; gap: 8px; }
+.status-group label { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+.status-group select { width: auto; min-height: 38px; padding: 4px 10px; }
+.status-group .button { min-height: 38px; }
+.show-options { gap: 2px 12px; }
+.show-option { font-size: 0.82rem; }
+/* Toolbar order: date, views, then Status + Publish on the right of row one;
+   the Show options get their own row beneath (Day view only -- they change
+   nothing on Week or Month). */
+.toolbar-row .status-group { order: 4; }
+.toolbar-row .show-options { order: 5; flex: 1 1 100%; padding-top: 2px; border-top: 1px solid rgba(141, 175, 214, 0.1); }
+body:not([data-view="day"]) .show-options { display: none; }
