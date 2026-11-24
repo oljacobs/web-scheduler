@@ -89,27 +89,27 @@
                 <button data-view="admin" class="view-button">Admin</button>
               </div>
 
-              <!-- Pay codes are a payroll task, not a staffing one: a supervisor
-                   filling seats does not want a dropdown under every name. Off by
-                   default; a seat that ALREADY has a code still shows it as a chip
-                   so nothing is ever hidden, only the editing controls are. -->
-              <button id="pay-codes-toggle" class="button button-secondary" type="button"
-                      aria-pressed="false" title="Show pay code controls on each seat">Pay codes</button>
-
-              <!-- Same reasoning for splitting tours and recording time off: most
-                   of the time a supervisor is filling seats, not editing hours.
-                   Hours a seat already has, and anyone already off, still show. -->
-              <button id="hours-toggle" class="button button-secondary" type="button"
-                      aria-pressed="false"
-                      title="Show Split and Time off controls on each seat">Hours &amp; time off</button>
-
-              <button id="trades-toggle" class="button button-secondary" type="button"
-                      aria-pressed="false"
-                      title="Show officer trade controls on the daily roster">Trades</button>
-
-              <button id="student-riders-toggle" class="button button-secondary" type="button"
-                      aria-pressed="false"
-                      title="Show medical officer student-rider controls on the daily roster">Students</button>
+              <!-- "Show" options: per-viewer choices of which editing controls the
+                   daily schedule carries. Each one adds a control to the seat's
+                   own line (or an item to its ⋯ menu), never a new row, so the
+                   page keeps its shape. Data that is SET always shows as a chip;
+                   only the pickers are hidden. Stored in this browser only. -->
+              <div class="show-options" role="group" aria-label="Show on the daily schedule">
+                <span class="show-options-label">Show</span>
+                <button id="pay-codes-toggle" class="show-option" type="button"
+                        aria-pressed="false" title="Pay code picker on each seat">Pay codes</button>
+                <button id="hours-toggle" class="show-option" type="button"
+                        aria-pressed="false"
+                        title="Split and Time off in each seat's ⋯ menu">Hours &amp; time off</button>
+                <button id="radios-toggle" class="show-option" type="button"
+                        aria-pressed="true" title="Radio picker on each seat">Radios</button>
+                <button id="trades-toggle" class="show-option" type="button"
+                        aria-pressed="false"
+                        title="Trade in each seat's ⋯ menu">Trades</button>
+                <button id="student-riders-toggle" class="show-option" type="button"
+                        aria-pressed="false"
+                        title="Add student on each medic unit (medical officers)">Students</button>
+              </div>
 
               <div class="status-group">
                 <label>

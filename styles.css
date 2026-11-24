@@ -988,16 +988,9 @@ textarea:disabled {
   color: var(--muted);
 }
 
-/* Toolbar toggle: same visual language as the Day/Week/Month switch, so "on"
-   reads the same way everywhere. */
-#pay-codes-toggle.is-active,
-#hours-toggle.is-active,
-#trades-toggle.is-active,
-#student-riders-toggle.is-active {
-  background: rgba(77, 163, 255, 0.22);
-  border-color: rgba(77, 163, 255, 0.55);
-  color: #eaf3ff;
-}
+/* Show options (Pay codes, Hours & time off, Radios, Trades, Students) are
+   styled as checkboxes in the "Daily board, compact" section at the end. They
+   used to look like pressed buttons, which read as actions, not view choices. */
 
 /* Field-level save feedback. The board has no Save button, so a typed note has
    to confirm itself or it looks like nothing happened. */
@@ -1568,9 +1561,18 @@ textarea:disabled {
   letter-spacing: 0.04em;
 }
 
-.shift-a  { background: rgba(77, 163, 255, 0.2);  color: #a9d2ff; }
-.shift-b  { background: rgba(255, 159, 67, 0.2);  color: #ffd4ab; }
-.shift-c  { background: rgba(87, 214, 149, 0.18); color: #9ef0c3; }
+/* Platoon colours. Defined once here and used everywhere a platoon is shown.
+   C used to be green, the same green as "staffed", so a C day read as "all
+   good" at a glance. Green, red and amber are reserved for staffing status;
+   the platoons use blue, copper and violet. */
+:root {
+  --platoon-a: #a9d2ff;  --platoon-a-bg: rgba(77, 163, 255, 0.2);
+  --platoon-b: #ffd4ab;  --platoon-b-bg: rgba(255, 159, 67, 0.2);
+  --platoon-c: #d9c6ff;  --platoon-c-bg: rgba(167, 128, 255, 0.24);
+}
+.shift-a  { background: var(--platoon-a-bg); color: var(--platoon-a); }
+.shift-b  { background: var(--platoon-b-bg); color: var(--platoon-b); }
+.shift-c  { background: var(--platoon-c-bg); color: var(--platoon-c); }
 .shift-off { background: rgba(141, 175, 214, 0.1); color: var(--muted); }
 
 .risk-chip {
@@ -2970,3 +2972,244 @@ textarea:disabled {
 .print-options-notes { display: grid; gap: 0.5rem; margin: 0.75rem 0; }
 .print-note-edit { display: grid; gap: 0.2rem; font-size: 0.85rem; }
 .print-note-edit textarea { width: 100%; resize: vertical; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Daily board, compact (2026-11 design review)
+   One line per seat. Pay code and radio sit on the seat's own line; Split,
+   Time off, Trade and Remove live in a ⋯ menu; units lay out in columns.
+   The Day page was ~5,000px for eight units because every seat could take
+   three stacked rows. Colour on the board now means staffing status only:
+   the apparatus type is a neutral text tag (it was a coloured spine and title,
+   so a red engine and a red "short" read alike).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.timeline-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.unit-card {
+  overflow: visible;            /* the ⋯ menu must not be clipped by the card */
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-left: 1px solid rgba(141, 175, 214, 0.12);
+}
+.unit-card::before { display: none; }
+.unit-card h3 { color: var(--text); margin: 0; font-size: 1rem; }
+
+.unit-card-header { gap: 8px; align-items: center; }
+.unit-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.unit-type-tag {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid rgba(141, 175, 214, 0.28);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.unit-meta-note { font-size: 0.75rem; color: var(--muted); }
+.unit-card-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.seat-list { gap: 4px; }
+
+.seat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 40px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 8px;
+}
+.seat-row .seat-label { flex: 0 0 96px; font-size: 0.74rem; line-height: 1.2; }
+.seat-row > .seat-person,
+.seat-row > .assignment-select,
+.seat-row > .seat-empty { flex: 1 1 200px; min-width: 0; }
+.seat-row > .assignment-select { width: auto; min-height: 34px; padding: 4px 8px; font-size: 0.85rem; }
+
+.seat-person { justify-content: flex-start; gap: 6px; }
+.seat-who { flex: 1 1 auto; min-width: 0; line-height: 1.25; }
+.seat-who small { font-size: 0.72rem; }
+.seat-person .seat-move { min-height: 32px; padding: 4px 10px; }
+
+/* Pay code and radio: compact controls on the seat's own line. They wrap under
+   the name only when the card is too narrow, never onto a dashed second row. */
+.seat-extras { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.seat-extras .seat-pay { grid-column: auto; border-top: 0; padding-top: 0; gap: 6px; flex-wrap: nowrap; }
+.seat-extras .seat-pay select,
+.seat-extras .seat-pay input { min-height: 32px; padding: 2px 8px; font-size: 0.75rem; }
+.seat-extras .pay-select { flex: 0 0 auto; width: 7.5rem; }
+.seat-extras .pay-note,
+.seat-extras .pay-for { flex: 0 1 auto; width: 10rem; }
+.seat-radio { grid-column: auto; padding-top: 0; display: inline-flex; }
+.seat-radio select { width: 5.75rem; min-width: 0; min-height: 32px; padding: 2px 8px; font-size: 0.75rem; }
+.seat-radio-readonly {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(141, 175, 214, 0.14);
+  color: var(--text);
+}
+
+/* ⋯ menu: native <details>, so keyboard and screen readers work without a script. */
+.seat-menu { position: relative; }
+.seat-menu > summary {
+  list-style: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+.seat-menu > summary::-webkit-details-marker { display: none; }
+.seat-menu[open] > summary { background: rgba(141, 175, 214, 0.16); color: var(--text); }
+.seat-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  display: grid;
+  min-width: 11rem;
+  padding: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.38);
+  transform-origin: top right;
+  animation: seat-menu-in 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@keyframes seat-menu-in { from { opacity: 0; transform: scale(0.97); } }
+.seat-menu-item {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+.seat-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.seat-menu-danger { color: #ff9b8f; }
+
+/* Hover only for a real pointer: on a phone a tap sets :hover and it sticks. */
+@media (hover: hover) and (pointer: fine) {
+  .seat-menu > summary:hover { background: rgba(141, 175, 214, 0.14); color: var(--text); }
+  .seat-menu-item:hover { background: rgba(224, 168, 58, 0.14); color: var(--accent); }
+  .seat-menu-danger:hover { background: rgba(192, 57, 43, 0.18); color: #ffb3aa; }
+}
+
+/* Show options as checkboxes. */
+.show-options { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 14px; }
+.show-options-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.show-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.show-option::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.show-option[aria-pressed="true"] { color: var(--text); }
+.show-option[aria-pressed="true"]::before {
+  border-color: var(--accent);
+  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23241a06' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px no-repeat;
+}
+.show-option:disabled { opacity: 0.45; cursor: not-allowed; }
+.show-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* Summary: one line instead of four cards. */
+#summary-grid { display: block; }
+.summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.summary-line strong { color: var(--text); }
+.summary-line small { color: var(--muted); }
+.summary-danger, .summary-danger strong { color: #ff9b8f; }
+
+/* Personal panel, folded for supervisors. */
+.personal-fold > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.personal-fold > summary::-webkit-details-marker { display: none; }
+.personal-fold-title {
+  font-family: "Barlow Condensed", "Inter", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.personal-fold-hint { color: var(--accent); font-size: 0.82rem; font-weight: 600; }
+.personal-fold[open] > summary { margin-bottom: 10px; }
+
+/* Phone: the seat label sits on its own small line, then the name with Move and
+   ⋯ on one line, then pay code and radio side by side when they are shown. */
+@media (max-width: 700px) {
+  .timeline-grid { padding: 10px; }
+  .unit-card { padding: 10px; }
+  .seat-row { padding: 6px 6px 8px 10px; gap: 2px 8px; }
+  .seat-row .seat-label { flex: 1 0 100%; font-size: 0.7rem; }
+  .seat-row > .seat-person,
+  .seat-row > .assignment-select,
+  .seat-row > .seat-empty { flex: 1 1 100%; }
+  .seat-person { flex-wrap: nowrap; }
+  .seat-person .seat-move,
+  .seat-menu > summary { min-height: 40px; height: 40px; }
+  .seat-menu > summary { width: 40px; }
+  .seat-extras { flex: 1 1 100%; margin-left: 0; flex-wrap: nowrap; gap: 6px; }
+  .seat-extras .seat-pay { flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+  .seat-extras .pay-select { flex: 1 1 auto; width: auto; min-width: 0; }
+  .seat-extras .pay-note,
+  .seat-extras .pay-for { flex: 1 1 100%; width: auto; }
+  .seat-extras .seat-pay select,
+  .seat-extras .seat-pay input,
+  .seat-radio select { min-height: 40px; }
+  .seat-radio select { width: 6.5rem; }
+  .show-option { min-height: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-menu-panel { animation: none; }
+}

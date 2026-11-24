@@ -192,7 +192,7 @@ function cacheDom() {
     "auth-signed-out", "auth-signed-in", "auth-user-name", "auth-user-title", "auth-user-initials",
     "date-input",
     "prev-btn", "today-btn", "next-btn", "schedule-status", "publish-btn", "summary-grid", "alert-strip",
-    "pay-codes-toggle", "hours-toggle", "trades-toggle", "student-riders-toggle", "add-special-assignment", "cancel-special-assignment",
+    "pay-codes-toggle", "hours-toggle", "radios-toggle", "trades-toggle", "student-riders-toggle", "add-special-assignment", "cancel-special-assignment",
     "schedule-container", "schedule-title", "schedule-subtitle", "save-indicator",
     // Trade board
     "trade-board", "trade-post-shift", "trade-post-notes", "trade-direct-partner", "trade-post-btn", "trade-balance",
@@ -270,7 +270,9 @@ function wireEvents() {
   renderHoursToggle();
   renderTradesToggle();
   renderStudentRidersToggle();
+  renderRadioToggle();
   dom["pay-codes-toggle"].addEventListener("click", togglePayCodeUi);
+  dom["radios-toggle"]?.addEventListener("click", toggleRadioUi);
   dom["hours-toggle"]?.addEventListener("click", toggleHoursUi);
   dom["trades-toggle"]?.addEventListener("click", toggleTradesUi);
   dom["student-riders-toggle"]?.addEventListener("click", toggleStudentRidersUi);
@@ -1189,26 +1191,16 @@ function renderSummary() {
   const offUnits = state.units.filter((u) => !isAdminUnit(u)).length - visibleUnitList.length;
   const uncovered = range.flatMap((date) => getStaffingAlerts(date)).filter((alert) => alert.level === "danger").length;
 
+  // One line instead of four cards. The cards took a full row above the board
+  // to say things the board already shows; the platoon chip keeps its colour.
+  const shiftKey = String(activeShift || "").toLowerCase();
   dom["summary-grid"].innerHTML = `
-    <div class="summary-card">
-      <span>Active Shift</span>
-      <strong>${activeShift}</strong>
-      <small>${formatDate(state.currentDate)}</small>
-    </div>
-    <div class="summary-card">
-      <span>Visible Units</span>
-      <strong>${visibleUnitList.length}</strong>
-      <small>${offUnits} hidden / reserve</small>
-    </div>
-    <div class="summary-card">
-      <span>Employees</span>
-      <strong>${activeEmployees().length}</strong>
-      <small>${archivedEmployees().length} archived</small>
-    </div>
-    <div class="summary-card">
-      <span>Coverage Risks</span>
-      <strong>${uncovered}</strong>
-      <small>${state.scheduleStatus === "published" ? "Published schedule" : "Draft schedule"}</small>
+    <div class="summary-line">
+      <span class="summary-item"><span class="shift-chip shift-${escapeHtml(shiftKey)}">${escapeHtml(activeShift)}</span> <strong>${escapeHtml(activeShift)} shift</strong> on duty</span>
+      <span class="summary-item"><strong>${visibleUnitList.length}</strong> units <small>(${offUnits} hidden / reserve)</small></span>
+      <span class="summary-item"><strong>${activeEmployees().length}</strong> employees</span>
+      <span class="summary-item${uncovered ? " summary-danger" : ""}"><strong>${uncovered}</strong> coverage risk${uncovered === 1 ? "" : "s"}</span>
+      <span class="summary-item">${state.scheduleStatus === "published" ? "Published" : "Draft"}</span>
     </div>
   `;
 }
@@ -1983,9 +1975,9 @@ function renderUnitCard(unit, date, activeShift) {
     return `
     <section class="unit-card" data-apparatus="${escapeHtml(unit.type || "")}">
       <div class="unit-card-header">
-        <div><h3>${escapeHtml(unit.name)}</h3><div class="unit-meta"><span>${unit.type || "Unit"}</span><span>${people.length}/${unit.minStaff || 0}</span></div></div>
+        <div class="unit-title"><h3>${escapeHtml(unit.name)}</h3><span class="unit-type-tag">${escapeHtml(unit.type || "Unit")}</span></div>
         <div class="unit-card-actions">
-          <span class="badge ${cls}">${lbl}</span>
+          <span class="badge ${cls}" title="${lbl}">${isActive ? `${people.length}/${unit.minStaff || 0}` : lbl}</span>
           ${unitServiceControlHtml(unit, date)}
           ${studentRiderControlHtml(unit, date)}
         </div>
@@ -2023,7 +2015,8 @@ function renderUnitCard(unit, date, activeShift) {
   if (isSupervisor && optionalLeft > 0) {
     rowsHtml += seatRowHtml(
       { label: "Additional personnel", cap: null }, null, unit, date, isSupervisor, false,
-      `Additional personnel (optional, ${optionalLeft} left)`,
+      // Short on purpose: the label column is narrow on the compact board.
+      `Add rider · ${optionalLeft} left`,
     );
   }
   // Safety net: anyone assigned who didn't fit a seat still shows (removable).
@@ -2041,17 +2034,14 @@ function renderUnitCard(unit, date, activeShift) {
   return `
     <section class="unit-card" data-apparatus="${escapeHtml(unit.type || "")}">
       <div class="unit-card-header">
-        <div>
+        <div class="unit-title">
           <h3>${escapeHtml(unit.name)}</h3>
-          <div class="unit-meta">
-            <span>${unit.type}</span>
-            <span>${requiredFilled}/${requiredCount} required</span>
-            <span>up to ${totalSeats}</span>
-            ${offCount ? `<span class="unit-off-count" title="Listed under Off this tour at the bottom">${offCount} off ↓</span>` : ""}
-          </div>
+          <span class="unit-type-tag">${escapeHtml(unit.type || "Unit")}</span>
+          <span class="unit-meta-note">up to ${totalSeats}</span>
+          ${offCount ? `<span class="unit-off-count" title="Listed under Off this tour at the bottom">${offCount} off ↓</span>` : ""}
         </div>
         <div class="unit-card-actions">
-          <span class="badge ${statusClass}">${statusLabel}</span>
+          <span class="badge ${statusClass}" title="${statusLabel}: ${requiredFilled} of ${requiredCount} required seats covered">${isActive ? `${requiredFilled}/${requiredCount} required` : statusLabel}</span>
           ${unitServiceControlHtml(unit, date)}
           ${studentRiderControlHtml(unit, date)}
         </div>
@@ -4891,10 +4881,29 @@ function renderPersonalPanel() {
   el.classList.remove("hidden");
   // Supervisors get BOTH: they are not immune from mandatory or from picking up
   // overtime, so they need their own next shifts as well as the sign-up inbox.
-  el.innerHTML = state.currentRole === "supervisor"
-    ? renderEmployeeUpcoming() + renderSupervisorInbox()
-    : renderEmployeeUpcoming();
+  // For a supervisor the panel is folded by default: it sat above the daily
+  // schedule and pushed the board an extra ~300px down for the person editing
+  // it. The open/closed choice is remembered in this browser.
+  if (state.currentRole === "supervisor") {
+    const open = personalPanelOpen();
+    el.innerHTML = `<details class="personal-fold"${open ? " open" : ""}>
+        <summary><span class="personal-fold-title">Your next shifts &amp; sign-ups</span><span class="personal-fold-hint">${open ? "Hide" : "Show"}</span></summary>
+        ${renderEmployeeUpcoming()}${renderSupervisorInbox()}
+      </details>`;
+    el.querySelector(".personal-fold")?.addEventListener("toggle", (event) => {
+      try { localStorage.setItem(PERSONAL_PANEL_KEY, event.target.open ? "1" : "0"); } catch (e) { /* not remembered */ }
+      const hint = el.querySelector(".personal-fold-hint");
+      if (hint) hint.textContent = event.target.open ? "Hide" : "Show";
+    });
+  } else {
+    el.innerHTML = renderEmployeeUpcoming();
+  }
   attachPersonalPanelEvents();
+}
+
+const PERSONAL_PANEL_KEY = "d7fr-scheduler-personal-panel-open";
+function personalPanelOpen() {
+  try { return localStorage.getItem(PERSONAL_PANEL_KEY) === "1"; } catch (e) { return false; }
 }
 
 // Members add and withdraw callback availability from Tools > Callback, not from
@@ -6854,8 +6863,17 @@ const TRADES_UI_KEY = "d7fr-scheduler-trades-ui";
 const TRADES_UI = { show: false };
 const STUDENT_RIDERS_UI_KEY = "d7fr-scheduler-student-riders-ui";
 const STUDENT_RIDERS_UI = { show: false };
+// Radio pickers were always on. They stay on by default (unset = on) so nobody
+// loses them, but can now be hidden like the others; a set radio still shows.
+const RADIO_UI_KEY = "d7fr-scheduler-radio-ui";
+const RADIO_UI = { show: true };
 
 function loadPayUiPreference() {
+  try {
+    RADIO_UI.show = localStorage.getItem(RADIO_UI_KEY) !== "0";
+  } catch (e) {
+    RADIO_UI.show = true;
+  }
   try {
     PAY_UI.show = localStorage.getItem(PAY_UI_KEY) === "1";
   } catch (e) {
@@ -6895,7 +6913,7 @@ function renderStudentRidersToggle() {
   btn.classList.toggle("is-active", enabled);
   btn.disabled = !canManageStudentRiders();
   btn.setAttribute("aria-pressed", enabled ? "true" : "false");
-  btn.textContent = enabled ? "Students ✓" : "Students";
+  btn.textContent = "Students";
 }
 
 function toggleTradesUi() {
@@ -6913,7 +6931,7 @@ function renderTradesToggle() {
   if (!btn) return;
   btn.classList.toggle("is-active", TRADES_UI.show);
   btn.setAttribute("aria-pressed", TRADES_UI.show ? "true" : "false");
-  btn.textContent = TRADES_UI.show ? "Trades ✓" : "Trades";
+  btn.textContent = "Trades";
 }
 
 function toggleHoursUi() {
@@ -6933,7 +6951,7 @@ function renderHoursToggle() {
   if (!btn) return;
   btn.classList.toggle("is-active", HOURS_UI.show);
   btn.setAttribute("aria-pressed", HOURS_UI.show ? "true" : "false");
-  btn.textContent = HOURS_UI.show ? "Hours & time off ✓" : "Hours & time off";
+  btn.textContent = "Hours & time off";
 }
 
 function togglePayCodeUi() {
@@ -6953,7 +6971,25 @@ function renderPayCodeToggle() {
   if (!btn) return;
   btn.classList.toggle("is-active", PAY_UI.show);
   btn.setAttribute("aria-pressed", PAY_UI.show ? "true" : "false");
-  btn.textContent = PAY_UI.show ? "Pay codes ✓" : "Pay codes";
+  btn.textContent = "Pay codes";
+}
+
+function toggleRadioUi() {
+  RADIO_UI.show = !RADIO_UI.show;
+  try {
+    localStorage.setItem(RADIO_UI_KEY, RADIO_UI.show ? "1" : "0");
+  } catch (e) {
+  }
+  renderRadioToggle();
+  render();
+}
+
+function renderRadioToggle() {
+  const btn = dom["radios-toggle"];
+  if (!btn) return;
+  btn.classList.toggle("is-active", RADIO_UI.show);
+  btn.setAttribute("aria-pressed", RADIO_UI.show ? "true" : "false");
+  btn.textContent = "Radios";
 }
 
 // The department already has a payroll vocabulary (Paycom labor distribution
@@ -7359,9 +7395,11 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
   const tour = unitTourMinutes(unit);
   const split = seat.people.length > 1 || seat.people.some((p) => !isFullTour(p, tour));
 
+  // The radio belongs to the SEAT, so it rides on the seat's first line instead
+  // of taking a row of its own under every seat (it used to add ~40px per seat).
   const radio = seatRadioHtml(seat.pos, unit, date, isSupervisor);
   if (!seat.people.length) {
-    return seatRowHtml(seat.pos, null, unit, date, isSupervisor, required) + radio;
+    return seatRowHtml(seat.pos, null, unit, date, isSupervisor, required, undefined, radio);
   }
 
   let html = seat.people.map((person, i) => seatRowHtml(
@@ -7369,6 +7407,7 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
     // Continuation rows name the seat too -- an arrow alone is unreadable once
     // the card is scrolled and the first row is off screen.
     i === 0 ? undefined : `↳ ${seat.pos.label}`,
+    i === 0 ? radio : "",
   )).join("");
 
   // Every hour still open gets its own labelled pick row, so filling the back
@@ -7388,22 +7427,25 @@ function seatSectionHtml(seat, unit, date, isSupervisor) {
             <span class="seat-empty">${required ? "Unfilled" : "—"}</span></div>`;
     });
   }
-  return html + radio;
+  return html;
 }
 
+// Compact, inline radio for a seat. With "Radios" switched off under Show, a
+// radio that IS set still shows as a chip -- the toggle hides the picker, never
+// the data -- and an unset one shows nothing.
 function seatRadioHtml(pos, unit, date, isSupervisor) {
   if (!usesSchedulerApi() || state.currentView !== "day" || !pos.role) return "";
   const radio = radioForSeat(date, unit.id, pos.role);
-  if (!isSupervisor) return radio
-    ? `<div class="seat-radio"><span>Radio</span><strong>${escapeHtml(radio)}</strong></div>` : "";
+  if (!isSupervisor || !RADIO_UI.show) return radio
+    ? `<span class="seat-radio seat-radio-readonly" title="Radio">${escapeHtml(radio)}</span>` : "";
   const options = (state.radioOptions || []).map((value) =>
     `<option value="${escapeHtml(value)}"${value === radio ? " selected" : ""}>${escapeHtml(value)}</option>`).join("");
-  return `<label class="seat-radio"><span>Radio</span><select data-seat-radio data-date="${date}" data-unit="${unit.id}" data-seat-role="${escapeHtml(pos.role)}">
-    <option value="">— none —</option>${options}</select></label>`;
+  return `<label class="seat-radio"><select data-seat-radio data-date="${date}" data-unit="${unit.id}" data-seat-role="${escapeHtml(pos.role)}" aria-label="Radio for ${escapeHtml(pos.label || pos.role)}">
+    <option value="">Radio</option>${options}</select></label>`;
 }
 
 // One seat row: shows the assigned person (with Remove) or a pick dropdown.
-function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverride) {
+function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverride, radioHtml = "") {
   // "(optional)" earns its place on a rig, where it distinguishes a rider seat
   // from one that must be filled. On an admin position EVERY seat is optional,
   // so the suffix says nothing and just makes the label longer.
@@ -7450,12 +7492,26 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
     const tradePay = person._paid
       ? `<span class="seat-block">Trade · paid to ${escapeHtml(employeeById(person._paid)?.name || "another member")}</span>`
       : "";
+    // One line per seat. Move stays visible because it is the action officers
+    // reach for most; Split, Time off, Trade and Remove live in the ⋯ menu so
+    // the names, not a row of identical buttons, are what the eye finds.
+    // (Partial-tour time pickers stay inline: they ARE the row's data.)
+    const splitBtn = canEditHours && !partial ? timeEditor : "";
+    const inlineTimes = partial ? timeEditor : "";
+    const removeBtn = isSupervisor
+      ? `<button class="seat-menu-item seat-menu-danger" type="button" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" data-remove-start="${blk.start}" data-remove-role="${escapeHtml(pos.role || "")}">Remove from seat</button>`
+      : "";
+    const menuItems = [splitBtn, markOff, tradeEditor, removeBtn].filter(Boolean)
+      .map((html) => html.replace(/class="button button-secondary button-small /, 'class="seat-menu-item '))
+      .join("");
+    const menu = menuItems
+      ? `<details class="seat-menu"><summary aria-label="More actions for ${escapeHtml(person.name)}" title="More actions">⋯</summary><div class="seat-menu-panel">${menuItems}</div></details>`
+      : "";
     control = `<div class="seat-person">
-        <span><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"} shift</small>${hours}${tradePay}</span>
-        ${timeEditor}
-        ${markOff}
-        ${tradeEditor}
-        ${isSupervisor ? `<button class="button button-secondary button-small seat-move" data-move-person="${person.id}" data-move-date="${date}" data-move-unit="${unit.id}" data-move-start="${blk.start}" data-move-role="${escapeHtml(pos.role || "")}">Move</button><button class="button button-secondary button-small" data-remove-assignment="${person.id}" data-remove-date="${date}" data-remove-unit="${unit.id}" data-remove-start="${blk.start}" data-remove-role="${escapeHtml(pos.role || "")}" aria-label="Remove ${escapeHtml(person.name)}">×</button>` : ""}
+        <span class="seat-who"><strong>${escapeHtml(person.name)}</strong> <small>${escapeHtml(person.title || "—")} · ${person.shift || "?"}</small>${hours}${tradePay}</span>
+        ${inlineTimes}
+        ${isSupervisor ? `<button class="button button-secondary button-small seat-move" data-move-person="${person.id}" data-move-date="${date}" data-move-unit="${unit.id}" data-move-start="${blk.start}" data-move-role="${escapeHtml(pos.role || "")}">Move</button>` : ""}
+        ${menu}
       </div>`;
   } else if (isSupervisor) {
     control = `<select class="assignment-select" data-date="${date}" data-unit="${unit.id}" data-seat-role="${escapeHtml(pos.role || "")}">
@@ -7465,7 +7521,8 @@ function seatRowHtml(pos, person, unit, date, isSupervisor, required, labelOverr
     control = `<span class="seat-empty">${required ? "Unfilled" : "—"}</span>`;
   }
   const pay = person ? payCodeBlockHtml(person, unit, date, isSupervisor) : "";
-  return `<div class="seat-row ${required ? "" : "seat-optional"}${pay ? " seat-row-pay" : ""}"><span class="seat-label">${escapeHtml(label)}</span>${control}${pay}</div>`;
+  const extras = pay || radioHtml ? `<div class="seat-extras">${pay}${radioHtml}</div>` : "";
+  return `<div class="seat-row ${required ? "" : "seat-optional"}${pay ? " seat-row-pay" : ""}"><span class="seat-label">${escapeHtml(label)}</span>${control}${extras}</div>`;
 }
 
 function getShiftForDate(date) {

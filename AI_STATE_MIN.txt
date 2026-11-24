@@ -4,6 +4,20 @@ BACKEND: now the Django API (checklist.d7fr.org/api/scheduler) when
 APP_CONFIG.schedulerApiUrl is set (it IS, in prod). Supabase is the legacy
 fallback only (blank schedulerApiUrl). See README + fdchecklist SCHEDULER_BACKEND.md.
 
+DAILY BOARD COMPACT (2026-11-24, design review phase 1): `seatRowHtml(pos, person, unit, date,
+isSupervisor, required, labelOverride, radioHtml)` renders ONE line per seat: name, Move, and a
+native <details class="seat-menu"> (⋯) holding Split / Time off / Trade / Remove. Those buttons keep
+their original classes and data-* attributes (seat-split, seat-off, seat-trade, data-remove-assignment)
+so the existing handlers bind unchanged; only the visual class becomes `seat-menu-item`. Pay code and
+radio render inside `.seat-extras` on the same line; `seatSectionHtml` passes the seat's radio into its
+FIRST row (it no longer appends a separate radio row). New per-viewer `RADIO_UI` (localStorage
+`d7fr-scheduler-radio-ui`, unset = on) hides the radio picker; a set radio still shows as a chip.
+Toolbar toggles are `.show-option` checkboxes (aria-pressed); their labels no longer carry "✓".
+Platoon colours are CSS vars `--platoon-a/b/c` (C is violet; green/red/amber mean staffing only).
+Unit type is a neutral `.unit-type-tag`; `.unit-card` no longer colours by apparatus type.
+`renderSummary()` writes one `.summary-line`; supervisors' personal panel is a folded
+<details class="personal-fold"> remembered in `d7fr-scheduler-personal-panel-open`.
+
 WHOLE-STATE SAVE SAFETY (2026-09-30): The legacy `PUT /state/` compatibility save is
 OFFICER-ONLY. GET supplies `stateVersion`; every PUT must echo it, include every existing roster
 member, and is rejected on a version conflict or incomplete roster before any write. Server writes
