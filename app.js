@@ -595,6 +595,7 @@ async function loadRemoteStateAfterAuth() {
     const remoteState = await loadRemoteState();   // carries the bearer token now
     if (remoteState) {
       applyPersistedState(remoteState);
+      rememberServerBase();
       state.persistence.backend = "api";
       state.persistence.hasRemote = true;
       setPersistenceStatus("Connected to server", "ok");
@@ -759,6 +760,7 @@ function directTradesApiUrl(path = "") {
 async function refreshTargetedSchedulerState() {
   const remoteState = await loadRemoteState();
   applyPersistedState(remoteState);
+  rememberServerBase();
   state.persistence.backend = "api";
   state.persistence.lastSavedAt = new Date().toISOString();
   saveLocalState();
@@ -8777,6 +8779,113 @@ let persistenceLoop = null;
 let persistenceGeneration = 0;
 let pendingPersistenceReason = "";
 
+// ─── Catch-up after a 409 ─────────────────────────────────────────────────────
+// The server only accepts a save built on its current stateVersion. When another
+// tab, device or officer saves first, this browser's copy is one version behind
+// and every later save would be refused until a refresh. Instead, keep a copy of
+// the last state the server accepted (the "base"), and on a 409 fetch the newer
+// server copy and reapply only what changed here since the base. Unit-days,
+// roster rows and other records this browser did not touch keep the server's
+// newer values, so the other officer's work is kept too.
+let serverBase = null;
+const MERGE_KEYS = ["units", "staffingTemplates", "mandatoryBackfill", "shiftDebts", "employees",
+  "trades", "overtimePosts", "notifications", "auditLog", "assignments", "scheduleStatus"];
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const cloneJson = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+
+function rememberServerBase(payload = serializableState()) {
+  serverBase = cloneJson(payload);
+}
+
+// Three-way merge of one value: keep the server's unless this browser changed it.
+function mergeValue(base, local, server, overlaps, label) {
+  if (sameJson(local, base)) return server;
+  if (!sameJson(server, base) && !sameJson(server, local)) overlaps.push(label);
+  return local;
+}
+
+function mergeById(base = [], local = [], server = [], overlaps, label, keyOf = (row) => String(row.id)) {
+  const hasIds = (rows) => Array.isArray(rows) && rows.every((row) => row && typeof row === "object" && row.id != null)
+    && new Set(rows.map(keyOf)).size === rows.length;
+  if (!hasIds(base) || !hasIds(local) || !hasIds(server)) return mergeValue(base, local, server, overlaps, label);
+  const byId = (rows) => new Map(rows.map((row) => [keyOf(row), row]));
+  const b = byId(base); const l = byId(local); const s = byId(server);
+  const out = [];
+  const seen = new Set();
+  server.forEach((row) => {
+    const id = keyOf(row);
+    seen.add(id);
+    if (b.has(id) && !l.has(id)) {
+      // Removed here. Keep it removed unless the server also edited it.
+      if (!sameJson(row, b.get(id))) { overlaps.push(label); }
+      return;
+    }
+    out.push(l.has(id) ? mergeValue(b.get(id), l.get(id), row, overlaps, label) : row);
+  });
+  local.forEach((row) => {
+    const id = keyOf(row);
+    if (seen.has(id) || b.has(id)) return; // already merged, or deleted on the server
+    out.push(row);
+  });
+  return out;
+}
+
+function mergeAssignments(base = {}, local = {}, server = {}, overlaps) {
+  const out = cloneJson(server) || {};
+  const dates = new Set([...Object.keys(base), ...Object.keys(local)]);
+  dates.forEach((date) => {
+    const units = new Set([...Object.keys(base[date] || {}), ...Object.keys(local[date] || {})]);
+    units.forEach((unitId) => {
+      const b = base[date]?.[unitId]; const l = local[date]?.[unitId]; const s = server[date]?.[unitId];
+      if (sameJson(l, b)) return;
+      const name = unitById(unitId)?.name || unitId;
+      if (!out[date]) out[date] = {};
+      if (l === undefined) { delete out[date][unitId]; return; }
+      // Both sides changed this unit-day: merge person by person (one row per
+      // person and block), so two officers editing different seats both stick.
+      out[date][unitId] = sameJson(s, b) ? l
+        : mergeById(b || [], l, s || [], overlaps, `${name} on ${formatDate(date)}`, (row) => `${row.id}|${row._start ?? 0}`);
+    });
+  });
+  return out;
+}
+
+function mergeStates(base, local, server) {
+  const overlaps = [];
+  const merged = {};
+  MERGE_KEYS.forEach((key) => {
+    if (key === "assignments") merged.assignments = mergeAssignments(base.assignments, local.assignments, server.assignments, overlaps);
+    else if (Array.isArray(local[key]) || Array.isArray(server[key])) merged[key] = mergeById(base[key], local[key], server[key], overlaps, key);
+    else merged[key] = mergeValue(base[key], local[key], server[key], overlaps, key);
+  });
+  return { merged, overlaps };
+}
+
+// Fetch the newer server copy and lay this browser's edits on top of it.
+// Returns the overlap list, or null when catching up is not possible.
+async function catchUpWithServer() {
+  if (!serverBase) return null;
+  const local = cloneJson(serializableState());
+  const remote = await loadRemoteState();
+  if (!remote || !Number.isInteger(remote.stateVersion)) return null;
+  // applyPersistedState normalises the server copy the same way the local copy
+  // was normalised, but it also resets view fields; put those back afterwards.
+  const keepUi = {
+    currentView: state.currentView, currentDate: state.currentDate, activeSurface: state.activeSurface,
+    activeAdminTab: state.activeAdminTab, selectedEmployeeId: state.selectedEmployeeId,
+    employeeDraft: state.employeeDraft, employeeFilter: state.employeeFilter,
+  };
+  applyPersistedState(remote);
+  const server = cloneJson(serializableState());
+  const { merged, overlaps } = mergeStates(serverBase, local, server);
+  MERGE_KEYS.forEach((key) => { state[key] = merged[key]; });
+  Object.assign(state, keepUi);
+  rememberServerBase(server);
+  saveLocalState();
+  render();
+  return overlaps;
+}
+
 async function persistAppState(reason) {
   // Browser storage is a recovery copy, not a substitute for Railway. Retain
   // it so a real conflict is reviewable without silently reposting it over
@@ -8790,6 +8899,8 @@ async function persistAppState(reason) {
   persistenceLoop = (async () => {
     state.persistence.isSaving = true;
     renderSaveIndicator();
+    let catchUps = 0;
+    let overlapNote = "";
 
     for (;;) {
       // Snapshot at the same time as the generation number. An edit that lands
@@ -8803,18 +8914,38 @@ async function persistAppState(reason) {
       try {
         if (hasRemotePersistence()) {
           await saveRemoteState(savePayload);
+          rememberServerBase(savePayload);
           state.persistence.backend = usesSchedulerApi() ? "api" : "supabase";
           state.persistence.lastSavedAt = new Date().toISOString();
-          setPersistenceStatus(`Saved to ${remoteLabel()}${saveReason ? ` • ${saveReason}` : ""}`, "ok");
+          setPersistenceStatus(overlapNote
+            || `Saved to ${remoteLabel()}${saveReason ? ` • ${saveReason}` : ""}`, overlapNote ? "warning" : "ok");
         } else {
           state.persistence.backend = "local-storage";
           state.persistence.lastSavedAt = null;
           setPersistenceStatus(`Saved in browser${saveReason ? ` • ${saveReason}` : ""}`, "warning");
         }
       } catch (error) {
+        // A 409 means another tab, device or officer saved first. Catch up with
+        // the server copy, keep this browser's edits on top, and save again.
+        if (usesSchedulerApi() && error?.status === 409 && catchUps < 3) {
+          catchUps += 1;
+          let overlaps = null;
+          try { overlaps = await catchUpWithServer(); } catch (catchUpError) { console.error("Catch-up failed", catchUpError); }
+          if (overlaps) {
+            const unique = [...new Set(overlaps)];
+            if (unique.length) {
+              const shown = unique.slice(0, 3).join(", ");
+              overlapNote = `Saved. ${shown}${unique.length > 3 ? ` and ${unique.length - 3} more` : ""} was also changed in another window; both sets of changes were combined, and yours won where they touched the same seat.`;
+              showToast(overlapNote, "warning");
+            }
+            pendingPersistenceReason = saveReason;
+            persistenceGeneration += 1;
+            continue;
+          }
+        }
         console.error("Persist failed", error);
-        // A 409 might be another officer's accepted work. Never retry a whole
-        // state payload over it, and never leave an old "Saved" time visible.
+        // A 409 we could not catch up from might be another officer's accepted
+        // work. Never blindly repost over it, and never leave an old "Saved" time visible.
         state.persistence.lastSavedAt = null;
         pendingPersistenceReason = "";
         if (usesSchedulerApi() && error?.status === 409) {
