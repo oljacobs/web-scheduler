@@ -821,3 +821,5 @@ Move button (openSeatMoveDialog): targets = seatMoveTargets() = any open (gap-ho
 HEADER (matches Checklist): .topbar-nav = gold Schedule (#surface-schedule-btn) + gold Tools (#drawer-toggle) + Sign in (#auth-signed-out, signed out only) + <details class="nav-more"> More. More holds the account card (#auth-signed-in, role badge), Admin settings (#surface-admin-btn, hidden unless canAccessAdmin), Print, Email digest, Department hub, Sign out. IDs unchanged. viewButtons = .view-button[data-view] only.
 
 PHONE TOOLBAR (≤700px, end of styles.css): row 1 = ‹ date Today › (grid), row 2 = view tabs one row, row 3 = Status + Publish (.status-label-long hides 'Schedule'). ≤1100px day board/unit cards use minmax(0,1fr) + min-width:0 so cards never overflow at 360px.
+
+MONTH NAMES DEDUPE (2026-11-24): Month Names-mode cells list each person once (keyed by id) even when they work split blocks in two seats. Counts unchanged.

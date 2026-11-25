@@ -2010,7 +2010,14 @@ function renderMonthCalendar(dates) {
           const s = staffing.get(`${unit.id}|${date}`);
           if (!s) return `<td class="mx-cell is-off${colClass(date)}"><span aria-label="${escapeHtml(unit.name)} not in service ${formatDate(date)}">–</span></td>`;
           const state_ = s.ok ? "is-ok" : "is-short";
-          const names = s.people.map((p) => lastName(p.name)).filter(Boolean);
+          // A person working split blocks in two seats is listed once.
+          const seen = new Set();
+          const names = s.people.filter((p) => {
+            const key = p.id || p.employeeId || p.name;
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          }).map((p) => lastName(p.name)).filter(Boolean);
           const content = MONTH_UI.names
             ? (names.length ? names.map((n) => `<span>${escapeHtml(n)}</span>`).join("") : "<span>—</span>")
             : `${s.filled}/${s.required}`;
